@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdir } from "node:fs/promises";
+import { mkdir, access } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { loadConfig } from "./config.js";
@@ -102,7 +102,19 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         if (kind !== "chat") return;
         const entry = this.entries.get(id);
         if (!entry) return;
-        await appendEntry(entry.threadPath, { kind: "reply", body: text });
+
+        // Specialists answer with a rendered page where the answer has any
+        // shape to it. The prose becomes the card's one-line summary.
+        const seq = session.turn;
+        const hasArtifact = await access(join(reportsDir, String(seq), "reply.html"))
+          .then(() => true)
+          .catch(() => false);
+
+        await appendEntry(entry.threadPath, {
+          kind: "reply",
+          body: text,
+          ...(hasArtifact ? { replySeq: seq } : {}),
+        });
         this.emit("roster");
       });
 

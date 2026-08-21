@@ -58,7 +58,11 @@ function renderRoster() {
     groups.get(row.project).push(row);
   }
 
-  el.list.replaceChildren(...[...groups.entries()].map(([project, rows]) => {
+  el.list.replaceChildren(...[...groups.entries()].map(([project, allRows]) => {
+    // Specialists waiting on you come first: several can need you at once,
+    // so ordering is what makes the next one findable.
+    const rows = [...allRows].sort((a, b) =>
+      Number(b.status === "awaiting_decision") - Number(a.status === "awaiting_decision"));
     const group = document.createElement("details");
     group.className = "group";
     group.open = !collapsed.has(project);
@@ -74,17 +78,11 @@ function renderRoster() {
     name.textContent = project.split("/").filter(Boolean).pop() ?? project;
     summary.append(name);
 
-    // Collapsing must never hide a specialist that needs an answer.
-    if (rows.some((r) => r.status === "awaiting_decision")) {
-      const dot = document.createElement("span");
-      dot.className = "waiting";
-      dot.title = "a specialist here is waiting on you";
-      summary.append(dot);
-    }
-
+    const waiting = rows.filter((r) => r.status === "awaiting_decision").length;
     const count = document.createElement("span");
     count.className = "count";
-    count.textContent = String(rows.length);
+    count.dataset.waiting = String(waiting > 0);
+    count.textContent = waiting > 0 ? `${waiting} waiting` : String(rows.length);
     summary.append(count);
 
     const list = document.createElement("ul");
@@ -98,32 +96,47 @@ function renderRoster() {
   }));
 }
 
-function reportCard(entry) {
+/** Reports and replies are both rendered pages; only the file differs. */
+function artifactCard({ label, title, seq, file, open }) {
   const card = document.createElement("details");
   card.className = "card";
+  card.open = Boolean(open);
 
   const summary = document.createElement("summary");
   const kind = document.createElement("span");
   kind.className = "kind";
-  kind.textContent = "report";
-  const title = document.createElement("span");
-  title.className = "title";
-  title.textContent = entry.body;
-  summary.append(kind, title);
+  kind.textContent = label;
+  const heading = document.createElement("span");
+  heading.className = "title";
+  heading.textContent = title;
+  summary.append(kind, heading);
 
   const frame = document.createElement("iframe");
   frame.setAttribute("sandbox", "allow-same-origin");
-  frame.title = entry.body;
+  frame.title = title;
 
-  // Only load the report body once the card is actually opened.
-  card.ontoggle = () => {
-    if (card.open && !frame.src) {
-      frame.src = `/r/${state.selectedId}/${entry.reportSeq}/report.html?token=${encodeURIComponent(token)}`;
+  const load = () => {
+    if (!frame.src) {
+      frame.src = `/r/${state.selectedId}/${seq}/${file}?token=${encodeURIComponent(token)}`;
     }
   };
+  card.ontoggle = () => { if (card.open) load(); };
+  if (card.open) load();
 
   card.append(summary, frame);
   return card;
+}
+
+function relativeTime(iso) {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
 }
 
 function emptyThread(message) {
@@ -141,13 +154,27 @@ function renderThread() {
     const wrap = document.createElement("div");
     wrap.className = `entry ${entry.kind}`;
 
-    const who = document.createElement("div");
-    who.className = "who";
-    who.textContent = entry.kind === "user" ? "you" : entry.kind === "reply" ? "specialist" : "";
-    if (who.textContent) wrap.append(who);
+    const label = entry.kind === "user" ? "you" : entry.kind === "reply" ? "specialist" : "";
+    if (label) {
+      const who = document.createElement("div");
+      who.className = "who";
+      who.textContent = label;
+      const when = document.createElement("span");
+      when.className = "when";
+      when.textContent = relativeTime(entry.at);
+      who.append(when);
+      wrap.append(who);
+    }
 
     if (entry.kind === "report") {
-      wrap.append(reportCard(entry));
+      wrap.append(artifactCard({
+        label: "report", title: entry.body, seq: entry.reportSeq, file: "report.html",
+      }));
+    } else if (entry.kind === "reply" && entry.replySeq) {
+      // The specialist answered with a page. Open it - it is the answer.
+      wrap.append(artifactCard({
+        label: "answer", title: entry.body, seq: entry.replySeq, file: "reply.html", open: true,
+      }));
     } else {
       const bubble = document.createElement("div");
       bubble.className = "bubble";

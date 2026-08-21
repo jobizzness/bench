@@ -115,9 +115,10 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
       return;
     }
 
-    const reportHtml = path.match(/^\/r\/([^/]+)\/([^/]+)\/report\.html$/);
+    const reportHtml = path.match(/^\/r\/([^/]+)\/([^/]+)\/(report|reply)\.html$/);
     if (reportHtml && req.method === "GET") {
       const seq = Number(reportHtml[2]);
+      const artifact = reportHtml[3];
       // The sequence is the only client-supplied part of the path, so it
       // must be a plain positive integer or the request is refused.
       if (!Number.isInteger(seq) || seq < 1) { res.writeHead(400).end("bad sequence"); return; }
@@ -125,10 +126,20 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
       const session = registry.get(reportHtml[1]);
       if (!session) { res.writeHead(404).end("no such session"); return; }
 
-      const report = await findReport(session.reportsDir, seq);
-      if (!report) { res.writeHead(404).end("no such report"); return; }
+      // A reply artifact stands alone - it has no decision.json, so it is
+      // read by path rather than through findReport.
+      const htmlPath = artifact === "reply"
+        ? join(session.reportsDir, String(seq), "reply.html")
+        : (await findReport(session.reportsDir, seq))?.htmlPath ?? null;
+      if (!htmlPath) { res.writeHead(404).end("no such report"); return; }
 
-      const body = await readFile(report.htmlPath, "utf8");
+      let body: string;
+      try {
+        body = await readFile(htmlPath, "utf8");
+      } catch {
+        res.writeHead(404).end("no such artifact");
+        return;
+      }
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "content-security-policy": REPORT_CSP,

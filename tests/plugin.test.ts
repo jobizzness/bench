@@ -29,3 +29,27 @@ describe("bench plugin", () => {
     expect(skill).toMatch(/not verified/i);
   });
 });
+
+describe("bench-reply skill", () => {
+  it("ships with name and description frontmatter", async () => {
+    const skill = await readFile(join(root, "skills", "bench-reply", "SKILL.md"), "utf8");
+    expect(skill.startsWith("---\n")).toBe(true);
+    expect(skill).toMatch(/^name:\s*bench-reply$/m);
+    expect(skill).toMatch(/^description:\s*\S/m);
+  });
+
+  it("names the artifact it must write", async () => {
+    const skill = await readFile(join(root, "skills", "bench-reply", "SKILL.md"), "utf8");
+    expect(skill).toContain("reply.html");
+  });
+
+  it("warns against ending a sans stack with monospace", async () => {
+    const skill = await readFile(join(root, "skills", "bench-reply", "SKILL.md"), "utf8");
+    expect(skill).toMatch(/never end a sans-serif font stack with `monospace`/i);
+  });
+
+  it("keeps decision controls out of replies", async () => {
+    const skill = await readFile(join(root, "skills", "bench-reply", "SKILL.md"), "utf8");
+    expect(skill).toMatch(/no decision controls/i);
+  });
+});
