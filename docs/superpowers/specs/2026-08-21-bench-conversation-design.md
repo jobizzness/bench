@@ -144,10 +144,12 @@ The client rework is the visible half; four daemon changes make it possible.
 **Turn kinds.** `.turn-kind` written beside `.turn` before each turn; the
 `report-required` gate reads it and exempts `chat`.
 
-**The codec captures assistant text.** `activityLine` currently extracts
-tool names and discards prose entirely. A chat reply would arrive nowhere.
-The codec gains text-block extraction, and `ClaudeSession` emits a `reply`
-event carrying it.
+**The codec captures reply text.** `activityLine` currently extracts tool
+names and discards prose entirely, so a chat reply would arrive nowhere.
+The `result` event already carries the turn's final text in its `result`
+field, so the codec gains `replyText()` reading that, rather than
+accumulating streamed assistant blocks. Streaming buys nothing here: the
+thread is quiet and a reply is only shown once the turn ends.
 
 **A thread store.** Per-session, on disk beside the reports, so a thread
 survives a browser refresh and a daemon restart. Append-only: each entry is
