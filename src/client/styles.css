@@ -151,19 +151,31 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .row:hover { background: var(--hover); }
 .row[aria-selected="true"] { background: var(--raised); }
 
+/* A pill inset from the row's edges, not a full-bleed bar: flush rails on
+   adjacent rows merge into one ragged stripe down the roster. */
 .row::before {
   content: "";
-  position: absolute; left: 0; top: 0; bottom: 0;
-  width: 2px;
+  position: absolute;
+  left: 0; top: 11px; bottom: 11px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
   background: var(--line-firm);
 }
-.row[data-status="working"]::before      { background: var(--busy); animation: breathe 2.6s ease-in-out infinite; }
-.row[data-status="provisioning"]::before { background: var(--busy-dim); animation: breathe 2.6s ease-in-out infinite; }
-.row[data-status="awaiting_decision"]::before { background: var(--wants); width: 3px; }
+.row[data-status="working"]::before,
+.row[data-status="provisioning"]::before {
+  background: var(--busy);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+.row[data-status="awaiting_decision"]::before { background: var(--wants); }
 .row[data-status="crashed"]::before,
 .row[data-status="provisioning_failed"]::before { background: var(--broken); }
 
-@keyframes breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+/* Selection reads on the rail, so it survives every status colour. */
+.row[aria-selected="true"]::before { top: 6px; bottom: 6px; width: 4px; }
+
+/* A narrow swing: wider and two working rows look like different states
+   whenever the screen is caught mid-cycle. */
+@keyframes breathe { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .row::before { animation: none !important; }
 }
