@@ -2,23 +2,34 @@
   <aside id="roster">
     <header>
       <h1>Bench</h1>
-      <button id="new-session" type="button">New specialist</button>
+      <button id="new-session" type="button">New</button>
     </header>
     <ul id="roster-list"></ul>
   </aside>
 
   <section id="stage">
-    <div id="empty">Select a specialist to read its report.</div>
-    <iframe id="report" sandbox="allow-same-origin" title="Report" hidden></iframe>
-    <footer id="decision" hidden>
-      <div id="decision-head">
-        <strong id="decision-title"></strong>
-        <span id="decision-summary"></span>
+    <header id="stage-head" hidden>
+      <span id="stage-label"></span>
+      <span id="stage-status"></span>
+    </header>
+
+    <div id="thread">
+      <p id="empty">Select a specialist.</p>
+    </div>
+
+    <footer id="composer">
+      <div id="decision" hidden>
+        <div id="decision-head">
+          <strong id="decision-title"></strong>
+          <span id="decision-summary"></span>
+        </div>
+        <div id="decision-options"></div>
       </div>
-      <div id="decision-options"></div>
-      <form id="decision-free" hidden>
-        <input id="decision-text" type="text" placeholder="Type an answer, then Enter" />
+      <form id="composer-form">
+        <input id="composer-text" type="text" autocomplete="off"
+               placeholder="Message this specialist" disabled />
       </form>
+      <p id="composer-hint"></p>
     </footer>
   </section>
 </main>

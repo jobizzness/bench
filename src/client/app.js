@@ -1,148 +1,287 @@
 const token = new URLSearchParams(location.search).get("token") ?? "";
 const authHeaders = { "x-bench-token": token };
 
-const state = { rows: [], selectedId: null, report: null, choice: null };
+const state = { rows: [], selectedId: null, entries: [], decision: null, choice: null };
+const collapsed = new Set();
 
 const el = {
   list: document.getElementById("roster-list"),
-  empty: document.getElementById("empty"),
-  frame: document.getElementById("report"),
-  bar: document.getElementById("decision"),
+  head: document.getElementById("stage-head"),
+  headLabel: document.getElementById("stage-label"),
+  headStatus: document.getElementById("stage-status"),
+  thread: document.getElementById("thread"),
+  decision: document.getElementById("decision"),
   title: document.getElementById("decision-title"),
   summary: document.getElementById("decision-summary"),
   options: document.getElementById("decision-options"),
-  freeForm: document.getElementById("decision-free"),
-  freeText: document.getElementById("decision-text"),
+  form: document.getElementById("composer-form"),
+  text: document.getElementById("composer-text"),
+  hint: document.getElementById("composer-hint"),
   newSession: document.getElementById("new-session"),
 };
 
-function renderRoster() {
-  el.list.replaceChildren(
-    ...state.rows.map((row) => {
-      const li = document.createElement("li");
-      li.className = "row";
-      li.setAttribute("aria-selected", String(row.id === state.selectedId));
-      li.onclick = () => select(row.id);
+const api = (path, init) =>
+  fetch(path, { ...init, headers: { ...authHeaders, ...(init?.headers ?? {}) } });
+const selectedRow = () => state.rows.find((r) => r.id === state.selectedId) ?? null;
 
-      const label = document.createElement("div");
-      label.className = "label";
-      label.textContent = row.label;
+function rosterRow(row) {
+  const li = document.createElement("li");
+  li.className = "row";
+  li.dataset.status = row.status;
+  li.setAttribute("aria-selected", String(row.id === state.selectedId));
+  li.onclick = () => select(row.id);
 
-      const status = document.createElement("div");
-      status.className = "status";
-      status.dataset.status = row.status;
-      status.textContent = row.status.replace(/_/g, " ");
+  const label = document.createElement("div");
+  label.className = "label";
+  label.textContent = row.label;
 
-      const detail = document.createElement("div");
-      detail.className = "detail";
-      detail.textContent = row.detail;
+  const stateEl = document.createElement("div");
+  stateEl.className = "state";
+  stateEl.textContent = row.status.replace(/_/g, " ");
 
-      li.append(label, status, detail);
-      return li;
-    }),
-  );
+  const detail = document.createElement("div");
+  detail.className = "detail";
+  detail.textContent = row.detail;
+
+  li.append(label, stateEl, detail);
+  return li;
 }
 
-function renderDecision() {
-  const report = state.report;
-  if (!report) {
-    el.bar.hidden = true;
+/**
+ * Grouped by project, never flat. Working across many repos at once, a flat
+ * list gives no way to tell which specialist belongs to which codebase.
+ */
+function renderRoster() {
+  const groups = new Map();
+  for (const row of state.rows) {
+    if (!groups.has(row.project)) groups.set(row.project, []);
+    groups.get(row.project).push(row);
+  }
+
+  el.list.replaceChildren(...[...groups.entries()].map(([project, rows]) => {
+    const group = document.createElement("details");
+    group.className = "group";
+    group.open = !collapsed.has(project);
+    group.ontoggle = () => {
+      if (group.open) collapsed.delete(project);
+      else collapsed.add(project);
+    };
+
+    const summary = document.createElement("summary");
+    summary.title = project;
+
+    const name = document.createElement("span");
+    name.textContent = project.split("/").filter(Boolean).pop() ?? project;
+    summary.append(name);
+
+    // Collapsing must never hide a specialist that needs an answer.
+    if (rows.some((r) => r.status === "awaiting_decision")) {
+      const dot = document.createElement("span");
+      dot.className = "waiting";
+      dot.title = "a specialist here is waiting on you";
+      summary.append(dot);
+    }
+
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = String(rows.length);
+    summary.append(count);
+
+    const list = document.createElement("ul");
+    list.style.listStyle = "none";
+    list.style.margin = "0";
+    list.style.padding = "0";
+    list.append(...rows.map(rosterRow));
+
+    group.append(summary, list);
+    return group;
+  }));
+}
+
+function reportCard(entry) {
+  const card = document.createElement("details");
+  card.className = "card";
+
+  const summary = document.createElement("summary");
+  const kind = document.createElement("span");
+  kind.className = "kind";
+  kind.textContent = "report";
+  const title = document.createElement("span");
+  title.className = "title";
+  title.textContent = entry.body;
+  summary.append(kind, title);
+
+  const frame = document.createElement("iframe");
+  frame.setAttribute("sandbox", "allow-same-origin");
+  frame.title = entry.body;
+
+  // Only load the report body once the card is actually opened.
+  card.ontoggle = () => {
+    if (card.open && !frame.src) {
+      frame.src = `/r/${state.selectedId}/${entry.reportSeq}/report.html?token=${encodeURIComponent(token)}`;
+    }
+  };
+
+  card.append(summary, frame);
+  return card;
+}
+
+function emptyThread(message) {
+  const p = document.createElement("p");
+  p.id = "empty";
+  p.textContent = message;
+  el.thread.replaceChildren(p);
+}
+
+function renderThread() {
+  if (!state.selectedId) return emptyThread("Select a specialist.");
+  if (state.entries.length === 0) return emptyThread("No messages yet.");
+
+  el.thread.replaceChildren(...state.entries.map((entry) => {
+    const wrap = document.createElement("div");
+    wrap.className = `entry ${entry.kind}`;
+
+    const who = document.createElement("div");
+    who.className = "who";
+    who.textContent = entry.kind === "user" ? "you" : entry.kind === "reply" ? "specialist" : "";
+    if (who.textContent) wrap.append(who);
+
+    if (entry.kind === "report") {
+      wrap.append(reportCard(entry));
+    } else {
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      bubble.textContent = entry.body;
+      wrap.append(bubble);
+    }
+    return wrap;
+  }));
+
+  el.thread.scrollTop = el.thread.scrollHeight;
+}
+
+function renderComposer() {
+  const row = selectedRow();
+  el.text.disabled = !row;
+
+  if (!state.decision) {
+    el.decision.hidden = true;
+    el.text.placeholder = "Message this specialist";
+    el.hint.textContent = row && row.status === "working"
+      ? "Working. A message queues and is answered when the current turn ends."
+      : "";
     return;
   }
 
-  el.bar.hidden = false;
-  el.title.textContent = report.decision.title;
-  el.summary.textContent = report.decision.summary;
-  state.choice = null;
+  el.decision.hidden = false;
+  el.title.textContent = state.decision.title;
+  el.summary.textContent = state.decision.summary;
+  el.text.placeholder = "Or type an answer";
+  el.hint.textContent = state.decision.options.length
+    ? "Number keys pick, Enter confirms."
+    : "Enter sends.";
 
-  el.options.replaceChildren(
-    ...report.decision.options.map((option, index) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "option";
-      button.setAttribute("aria-pressed", "false");
-      button.onclick = () => choose(option.id);
+  el.options.replaceChildren(...state.decision.options.map((option, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "option";
+    button.setAttribute("aria-pressed", String(state.choice === option.id));
+    button.onclick = () => { state.choice = option.id; renderComposer(); };
 
-      const key = document.createElement("span");
-      key.className = "key";
-      key.textContent = String(index + 1);
+    const key = document.createElement("span");
+    key.className = "key";
+    key.textContent = String(index + 1);
+    button.append(key, document.createTextNode(option.label));
 
-      button.append(key, document.createTextNode(option.label));
-      if (option.hint) {
-        const hint = document.createElement("span");
-        hint.className = "hint";
-        hint.textContent = option.hint;
-        button.append(hint);
-      }
-      return button;
-    }),
-  );
-
-  el.freeForm.hidden = !report.decision.allowFreeText;
+    if (option.hint) {
+      const hint = document.createElement("span");
+      hint.className = "hint";
+      hint.textContent = option.hint;
+      button.append(hint);
+    }
+    return button;
+  }));
 }
 
-function choose(optionId) {
-  state.choice = optionId;
-  const options = state.report.decision.options;
-  [...el.options.children].forEach((button, index) => {
-    button.setAttribute("aria-pressed", String(options[index].id === optionId));
-  });
+function renderHead() {
+  const row = selectedRow();
+  el.head.hidden = !row;
+  if (!row) return;
+  el.headLabel.textContent = row.label;
+  el.headStatus.textContent = `${row.status.replace(/_/g, " ")} · ${row.detail}`;
+}
+
+async function loadDecision(row) {
+  if (!row || row.status !== "awaiting_decision" || row.latestReportSeq === null) {
+    state.decision = null;
+    return;
+  }
+  const res = await api(`/api/sessions/${row.id}/report/${row.latestReportSeq}`);
+  state.decision = res.ok ? (await res.json()).decision : null;
+  state.choice = null;
+}
+
+async function refreshThread() {
+  if (!state.selectedId) { state.entries = []; return; }
+  const res = await api(`/api/sessions/${state.selectedId}/thread`);
+  state.entries = res.ok ? (await res.json()).entries : [];
 }
 
 async function select(id) {
   state.selectedId = id;
-  const row = state.rows.find((r) => r.id === id);
-  renderRoster();
-
-  if (!row || row.latestReportSeq === null) {
-    el.frame.hidden = true;
-    el.empty.hidden = false;
-    state.report = null;
-    renderDecision();
-    return;
-  }
-
-  const res = await fetch(`/api/sessions/${id}/report/${row.latestReportSeq}`, { headers: authHeaders });
-  state.report = res.ok ? await res.json() : null;
-
-  el.empty.hidden = true;
-  el.frame.hidden = false;
-  el.frame.src = `/r/${id}/${row.latestReportSeq}/report.html?token=${encodeURIComponent(token)}`;
-  renderDecision();
+  await refreshThread();
+  await loadDecision(selectedRow());
+  renderRoster(); renderHead(); renderThread(); renderComposer();
 }
 
 async function submit() {
-  if (!state.selectedId || !state.report) return;
+  const row = selectedRow();
+  if (!row) return;
+  const text = el.text.value.trim();
 
-  await fetch(`/api/sessions/${state.selectedId}/answer`, {
-    method: "POST",
-    headers: { ...authHeaders, "content-type": "application/json" },
-    body: JSON.stringify({ optionId: state.choice, text: el.freeText.value }),
-  });
+  if (state.decision) {
+    if (!state.choice && text === "") return;
+    await api(`/api/sessions/${row.id}/answer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ optionId: state.choice, text }),
+    });
+    state.decision = null;
+    state.choice = null;
+  } else {
+    if (text === "") return;
+    const res = await api(`/api/sessions/${row.id}/message`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      el.hint.textContent = (await res.json()).error ?? "could not send";
+      return;
+    }
+  }
 
-  el.freeText.value = "";
-  state.report = null;
-  state.choice = null;
-  renderDecision();
+  el.text.value = "";
+  await refreshThread();
+  renderThread();
+  renderComposer();
 }
 
+el.form.onsubmit = (event) => { event.preventDefault(); submit(); };
+
 document.addEventListener("keydown", (event) => {
-  if (event.target === el.freeText) {
-    if (event.key === "Enter") { event.preventDefault(); submit(); }
-    if (event.key === "Escape") el.freeText.blur();
-    return;
-  }
-
-  if (!state.report) return;
-
-  if (event.key === "/") { event.preventDefault(); el.freeText.focus(); return; }
-  if (event.key === "Enter") { event.preventDefault(); submit(); return; }
+  if (event.target === el.text) return;
+  if (!state.decision) return;
 
   const index = Number(event.key) - 1;
-  const options = state.report.decision.options;
+  const options = state.decision.options;
   if (Number.isInteger(index) && index >= 0 && index < options.length) {
-    choose(options[index].id);
+    state.choice = options[index].id;
+    renderComposer();
+    return;
   }
+  if (event.key === "Enter") { event.preventDefault(); submit(); }
+  if (event.key === "/") { event.preventDefault(); el.text.focus(); }
 });
 
 el.newSession.onclick = async () => {
@@ -153,9 +292,9 @@ el.newSession.onclick = async () => {
   const task = prompt("What should the specialist do?");
   if (!task) return;
 
-  await fetch("/api/sessions", {
+  await api("/api/sessions", {
     method: "POST",
-    headers: { ...authHeaders, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ project, label, task, model: "opus" }),
   });
 };
@@ -163,19 +302,24 @@ el.newSession.onclick = async () => {
 function connect() {
   const socket = new WebSocket(`ws://${location.host}/events?token=${encodeURIComponent(token)}`);
 
-  socket.onmessage = (event) => {
+  socket.onmessage = async (event) => {
     const message = JSON.parse(event.data);
     if (message.type !== "roster") return;
 
     state.rows = message.rows;
     renderRoster();
+    renderHead();
 
-    const current = state.rows.find((r) => r.id === state.selectedId);
-    if (current && current.status === "awaiting_decision" && !state.report) select(current.id);
+    if (!state.selectedId) return;
+    await refreshThread();
+    await loadDecision(selectedRow());
+    renderThread();
+    renderComposer();
   };
 
-  // The daemon outlives the UI, so a dropped socket is a reconnect, not an error.
+  // The daemon outlives the UI, so a dropped socket is a reconnect.
   socket.onclose = () => setTimeout(connect, 1000);
 }
 
+renderComposer();
 connect();

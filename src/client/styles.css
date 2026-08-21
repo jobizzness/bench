@@ -1,21 +1,15 @@
 :root {
-  --bg: #ffffff;
-  --panel: #f6f6f7;
-  --line: #e2e2e5;
-  --text: #16161a;
-  --muted: #6b6b74;
-  --accent: #2f6fed;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #131316;
-    --panel: #1b1b20;
-    --line: #2c2c33;
-    --text: #ececed;
-    --muted: #9b9ba4;
-    --accent: #6f9bff;
-  }
+  --bg: #0c1210;
+  --panel: #111a16;
+  --raised: #16211c;
+  --line: #ffffff14;
+  --hover: #ffffff0d;
+  --text: #e8efe9;
+  --muted: #8ba396;
+  --accent: #4fd18b;
+  --accent-dim: #2b6b4c;
+  --danger: #e0685c;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -24,11 +18,14 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+  font: 14px/1.6 ui-sans-serif, system-ui, sans-serif;
 }
 
-#app { display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
+button, input { font: inherit; color: inherit; }
 
+#app { display: grid; grid-template-columns: 264px 1fr; height: 100vh; }
+
+/* Roster carries all in-flight visibility, since the thread carries none. */
 #roster {
   background: var(--panel);
   border-right: 1px solid var(--line);
@@ -38,61 +35,130 @@ body {
 }
 
 #roster header {
-  padding: 16px;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 16px; border-bottom: 1px solid var(--line);
 }
 
-#roster h1 { font-size: 15px; margin: 0; letter-spacing: 0.02em; }
+#roster h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.04em; }
+
+#new-session {
+  background: transparent; border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 10px; color: var(--muted); cursor: pointer;
+}
+#new-session:hover { background: var(--hover); color: var(--text); }
 
 #roster-list { list-style: none; margin: 0; padding: 0; }
 
+/* Specialists are grouped by project - never a flat list. */
+.group > summary {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 10px 16px; cursor: pointer; list-style: none;
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+.group > summary::-webkit-details-marker { display: none; }
+.group > summary:hover { background: var(--hover); }
+.group .count { margin-left: auto; }
+
+/* A collapsed project still shows that something inside it needs you. */
+.group .waiting { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.group[open] .waiting { display: none; }
+
 .row {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
+  padding: 12px 16px; border-bottom: 1px solid var(--line);
+  cursor: pointer; border-left: 2px solid transparent;
+}
+.row:hover { background: var(--hover); }
+.row[aria-selected="true"] { background: var(--bg); border-left-color: var(--accent-dim); }
+
+.row .label { font-weight: 600; }
+.row .detail {
+  color: var(--muted); font-size: 12px; font-family: var(--mono);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.row .state {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); font-family: var(--mono);
 }
 
-.row[aria-selected="true"] { background: var(--bg); border-left: 2px solid var(--accent); }
-.row .label { font-weight: 600; }
-.row .detail { color: var(--muted); font-size: 12px; }
-
-.status { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-.status[data-status="awaiting_decision"] { color: var(--accent); font-weight: 600; }
-.status[data-status="provisioning_failed"],
-.status[data-status="crashed"] { color: #d1453b; }
+/* Accent is reserved for the one thing that needs action. */
+.row[data-status="awaiting_decision"] .state { color: var(--accent); font-weight: 700; }
+.row[data-status="awaiting_decision"] { border-left-color: var(--accent); }
+.row[data-status="crashed"] .state,
+.row[data-status="provisioning_failed"] .state { color: var(--danger); }
 
 #stage { display: flex; flex-direction: column; min-width: 0; }
-#empty { margin: auto; color: var(--muted); }
-#report { flex: 1; width: 100%; border: 0; background: var(--bg); }
 
-#decision { border-top: 1px solid var(--line); background: var(--panel); padding: 14px 18px; }
+#stage-head {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 14px 24px; border-bottom: 1px solid var(--line);
+}
+#stage-label { font-weight: 600; }
+#stage-status { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+
+#thread { flex: 1; overflow-y: auto; padding: 24px; }
+#empty { color: var(--muted); margin: 0; }
+
+.entry { max-width: 760px; margin: 0 0 18px; }
+.entry.user { margin-left: auto; }
+
+.entry .who {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); font-family: var(--mono); margin-bottom: 6px;
+}
+
+.bubble {
+  background: var(--raised); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px 14px; white-space: pre-wrap;
+}
+.entry.user .bubble { background: var(--panel); }
+
+.card {
+  background: var(--raised); border: 1px solid var(--line);
+  border-radius: 10px; overflow: hidden;
+}
+.card > summary {
+  padding: 12px 14px; cursor: pointer; list-style: none;
+  display: flex; align-items: baseline; gap: 10px;
+}
+.card > summary::-webkit-details-marker { display: none; }
+.card .kind {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); font-family: var(--mono);
+}
+.card .title { font-weight: 600; }
+.card iframe {
+  width: 100%; height: 60vh; border: 0;
+  border-top: 1px solid var(--line); background: var(--bg);
+}
+
+#composer { border-top: 1px solid var(--line); background: var(--panel); padding: 14px 24px; }
+
+#decision { margin-bottom: 12px; }
 #decision-head { margin-bottom: 10px; }
-#decision-summary { color: var(--muted); margin-left: 8px; }
+#decision-title { color: var(--accent); }
+#decision-summary { color: var(--muted); margin-left: 10px; }
 #decision-options { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .option {
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-  border-radius: 6px;
-  padding: 8px 12px;
-  cursor: pointer;
-  text-align: left;
+  background: var(--raised); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 12px; cursor: pointer; text-align: left;
 }
+.option:hover { background: var(--hover); }
+.option[aria-pressed="true"] { border-color: var(--accent); }
+.option .key { color: var(--muted); font-family: var(--mono); margin-right: 8px; }
+.option .hint { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
 
-.option[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.option .key { color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }
-.option .hint { display: block; color: var(--muted); font-size: 12px; }
+#composer-text {
+  width: 100%; background: var(--raised); border: 1px solid var(--line);
+  border-radius: 8px; padding: 10px 12px;
+}
+#composer-text:focus { outline: none; border-color: var(--accent-dim); }
+#composer-text:disabled { opacity: 0.5; cursor: not-allowed; }
 
-#decision-text {
-  width: 100%;
-  margin-top: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
+#composer-hint {
+  margin: 8px 0 0; font-size: 12px; color: var(--muted); font-family: var(--mono);
+  min-height: 1.4em;
 }
