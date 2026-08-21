@@ -41,7 +41,10 @@ export type ThreadEntryKind = "user" | "reply" | "report";
 export interface ThreadEntryInput {
   kind: ThreadEntryKind;
   body: string;
+  /** Set on report entries: the turn whose report.html this refers to. */
   reportSeq?: number;
+  /** Set on reply entries the specialist answered with a rendered page. */
+  replySeq?: number;
 }
 
 export interface ThreadEntry extends ThreadEntryInput {

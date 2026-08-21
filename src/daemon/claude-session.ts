@@ -150,8 +150,12 @@ export class ClaudeSession extends EventEmitter {
 
   private framed(text: string, turn: number, kind: TurnKind): string {
     if (kind === "chat") {
-      return `[bench] Turn ${turn}. This is a question, not a work request. ` +
-        `Answer in prose. You do not need to write a report for this turn.\n\n${text}`;
+      const dir = join(this.opts.reportsDir, String(turn));
+      return `[bench] Turn ${turn}. This is a question, not a work request - ` +
+        `no report is required. Use the bench-reply skill: write your answer as ` +
+        `${join(dir, "reply.html")} and keep your spoken response to a single ` +
+        `summary line. Answer in plain prose only if the answer is genuinely ` +
+        `one short sentence with no structure.\n\n${text}`;
     }
     const reportDir = join(this.opts.reportsDir, String(turn));
     return `[bench] Turn ${turn}. Write this turn's report into ${reportDir}\n\n${text}`;

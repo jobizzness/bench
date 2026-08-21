@@ -175,7 +175,8 @@ describe("ClaudeSession", () => {
     session.message("status?");
     const [result] = await ended;
 
-    expect(result.result).toMatch(/do not need to write a report/i);
+    expect(result.result).toMatch(/no report is required/i);
+    expect(result.result).toContain("reply.html");
     expect(result.result).toContain("status?");
     session.stop();
   });
