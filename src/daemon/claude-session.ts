@@ -43,6 +43,10 @@ export class ClaudeSession extends EventEmitter {
     return this.currentKind;
   }
 
+  /** Turns whose text is already on stdin but which have not begun yet. */
+  private queued: Array<{ text: string; kind: TurnKind }> = [];
+  private running = false;
+
   start(task: string): void {
     if (this.child) throw new Error("session already started");
 
@@ -83,14 +87,13 @@ export class ClaudeSession extends EventEmitter {
       this.emit("exit", code);
     });
 
+    this.running = true;
     this.beginTurn(1, "work");
-    this.child.stdin.write(userMessageLine(this.framed(task)));
+    this.child.stdin.write(userMessageLine(this.framed(task, 1, "work")));
   }
 
   answer(text: string): void {
-    if (!this.child) throw new Error("session not started");
-    this.beginTurn(this.turnCount + 1, "work");
-    this.child.stdin.write(userMessageLine(this.framed(text)));
+    this.enqueue(text, "work");
   }
 
   /**
@@ -99,9 +102,33 @@ export class ClaudeSession extends EventEmitter {
    * is answered once that turn ends.
    */
   message(text: string): void {
+    this.enqueue(text, "chat");
+  }
+
+  /**
+   * Writing to stdin does not start a turn - the CLI buffers it until the
+   * running turn ends. So the text goes out now, but the on-disk markers
+   * that the report gate reads must not move until this turn actually
+   * begins. Advancing them here would let a queued chat message exempt the
+   * running work turn from its report.
+   */
+  private enqueue(text: string, kind: TurnKind): void {
     if (!this.child) throw new Error("session not started");
-    this.beginTurn(this.turnCount + 1, "chat");
-    this.child.stdin.write(userMessageLine(this.framed(text)));
+
+    if (this.running) {
+      // A turn is in flight. The text goes to stdin now and the CLI buffers
+      // it, but the markers stay on the running turn until it ends.
+      const turn = this.turnCount + this.queued.length + 1;
+      this.queued.push({ text, kind });
+      this.child.stdin.write(userMessageLine(this.framed(text, turn, kind)));
+      return;
+    }
+
+    // Idle: this message becomes the running turn immediately.
+    this.running = true;
+    const turn = this.turnCount + 1;
+    this.beginTurn(turn, kind);
+    this.child.stdin.write(userMessageLine(this.framed(text, turn, kind)));
   }
 
   stop(): void {
@@ -121,13 +148,13 @@ export class ClaudeSession extends EventEmitter {
     writeFileSync(join(this.opts.reportsDir, ".turn-kind"), kind);
   }
 
-  private framed(text: string): string {
-    if (this.currentKind === "chat") {
-      return `[bench] Turn ${this.turnCount}. This is a question, not a work request. ` +
+  private framed(text: string, turn: number, kind: TurnKind): string {
+    if (kind === "chat") {
+      return `[bench] Turn ${turn}. This is a question, not a work request. ` +
         `Answer in prose. You do not need to write a report for this turn.\n\n${text}`;
     }
-    const reportDir = join(this.opts.reportsDir, String(this.turnCount));
-    return `[bench] Turn ${this.turnCount}. Write this turn's report into ${reportDir}\n\n${text}`;
+    const reportDir = join(this.opts.reportsDir, String(turn));
+    return `[bench] Turn ${turn}. Write this turn's report into ${reportDir}\n\n${text}`;
   }
 
   private consume(chunk: string): void {
@@ -139,7 +166,18 @@ export class ClaudeSession extends EventEmitter {
         // reply before turn-end, so a listener appending to the thread sees
         // the reply before the roster flips to awaiting-decision.
         const reply = replyText(event);
-        if (reply) this.emit("reply", reply, this.currentKind);
+        const endedKind = this.currentKind;
+
+        // The turn that just finished releases the markers to the next
+        // queued turn, which only now becomes the running one.
+        this.running = false;
+        const next = this.queued.shift();
+        if (next) {
+          this.running = true;
+          this.beginTurn(this.turnCount + 1, next.kind);
+        }
+
+        if (reply) this.emit("reply", reply, endedKind);
         this.emit("turn-end", event);
       }
     }
