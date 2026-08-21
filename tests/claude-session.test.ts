@@ -202,6 +202,47 @@ describe("ClaudeSession", () => {
     session.stop();
   });
 
+  it("does not let a queued message change the running turn's kind", async () => {
+    // A message sent to a working specialist cannot interrupt it - it
+    // queues. If the marker advanced at enqueue time, the running work
+    // turn's Stop hook would read "chat" and skip the report gate.
+    const session = await makeSession();
+    const opts = (session as any).opts;
+
+    const ended = once(session, "turn-end");
+    session.start("do the work");
+
+    // Enqueue while turn 1 is still in flight.
+    session.message("quick question");
+
+    // Turn 1 is still the running turn, so the marker must still say work.
+    expect(await readFile(join(opts.reportsDir, ".turn"), "utf8")).toBe("1");
+    expect(await readFile(join(opts.reportsDir, ".turn-kind"), "utf8")).toBe("work");
+
+    await ended;
+    session.stop();
+  });
+
+  it("advances the marker to the queued turn once the running turn ends", async () => {
+    const session = await makeSession();
+    const opts = (session as any).opts;
+
+    // Both results can arrive in one chunk, so count from a listener
+    // attached up front rather than awaiting once() twice in sequence.
+    let ends = 0;
+    const twoTurns = new Promise<void>((resolve) => {
+      session.on("turn-end", () => { ends += 1; if (ends === 2) resolve(); });
+    });
+
+    session.start("do the work");
+    session.message("quick question");
+    await twoTurns;
+
+    expect(await readFile(join(opts.reportsDir, ".turn"), "utf8")).toBe("2");
+    expect(await readFile(join(opts.reportsDir, ".turn-kind"), "utf8")).toBe("chat");
+    session.stop();
+  });
+
   it("refuses to answer before it has been started", async () => {
     const session = await makeSession();
     expect(() => session.answer("too early")).toThrow(/not started/i);
