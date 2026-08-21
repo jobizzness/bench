@@ -17,6 +17,10 @@ export interface RosterRow {
   status: SessionStatus;
   detail: string;
   latestReportSeq: number | null;
+  /** When the running turn began, so elapsed can tick client-side. */
+  startedAt: string | null;
+  /** Rough token estimate for the running turn, from the CLI's own counter. */
+  tokens: number;
 }
 
 export const decisionOptionSchema = z.object({

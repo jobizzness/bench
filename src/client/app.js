@@ -18,6 +18,10 @@ const el = {
   text: document.getElementById("composer-text"),
   hint: document.getElementById("composer-hint"),
   newSession: document.getElementById("new-session"),
+  working: document.getElementById("working"),
+  glyph: document.getElementById("working-glyph"),
+  verb: document.getElementById("working-verb"),
+  meta: document.getElementById("working-meta"),
 };
 
 const api = (path, init) =>
@@ -267,6 +271,70 @@ function renderComposer() {
   }));
 }
 
+/* ── Working indicator ──────────────────────────────────────────────── */
+
+// Deliberately unhurried words. A specialist is reading and thinking, not
+// spinning - the copy should say so without pretending to know what it is
+// doing at any instant.
+const VERBS = [
+  "Reading", "Tracing", "Rummaging", "Untangling", "Cross-checking",
+  "Squinting", "Collating", "Whittling", "Deliberating", "Circling back",
+  "Following a hunch", "Second-guessing", "Reconsidering", "Digging",
+];
+const GLYPHS = ["✢", "✦", "✧", "✶"];
+
+function hashOf(text) {
+  let h = 0;
+  for (let i = 0; i < text.length; i += 1) h = (h * 31 + text.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function elapsedSince(iso) {
+  const started = Date.parse(iso);
+  if (Number.isNaN(started)) return "";
+  const total = Math.max(0, Math.round((Date.now() - started) / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, "0")}s` : `${seconds}s`;
+}
+
+function formatTokens(n) {
+  if (!n) return null;
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k tokens` : `${n} tokens`;
+}
+
+let tick = 0;
+
+function renderWorking() {
+  const row = selectedRow();
+  const live = row && (row.status === "working" || row.status === "provisioning");
+
+  if (!live || !state.selectedId) {
+    el.working.hidden = true;
+    return;
+  }
+
+  el.working.hidden = false;
+
+  // The verb changes slowly, and is seeded per session so two specialists
+  // working at once do not say the same thing.
+  const seed = hashOf(row.id);
+  const verb = VERBS[(seed + Math.floor(tick / 24)) % VERBS.length];
+
+  el.glyph.textContent = GLYPHS[tick % GLYPHS.length];
+  el.verb.textContent = row.status === "provisioning" ? "Preparing worktree" : verb;
+
+  const parts = [];
+  if (row.startedAt) parts.push(elapsedSince(row.startedAt));
+  const tokens = formatTokens(row.tokens);
+  if (tokens) parts.push(`↓ ${tokens}`);
+  if (row.detail && row.status === "working") parts.push(row.detail);
+  el.meta.textContent = parts.join("  ·  ");
+}
+
+// 250ms drives the glyph; everything else derives from it.
+setInterval(() => { tick += 1; renderWorking(); }, 250);
+
 function renderHead() {
   const row = selectedRow();
   el.head.hidden = !row;
@@ -295,7 +363,7 @@ async function select(id) {
   state.selectedId = id;
   await refreshThread();
   await loadDecision(selectedRow());
-  renderRoster(); renderHead(); renderThread(); renderComposer();
+  renderRoster(); renderHead(); renderThread(); renderComposer(); renderWorking();
 }
 
 async function submit() {
@@ -468,6 +536,7 @@ function connect() {
     await loadDecision(selectedRow());
     renderThread();
     renderComposer();
+    renderWorking();
   };
 
   // The daemon outlives the UI, so a dropped socket is a reconnect.
