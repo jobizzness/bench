@@ -9,6 +9,7 @@ export interface BenchConfig {
   token: string;
   pluginDir: string;
   hookCommand: string;
+  projectsRoot: string;
 }
 
 export function loadConfig(): BenchConfig {
@@ -19,6 +20,7 @@ export function loadConfig(): BenchConfig {
   return {
     home,
     port,
+    projectsRoot: process.env.BENCH_PROJECTS_ROOT ?? "/var/www",
     token: randomBytes(24).toString("hex"),
     pluginDir: join(root, "plugin"),
     hookCommand: `node ${join(root, "dist", "daemon", "hooks", "bench-hook.js")}`,

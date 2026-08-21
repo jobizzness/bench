@@ -284,19 +284,108 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "/") { event.preventDefault(); el.text.focus(); }
 });
 
-el.newSession.onclick = async () => {
-  const project = prompt("Project path (inside WSL)", "/var/www/teledoctor");
-  if (!project) return;
-  const label = prompt("Label (lowercase, hyphens)", "task-one");
-  if (!label) return;
-  const task = prompt("What should the specialist do?");
-  if (!task) return;
+const dialog = {
+  root: document.getElementById("new-dialog"),
+  form: document.getElementById("new-form"),
+  project: document.getElementById("f-project"),
+  projectList: document.getElementById("project-list"),
+  label: document.getElementById("f-label"),
+  task: document.getElementById("f-task"),
+  model: document.getElementById("f-model"),
+  error: document.getElementById("f-error"),
+  cancel: document.getElementById("f-cancel"),
+  create: document.getElementById("f-create"),
+};
 
-  await api("/api/sessions", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ project, label, task, model: "opus" }),
-  });
+// Matches the daemon's own label rule, so a bad label is caught here with
+// an explanation instead of coming back as an opaque 400.
+const LABEL_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+let projects = [];
+
+function showError(message) {
+  dialog.error.textContent = message;
+  dialog.error.hidden = !message;
+}
+
+async function loadProjects() {
+  const res = await api("/api/projects");
+  projects = res.ok ? (await res.json()).projects : [];
+  dialog.projectList.replaceChildren(...projects.map((project) => {
+    const option = document.createElement("option");
+    option.value = project.name;
+    option.label = project.path;
+    return option;
+  }));
+}
+
+/** Accepts either a listed repo name or a full absolute path. */
+function resolveProject(value) {
+  const match = projects.find((p) => p.name === value || p.path === value);
+  if (match) return match.path;
+  return value.startsWith("/") ? value : null;
+}
+
+el.newSession.onclick = async () => {
+  showError("");
+  dialog.form.reset();
+  dialog.label.setAttribute("aria-invalid", "false");
+  await loadProjects();
+  dialog.root.showModal();
+  dialog.project.focus();
+};
+
+dialog.cancel.onclick = () => dialog.root.close();
+
+dialog.label.oninput = () => {
+  const value = dialog.label.value;
+  const bad = value !== "" && !LABEL_PATTERN.test(value);
+  dialog.label.setAttribute("aria-invalid", String(bad));
+};
+
+dialog.form.onsubmit = async (event) => {
+  event.preventDefault();
+  showError("");
+
+  const project = resolveProject(dialog.project.value.trim());
+  if (!project) {
+    showError("Pick a project from the list, or type an absolute path.");
+    dialog.project.focus();
+    return;
+  }
+
+  const label = dialog.label.value.trim();
+  if (!LABEL_PATTERN.test(label)) {
+    showError("Label must be lowercase letters, numbers and hyphens, starting with a letter or number.");
+    dialog.label.focus();
+    return;
+  }
+
+  const task = dialog.task.value.trim();
+  if (task === "") {
+    showError("Describe what this specialist should do.");
+    dialog.task.focus();
+    return;
+  }
+
+  dialog.create.disabled = true;
+  try {
+    const res = await api("/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ project, label, task, model: dialog.model.value }),
+    });
+
+    // The old prompt flow discarded this response, so a rejected request
+    // produced no specialist and no explanation.
+    if (!res.ok) {
+      showError((await res.json()).error ?? "Could not create the specialist.");
+      return;
+    }
+    dialog.root.close();
+  } finally {
+    dialog.create.disabled = false;
+  }
 };
 
 function connect() {
