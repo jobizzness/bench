@@ -18,8 +18,17 @@ class StubRegistry extends EventEmitter {
   reportsDir = "";
 
   list() { return this.rows; }
-  get(id: string) { return id === "s1" ? { reportsDir: this.reportsDir } : null; }
+  threadPathValue = "";
+  aliveValue = true;
+  messages: Array<{ id: string; text: string }> = [];
+
+  get(id: string) {
+    return id === "s1"
+      ? { reportsDir: this.reportsDir, threadPath: this.threadPathValue, alive: this.aliveValue }
+      : null;
+  }
   answer(id: string, text: string) { this.answers.push({ id, text }); }
+  message(id: string, text: string) { this.messages.push({ id, text }); }
   stop() {}
   async create(input: any) { this.created.push(input); return "s2"; }
 }
@@ -39,6 +48,11 @@ beforeAll(async () => {
     JSON.stringify({ kind: "completion", title: "T", summary: "S", options: [], allowFreeText: true }),
   );
   registry.reportsDir = reportsDir;
+  registry.threadPathValue = join(reportsDir, "thread.jsonl");
+  await writeFile(
+    registry.threadPathValue,
+    JSON.stringify({ at: new Date().toISOString(), kind: "user", body: "hello there" }) + "\n",
+  );
 
   server = createServer({
     config: { home: "/tmp/bench", port: 0, token: TOKEN, pluginDir: "/tmp/plugin", hookCommand: "node hook.js" },
@@ -157,5 +171,53 @@ describe("POST /api/sessions", () => {
       body: JSON.stringify({ project: "/var/www/demo" }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("GET /api/sessions/:id/thread", () => {
+  it("returns the thread entries", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/thread`, auth);
+    const body = await res.json();
+    expect(body.entries[0].body).toBe("hello there");
+    expect(body.entries[0].seq).toBe(1);
+  });
+
+  it("404s for an unknown session", async () => {
+    const res = await fetch(`${base}/api/sessions/nope/thread`, auth);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /api/sessions/:id/message", () => {
+  it("forwards the message to the registry", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "why zod?" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.messages.at(-1)).toEqual({ id: "s1", text: "why zod?" });
+  });
+
+  it("400s on an empty message", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "   " }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("409s when the session process is no longer alive", async () => {
+    registry.aliveValue = false;
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "anyone there?" }),
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/not running/i);
+    registry.aliveValue = true;
   });
 });
