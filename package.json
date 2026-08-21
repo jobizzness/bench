@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && cp -r src/client dist/client",
     "dev": "tsx watch src/daemon/index.ts",
     "start": "node dist/daemon/index.js",
     "test": "vitest run",
