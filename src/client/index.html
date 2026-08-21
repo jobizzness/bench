@@ -1,0 +1,26 @@
+<main id="app">
+  <aside id="roster">
+    <header>
+      <h1>Bench</h1>
+      <button id="new-session" type="button">New specialist</button>
+    </header>
+    <ul id="roster-list"></ul>
+  </aside>
+
+  <section id="stage">
+    <div id="empty">Select a specialist to read its report.</div>
+    <iframe id="report" sandbox="allow-same-origin" title="Report" hidden></iframe>
+    <footer id="decision" hidden>
+      <div id="decision-head">
+        <strong id="decision-title"></strong>
+        <span id="decision-summary"></span>
+      </div>
+      <div id="decision-options"></div>
+      <form id="decision-free" hidden>
+        <input id="decision-text" type="text" placeholder="Type an answer, then Enter" />
+      </form>
+    </footer>
+  </section>
+</main>
+<link rel="stylesheet" href="/styles.css" />
+<script type="module" src="/app.js"></script>
