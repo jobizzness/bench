@@ -35,3 +35,16 @@ export const decisionSchema = z.object({
 
 export type DecisionOption = z.infer<typeof decisionOptionSchema>;
 export type Decision = z.infer<typeof decisionSchema>;
+
+export type ThreadEntryKind = "user" | "reply" | "report";
+
+export interface ThreadEntryInput {
+  kind: ThreadEntryKind;
+  body: string;
+  reportSeq?: number;
+}
+
+export interface ThreadEntry extends ThreadEntryInput {
+  seq: number;
+  at: string;
+}
