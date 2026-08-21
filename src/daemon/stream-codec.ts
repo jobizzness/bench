@@ -64,3 +64,14 @@ export function activityLine(event: ClaudeEvent): string | null {
   }
   return null;
 }
+
+/**
+ * The turn's final assistant text. Taken from the result event rather than
+ * accumulated from streamed blocks: the thread only shows a reply once the
+ * turn ends, so streaming buys nothing.
+ */
+export function replyText(event: ClaudeEvent): string | null {
+  if (!isResultEvent(event)) return null;
+  const text = event.result?.trim();
+  return text ? text : null;
+}

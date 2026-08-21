@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { LineDecoder, userMessageLine, isResultEvent, activityLine } from "./stream-codec.js";
+import { LineDecoder, userMessageLine, isResultEvent, activityLine, replyText } from "./stream-codec.js";
 import { buildSettings } from "./gates/settings.js";
 import type { TurnKind } from "../shared/types.js";
 
@@ -134,7 +134,14 @@ export class ClaudeSession extends EventEmitter {
     for (const event of this.decoder.push(chunk)) {
       const line = activityLine(event);
       if (line) this.emit("activity", line);
-      if (isResultEvent(event)) this.emit("turn-end", event);
+
+      if (isResultEvent(event)) {
+        // reply before turn-end, so a listener appending to the thread sees
+        // the reply before the roster flips to awaiting-decision.
+        const reply = replyText(event);
+        if (reply) this.emit("reply", reply, this.currentKind);
+        this.emit("turn-end", event);
+      }
     }
   }
 }

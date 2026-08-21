@@ -185,6 +185,23 @@ describe("ClaudeSession", () => {
     expect(() => session.message("hi")).toThrow(/not started/i);
   });
 
+  it("emits a reply carrying the turn kind", async () => {
+    const session = await makeSession();
+    const seen: Array<{ text: string; kind: string }> = [];
+    session.on("reply", (text: string, kind: string) => seen.push({ text, kind }));
+
+    session.start("do it");
+    await once(session, "turn-end");
+    expect(seen[0].kind).toBe("work");
+
+    session.message("why?");
+    await once(session, "turn-end");
+    expect(seen[1].kind).toBe("chat");
+    expect(seen[1].text).toContain("why?");
+
+    session.stop();
+  });
+
   it("refuses to answer before it has been started", async () => {
     const session = await makeSession();
     expect(() => session.answer("too early")).toThrow(/not started/i);
