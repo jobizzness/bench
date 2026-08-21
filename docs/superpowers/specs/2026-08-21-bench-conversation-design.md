@@ -106,16 +106,23 @@ this is a tool that runs on one developer's machine all day, and
 maintaining two palettes buys nothing.
 
 ```
---bg           #0c1210   page ground
---panel        #111a16   roster, composer
---raised       #16211c   cards, inputs
---line         #1e2c26   borders, dividers
---text         #e8efe9   primary
---muted        #8ba396   secondary, status
---accent       #4fd18b   awaiting decision, selection, focus
---accent-dim   #2b6b4c   accent borders, pressed states
---danger       #e0685c   crashed, provisioning failed
+--bg           #0c1210     page ground
+--panel        #111a16     roster, composer
+--raised       #16211c     cards, inputs
+--line         #ffffff14   borders, dividers
+--hover        #ffffff0d   row and button hover
+--text         #e8efe9     primary
+--muted        #8ba396     secondary, status
+--accent       #4fd18b     awaiting decision, selection, focus
+--accent-dim   #2b6b4c     accent borders, pressed states
+--danger       #e0685c     crashed, provisioning failed
 ```
+
+Borders and hovers are low-alpha white rather than fixed greys. A solid
+border colour is tuned to one background and goes wrong the moment it sits
+on another; `#ffffff14` stays correct on `--bg`, `--panel` and `--raised`
+alike. This is lifted from Claude's own dark UI, read off the page while
+trying to fetch the reference artifact.
 
 Accent is reserved. It marks the thing needing action and nothing else — a
 working row, a normal card and a plain message are all `--muted` and
