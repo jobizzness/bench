@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export type TurnKind = "work" | "chat";
+
 export type SessionStatus =
   | "provisioning"
   | "provisioning_failed"
