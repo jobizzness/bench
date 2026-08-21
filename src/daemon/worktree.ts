@@ -24,6 +24,14 @@ export async function createWorktree(
   return { worktree, branch };
 }
 
+/**
+ * Everything Bench creates inside a target repo, kept out of git via
+ * .git/info/exclude rather than .gitignore so the repo's own file is never
+ * touched. The worktrees matter as much as the reports: a repo that does
+ * not already ignore .claude/ will otherwise commit them as gitlinks.
+ */
+const BENCH_ARTIFACTS = [".bench/", ".claude/worktrees/"];
+
 export async function excludeBenchDir(repo: string): Promise<void> {
   const excludePath = join(repo, ".git", "info", "exclude");
   await mkdir(join(repo, ".git", "info"), { recursive: true });
@@ -35,8 +43,10 @@ export async function excludeBenchDir(repo: string): Promise<void> {
     current = "";
   }
 
-  if (current.split("\n").some((line) => line.trim() === ".bench/")) return;
+  const present = new Set(current.split("\n").map((line) => line.trim()));
+  const missing = BENCH_ARTIFACTS.filter((entry) => !present.has(entry));
+  if (missing.length === 0) return;
 
   const next = current.endsWith("\n") || current === "" ? current : current + "\n";
-  await writeFile(excludePath, next + ".bench/\n");
+  await writeFile(excludePath, next + missing.join("\n") + "\n");
 }

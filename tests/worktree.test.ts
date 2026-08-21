@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -43,6 +43,27 @@ describe("excludeBenchDir", () => {
 
     const { stdout } = await exec("git", ["status", "--porcelain"], { cwd: repo });
     expect(stdout).not.toContain(".gitignore");
+  });
+
+  it("also excludes the worktrees directory", async () => {
+    // Without this, a repo that does not already ignore .claude/ commits
+    // Bench's worktrees as gitlinks.
+    const repo = await makeScratchRepo();
+    await excludeBenchDir(repo);
+    await createWorktree(repo, "somework");
+
+    const { stdout } = await exec("git", ["status", "--porcelain"], { cwd: repo });
+    expect(stdout).not.toContain(".claude/worktrees");
+  });
+
+  it("adds a missing entry to an exclude file that already has the other", async () => {
+    const repo = await makeScratchRepo();
+    await writeFile(join(repo, ".git", "info", "exclude"), ".bench/\n");
+    await excludeBenchDir(repo);
+
+    const exclude = await readFile(join(repo, ".git", "info", "exclude"), "utf8");
+    expect(exclude).toContain(".claude/worktrees/");
+    expect(exclude.match(/\.bench\//g)).toHaveLength(1);
   });
 
   it("is idempotent", async () => {
