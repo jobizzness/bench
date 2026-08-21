@@ -46,7 +46,7 @@ describe("evaluateStop", () => {
 
   it("blocks when the turn produced no report", async () => {
     const reportsDir = await makeReports();
-    const r = await evaluateStop({ reportsDir, turn: 1 });
+    const r = await evaluateStop({ reportsDir, turn: 1, kind: "work" });
     expect(r.block).toBe(true);
     expect(r.reason).toMatch(/report/i);
   });
@@ -56,7 +56,7 @@ describe("evaluateStop", () => {
     await mkdir(join(reportsDir, "1"), { recursive: true });
     await writeFile(join(reportsDir, "1", "report.html"), "<h1>done</h1>");
 
-    const r = await evaluateStop({ reportsDir, turn: 1 });
+    const r = await evaluateStop({ reportsDir, turn: 1, kind: "work" });
     expect(r.block).toBe(false);
   });
 
@@ -65,7 +65,19 @@ describe("evaluateStop", () => {
     await mkdir(join(reportsDir, "1"), { recursive: true });
     await writeFile(join(reportsDir, "1", "report.html"), "<h1>old</h1>");
 
-    const r = await evaluateStop({ reportsDir, turn: 2 });
+    const r = await evaluateStop({ reportsDir, turn: 2, kind: "work" });
+    expect(r.block).toBe(true);
+  });
+
+  it("exempts a chat turn from needing a report", async () => {
+    const reportsDir = await makeReports();
+    const r = await evaluateStop({ reportsDir, turn: 1, kind: "chat" });
+    expect(r.block).toBe(false);
+  });
+
+  it("still blocks a work turn with no report", async () => {
+    const reportsDir = await makeReports();
+    const r = await evaluateStop({ reportsDir, turn: 1, kind: "work" });
     expect(r.block).toBe(true);
   });
 
@@ -73,7 +85,7 @@ describe("evaluateStop", () => {
     const reportsDir = await makeReports();
     await mkdir(join(reportsDir, "1"), { recursive: true });
 
-    const r = await evaluateStop({ reportsDir, turn: 1 });
+    const r = await evaluateStop({ reportsDir, turn: 1, kind: "work" });
     expect(r.block).toBe(true);
   });
 });

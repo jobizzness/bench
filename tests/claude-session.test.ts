@@ -136,6 +136,72 @@ describe("ClaudeSession", () => {
     session.stop();
   });
 
+  it("marks a started task and an answer as work turns", async () => {
+    const session = await makeSession();
+    const opts = (session as any).opts;
+
+    session.start("do it");
+    await once(session, "turn-end");
+    expect(await readFile(join(opts.reportsDir, ".turn-kind"), "utf8")).toBe("work");
+
+    session.answer("chose a");
+    await once(session, "turn-end");
+    expect(await readFile(join(opts.reportsDir, ".turn-kind"), "utf8")).toBe("work");
+
+    session.stop();
+  });
+
+  it("marks a message as a chat turn", async () => {
+    const session = await makeSession();
+    session.start("do it");
+    await once(session, "turn-end");
+
+    session.message("why zod?");
+    await once(session, "turn-end");
+
+    const opts = (session as any).opts;
+    expect(await readFile(join(opts.reportsDir, ".turn-kind"), "utf8")).toBe("chat");
+    expect(session.turnKind).toBe("chat");
+
+    session.stop();
+  });
+
+  it("tells a chat turn it does not need a report", async () => {
+    const session = await makeSession();
+    session.start("do it");
+    await once(session, "turn-end");
+
+    const ended = once(session, "turn-end");
+    session.message("status?");
+    const [result] = await ended;
+
+    expect(result.result).toMatch(/do not need to write a report/i);
+    expect(result.result).toContain("status?");
+    session.stop();
+  });
+
+  it("refuses to message before it has been started", async () => {
+    const session = await makeSession();
+    expect(() => session.message("hi")).toThrow(/not started/i);
+  });
+
+  it("emits a reply carrying the turn kind", async () => {
+    const session = await makeSession();
+    const seen: Array<{ text: string; kind: string }> = [];
+    session.on("reply", (text: string, kind: string) => seen.push({ text, kind }));
+
+    session.start("do it");
+    await once(session, "turn-end");
+    expect(seen[0].kind).toBe("work");
+
+    session.message("why?");
+    await once(session, "turn-end");
+    expect(seen[1].kind).toBe("chat");
+    expect(seen[1].text).toContain("why?");
+
+    session.stop();
+  });
+
   it("refuses to answer before it has been started", async () => {
     const session = await makeSession();
     expect(() => session.answer("too early")).toThrow(/not started/i);

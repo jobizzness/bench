@@ -4,6 +4,7 @@ import {
   userMessageLine,
   isResultEvent,
   activityLine,
+  replyText,
 } from "../src/daemon/stream-codec.js";
 
 describe("LineDecoder", () => {
@@ -69,5 +70,37 @@ describe("activityLine", () => {
 
   it("returns null for events with nothing worth showing", () => {
     expect(activityLine({ type: "system", subtype: "thinking_tokens" })).toBeNull();
+  });
+});
+
+describe("replyText", () => {
+  it("returns the final text of a result event", () => {
+    expect(replyText({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "s1", result: "Because zod validates at the boundary.",
+    })).toBe("Because zod validates at the boundary.");
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(replyText({
+      type: "result", subtype: "success", is_error: false, session_id: "s1",
+      result: "  spaced  ",
+    })).toBe("spaced");
+  });
+
+  it("returns null for an empty result", () => {
+    expect(replyText({
+      type: "result", subtype: "success", is_error: false, session_id: "s1", result: "   ",
+    })).toBeNull();
+  });
+
+  it("returns null for a result with no text at all", () => {
+    expect(replyText({
+      type: "result", subtype: "success", is_error: false, session_id: "s1",
+    })).toBeNull();
+  });
+
+  it("returns null for events that are not results", () => {
+    expect(replyText({ type: "assistant", message: { content: [] } })).toBeNull();
   });
 });

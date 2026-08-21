@@ -7,13 +7,16 @@ import { createServer, type SessionRegistryLike } from "./server.js";
 import { createWorktree, excludeBenchDir } from "./worktree.js";
 import { bootstrapWorktree, BootstrapError } from "./bootstrap.js";
 import { ClaudeSession } from "./claude-session.js";
-import { latestReportSeq } from "./reports.js";
-import type { RosterRow, SessionStatus } from "../shared/types.js";
+import { latestReportSeq, findReport } from "./reports.js";
+import { appendEntry } from "./thread.js";
+import type { RosterRow, SessionStatus, TurnKind } from "../shared/types.js";
 
 interface Entry {
   row: RosterRow;
   reportsDir: string;
+  threadPath: string;
   session: ClaudeSession | null;
+  alive: boolean;
 }
 
 class SessionRegistry extends EventEmitter implements SessionRegistryLike {
@@ -27,9 +30,11 @@ class SessionRegistry extends EventEmitter implements SessionRegistryLike {
     return [...this.entries.values()].map((e) => e.row);
   }
 
-  get(id: string): { reportsDir: string } | null {
+  get(id: string): { reportsDir: string; threadPath: string; alive: boolean } | null {
     const entry = this.entries.get(id);
-    return entry ? { reportsDir: entry.reportsDir } : null;
+    return entry
+      ? { reportsDir: entry.reportsDir, threadPath: entry.threadPath, alive: entry.alive }
+      : null;
   }
 
   private update(id: string, status: SessionStatus, detail: string): void {
@@ -46,7 +51,9 @@ class SessionRegistry extends EventEmitter implements SessionRegistryLike {
 
     this.entries.set(id, {
       reportsDir,
+      threadPath: join(reportsDir, "thread.jsonl"),
       session: null,
+      alive: false,
       row: {
         id,
         label: input.label,
@@ -83,14 +90,43 @@ class SessionRegistry extends EventEmitter implements SessionRegistryLike {
       });
 
       session.on("activity", (line: string) => this.update(id, "working", line));
-      session.on("exit", () => this.update(id, "crashed", "process exited"));
+      session.on("exit", () => {
+        const entry = this.entries.get(id);
+        if (entry) entry.alive = false;
+        this.update(id, "crashed", "process exited");
+      });
+
+      session.on("reply", async (text: string, kind: TurnKind) => {
+        // A work turn's prose is not shown - its report card is the entry.
+        if (kind !== "chat") return;
+        const entry = this.entries.get(id);
+        if (!entry) return;
+        await appendEntry(entry.threadPath, { kind: "reply", body: text });
+        this.emit("roster");
+      });
+
       session.on("turn-end", async () => {
         const entry = this.entries.get(id);
-        if (entry) entry.row.latestReportSeq = await latestReportSeq(reportsDir);
+        if (!entry) return;
+
+        const seq = await latestReportSeq(reportsDir);
+        const isNewReport = seq !== null && seq !== entry.row.latestReportSeq;
+        entry.row.latestReportSeq = seq;
+
+        if (isNewReport) {
+          const report = await findReport(reportsDir, seq);
+          await appendEntry(entry.threadPath, {
+            kind: "report",
+            body: report ? report.decision.title : `Report ${seq}`,
+            reportSeq: seq,
+          });
+        }
+
         this.update(id, "awaiting_decision", "waiting on you");
       });
 
       this.entries.get(id)!.session = session;
+      this.entries.get(id)!.alive = true;
       session.start(input.task);
       this.update(id, "working", "starting");
     } catch (error) {
@@ -106,8 +142,17 @@ class SessionRegistry extends EventEmitter implements SessionRegistryLike {
   answer(id: string, text: string): void {
     const entry = this.entries.get(id);
     if (!entry?.session) return;
+    void appendEntry(entry.threadPath, { kind: "user", body: text });
     entry.session.answer(text);
     this.update(id, "working", "resumed");
+  }
+
+  message(id: string, text: string): void {
+    const entry = this.entries.get(id);
+    if (!entry?.session) return;
+    void appendEntry(entry.threadPath, { kind: "user", body: text });
+    entry.session.message(text);
+    this.update(id, "working", "answering your question");
   }
 
   stop(id: string): void {

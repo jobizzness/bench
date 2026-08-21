@@ -2,8 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { LineDecoder, userMessageLine, isResultEvent, activityLine } from "./stream-codec.js";
+import { LineDecoder, userMessageLine, isResultEvent, activityLine, replyText } from "./stream-codec.js";
 import { buildSettings } from "./gates/settings.js";
+import type { TurnKind } from "../shared/types.js";
 
 export interface SessionOptions {
   id: string;
@@ -27,6 +28,7 @@ export class ClaudeSession extends EventEmitter {
   private child: ChildProcessWithoutNullStreams | null = null;
   private decoder = new LineDecoder();
   private turnCount = 0;
+  private currentKind: TurnKind = "work";
 
   constructor(private readonly opts: SessionOptions) {
     super();
@@ -35,6 +37,10 @@ export class ClaudeSession extends EventEmitter {
 
   get turn(): number {
     return this.turnCount;
+  }
+
+  get turnKind(): TurnKind {
+    return this.currentKind;
   }
 
   start(task: string): void {
@@ -77,13 +83,24 @@ export class ClaudeSession extends EventEmitter {
       this.emit("exit", code);
     });
 
-    this.beginTurn(1);
+    this.beginTurn(1, "work");
     this.child.stdin.write(userMessageLine(this.framed(task)));
   }
 
   answer(text: string): void {
     if (!this.child) throw new Error("session not started");
-    this.beginTurn(this.turnCount + 1);
+    this.beginTurn(this.turnCount + 1, "work");
+    this.child.stdin.write(userMessageLine(this.framed(text)));
+  }
+
+  /**
+   * A question, not a work request. Exempt from the report gate. Note that
+   * this does not interrupt: if a turn is running, the message queues and
+   * is answered once that turn ends.
+   */
+  message(text: string): void {
+    if (!this.child) throw new Error("session not started");
+    this.beginTurn(this.turnCount + 1, "chat");
     this.child.stdin.write(userMessageLine(this.framed(text)));
   }
 
@@ -96,13 +113,19 @@ export class ClaudeSession extends EventEmitter {
    * and a session runs many turns. The gate reads it from this file, which
    * is rewritten before every turn.
    */
-  private beginTurn(turn: number): void {
+  private beginTurn(turn: number, kind: TurnKind): void {
     this.turnCount = turn;
+    this.currentKind = kind;
     mkdirSync(this.opts.reportsDir, { recursive: true });
     writeFileSync(join(this.opts.reportsDir, ".turn"), String(turn));
+    writeFileSync(join(this.opts.reportsDir, ".turn-kind"), kind);
   }
 
   private framed(text: string): string {
+    if (this.currentKind === "chat") {
+      return `[bench] Turn ${this.turnCount}. This is a question, not a work request. ` +
+        `Answer in prose. You do not need to write a report for this turn.\n\n${text}`;
+    }
     const reportDir = join(this.opts.reportsDir, String(this.turnCount));
     return `[bench] Turn ${this.turnCount}. Write this turn's report into ${reportDir}\n\n${text}`;
   }
@@ -111,7 +134,14 @@ export class ClaudeSession extends EventEmitter {
     for (const event of this.decoder.push(chunk)) {
       const line = activityLine(event);
       if (line) this.emit("activity", line);
-      if (isResultEvent(event)) this.emit("turn-end", event);
+
+      if (isResultEvent(event)) {
+        // reply before turn-end, so a listener appending to the thread sees
+        // the reply before the roster flips to awaiting-decision.
+        const reply = replyText(event);
+        if (reply) this.emit("reply", reply, this.currentKind);
+        this.emit("turn-end", event);
+      }
     }
   }
 }

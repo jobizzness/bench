@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { evaluateCommit } from "../gates/commit-attribution.js";
 import { evaluateStop } from "../gates/report-required.js";
+import type { TurnKind } from "../../shared/types.js";
 
 /**
  * Invoked by Claude Code as a hook command. Reads the hook payload as JSON
@@ -63,7 +64,17 @@ async function main(): Promise<void> {
     }
     if (!Number.isInteger(turn) || turn < 1) return;
 
-    const { block, reason } = await evaluateStop({ reportsDir, turn });
+    // Fail safe: anything other than an explicit "chat" is treated as work,
+    // so a missing or corrupt marker can never disable the gate.
+    let kind: TurnKind = "work";
+    try {
+      const raw = (await readFile(join(reportsDir, ".turn-kind"), "utf8")).trim();
+      if (raw === "chat") kind = "chat";
+    } catch {
+      kind = "work";
+    }
+
+    const { block, reason } = await evaluateStop({ reportsDir, turn, kind });
     if (!block) return;
 
     process.stdout.write(JSON.stringify({ decision: "block", reason }));

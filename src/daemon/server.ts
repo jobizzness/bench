@@ -5,12 +5,14 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import type { BenchConfig } from "./config.js";
 import { findReport } from "./reports.js";
+import { readThread } from "./thread.js";
 import type { RosterRow } from "../shared/types.js";
 
 export interface SessionRegistryLike {
   list(): RosterRow[];
-  get(id: string): { reportsDir: string } | null;
+  get(id: string): { reportsDir: string; threadPath: string; alive: boolean } | null;
   answer(id: string, text: string): void;
+  message(id: string, text: string): void;
   stop(id: string): void;
   create(input: { project: string; label: string; task: string; model: string }): Promise<string>;
   on(event: "roster", listener: () => void): unknown;
@@ -126,6 +128,32 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
         "content-security-policy": REPORT_CSP,
       });
       res.end(body);
+      return;
+    }
+
+    const thread = path.match(/^\/api\/sessions\/([^/]+)\/thread$/);
+    if (thread && req.method === "GET") {
+      const session = registry.get(thread[1]);
+      if (!session) { json(res, 404, { error: "no such session" }); return; }
+      json(res, 200, { entries: await readThread(session.threadPath) });
+      return;
+    }
+
+    const message = path.match(/^\/api\/sessions\/([^/]+)\/message$/);
+    if (message && req.method === "POST") {
+      const session = registry.get(message[1]);
+      if (!session) { json(res, 404, { error: "no such session" }); return; }
+
+      const body = await readBody(req);
+      const text = String(body.text ?? "").trim();
+      if (text === "") { json(res, 400, { error: "text is required" }); return; }
+
+      // A dead process cannot be queued into, and silently accepting the
+      // message would strand it forever.
+      if (!session.alive) { json(res, 409, { error: "session is not running" }); return; }
+
+      registry.message(message[1], text);
+      json(res, 200, { ok: true });
       return;
     }
 
