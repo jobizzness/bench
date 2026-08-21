@@ -162,3 +162,50 @@ button, input { font: inherit; color: inherit; }
   margin: 8px 0 0; font-size: 12px; color: var(--muted); font-family: var(--mono);
   min-height: 1.4em;
 }
+
+#new-dialog {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0;
+  width: min(520px, 92vw);
+}
+#new-dialog::backdrop { background: #000000a6; }
+
+#new-form { padding: 22px 24px 18px; display: flex; flex-direction: column; }
+#new-form h2 { margin: 0 0 18px; font-size: 15px; font-weight: 600; }
+
+#new-form label {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 6px;
+}
+
+#new-form input,
+#new-form textarea,
+#new-form select {
+  background: var(--raised); border: 1px solid var(--line);
+  border-radius: 8px; padding: 9px 11px; margin-bottom: 4px;
+  font-family: inherit; resize: vertical;
+}
+#new-form input:focus,
+#new-form textarea:focus,
+#new-form select:focus { outline: none; border-color: var(--accent-dim); }
+#new-form input[aria-invalid="true"] { border-color: var(--danger); }
+
+.field-note { margin: 2px 0 16px; font-size: 12px; color: var(--muted); }
+#new-form textarea, #new-form select { margin-bottom: 16px; }
+
+.error {
+  margin: 0 0 14px; font-size: 13px; color: var(--danger);
+  font-family: var(--mono);
+}
+
+#new-form .actions { display: flex; justify-content: flex-end; gap: 8px; }
+#new-form .actions button {
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 16px; cursor: pointer; background: var(--raised);
+}
+#new-form .actions button:hover { background: var(--hover); }
+#f-create { border-color: var(--accent-dim); color: var(--accent); }

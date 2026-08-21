@@ -6,6 +6,7 @@ import { WebSocketServer } from "ws";
 import type { BenchConfig } from "./config.js";
 import { findReport } from "./reports.js";
 import { readThread } from "./thread.js";
+import { listProjects } from "./projects.js";
 import type { RosterRow } from "../shared/types.js";
 
 export interface SessionRegistryLike {
@@ -73,6 +74,11 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
     const token = req.headers["x-bench-token"] ?? url.searchParams.get("token");
     if (token !== config.token) {
       json(res, 401, { error: "unauthorized" });
+      return;
+    }
+
+    if (path === "/api/projects" && req.method === "GET") {
+      json(res, 200, { projects: await listProjects(config.projectsRoot) });
       return;
     }
 

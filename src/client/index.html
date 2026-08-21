@@ -33,5 +33,36 @@
     </footer>
   </section>
 </main>
+<dialog id="new-dialog">
+  <form id="new-form" method="dialog">
+    <h2>New specialist</h2>
+
+    <label for="f-project">Project</label>
+    <input id="f-project" list="project-list" autocomplete="off"
+           placeholder="Start typing a repo name" required />
+    <datalist id="project-list"></datalist>
+
+    <label for="f-label">Label</label>
+    <input id="f-label" autocomplete="off" placeholder="password-reset" required />
+    <p class="field-note">Lowercase letters, numbers and hyphens. Becomes the worktree and branch name.</p>
+
+    <label for="f-task">Task</label>
+    <textarea id="f-task" rows="4" placeholder="What should this specialist do?" required></textarea>
+
+    <label for="f-model">Model</label>
+    <select id="f-model">
+      <option value="opus">Opus</option>
+      <option value="sonnet">Sonnet</option>
+    </select>
+
+    <p id="f-error" class="error" hidden></p>
+
+    <div class="actions">
+      <button type="button" id="f-cancel">Cancel</button>
+      <button type="submit" id="f-create">Create</button>
+    </div>
+  </form>
+</dialog>
+
 <link rel="stylesheet" href="/styles.css" />
 <script type="module" src="/app.js"></script>

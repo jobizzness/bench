@@ -36,6 +36,7 @@ class StubRegistry extends EventEmitter {
 let server: ReturnType<typeof createServer>;
 let base: string;
 let registry: StubRegistry;
+let projectsRoot: string;
 
 beforeAll(async () => {
   registry = new StubRegistry();
@@ -54,8 +55,11 @@ beforeAll(async () => {
     JSON.stringify({ at: new Date().toISOString(), kind: "user", body: "hello there" }) + "\n",
   );
 
+  projectsRoot = await mkdtemp(join(tmpdir(), "bench-projroot-"));
+  await mkdir(join(projectsRoot, "demo-repo", ".git"), { recursive: true });
+
   server = createServer({
-    config: { home: "/tmp/bench", port: 0, token: TOKEN, pluginDir: "/tmp/plugin", hookCommand: "node hook.js" },
+    config: { home: "/tmp/bench", port: 0, token: TOKEN, pluginDir: "/tmp/plugin", hookCommand: "node hook.js", projectsRoot },
     registry: registry as any,
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -219,5 +223,18 @@ describe("POST /api/sessions/:id/message", () => {
     expect(res.status).toBe(409);
     expect((await res.json()).error).toMatch(/not running/i);
     registry.aliveValue = true;
+  });
+});
+
+describe("GET /api/projects", () => {
+  it("lists git repos under the configured root", async () => {
+    const res = await fetch(`${base}/api/projects`, auth);
+    const body = await res.json();
+    expect(body.projects.map((p: { name: string }) => p.name)).toEqual(["demo-repo"]);
+  });
+
+  it("requires a token", async () => {
+    const res = await fetch(`${base}/api/projects`);
+    expect(res.status).toBe(401);
   });
 });
