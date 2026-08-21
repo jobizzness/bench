@@ -43,9 +43,20 @@ export class ClaudeSession extends EventEmitter {
     return this.currentKind;
   }
 
+  /** ISO time the running turn began, or null when idle. */
+  get turnStartedAt(): string | null {
+    return this.startedAt === null ? null : new Date(this.startedAt).toISOString();
+  }
+
+  get turnTokens(): number {
+    return this.tokens;
+  }
+
   /** Turns whose text is already on stdin but which have not begun yet. */
   private queued: Array<{ text: string; kind: TurnKind }> = [];
   private running = false;
+  private startedAt: number | null = null;
+  private tokens = 0;
 
   start(task: string): void {
     if (this.child) throw new Error("session already started");
@@ -143,6 +154,8 @@ export class ClaudeSession extends EventEmitter {
   private beginTurn(turn: number, kind: TurnKind): void {
     this.turnCount = turn;
     this.currentKind = kind;
+    this.startedAt = Date.now();
+    this.tokens = 0;
     mkdirSync(this.opts.reportsDir, { recursive: true });
     writeFileSync(join(this.opts.reportsDir, ".turn"), String(turn));
     writeFileSync(join(this.opts.reportsDir, ".turn-kind"), kind);
@@ -166,6 +179,15 @@ export class ClaudeSession extends EventEmitter {
       const line = activityLine(event);
       if (line) this.emit("activity", line);
 
+      // The CLI reports its own running estimate; no need to count tokens.
+      if (event.type === "system" && event.subtype === "thinking_tokens") {
+        const estimate = Number((event as { estimated_tokens?: unknown }).estimated_tokens);
+        if (Number.isFinite(estimate) && estimate > this.tokens) {
+          this.tokens = estimate;
+          this.emit("progress");
+        }
+      }
+
       if (isResultEvent(event)) {
         // reply before turn-end, so a listener appending to the thread sees
         // the reply before the roster flips to awaiting-decision.
@@ -175,6 +197,7 @@ export class ClaudeSession extends EventEmitter {
         // The turn that just finished releases the markers to the next
         // queued turn, which only now becomes the running one.
         this.running = false;
+        this.startedAt = null;
         const next = this.queued.shift();
         if (next) {
           this.running = true;

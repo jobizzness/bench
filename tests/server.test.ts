@@ -11,7 +11,7 @@ const TOKEN = "test-token-abc";
 
 class StubRegistry extends EventEmitter {
   rows: RosterRow[] = [
-    { id: "s1", label: "auth", project: "/var/www/demo", status: "awaiting_decision", detail: "waiting", latestReportSeq: 1 },
+    { id: "s1", label: "auth", project: "/var/www/demo", status: "awaiting_decision", detail: "waiting", latestReportSeq: 1, startedAt: null, tokens: 0 },
   ];
   answers: Array<{ id: string; text: string }> = [];
   created: any[] = [];

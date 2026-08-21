@@ -18,6 +18,10 @@ const el = {
   text: document.getElementById("composer-text"),
   hint: document.getElementById("composer-hint"),
   newSession: document.getElementById("new-session"),
+  working: document.getElementById("working"),
+  glyph: document.getElementById("working-glyph"),
+  verb: document.getElementById("working-verb"),
+  meta: document.getElementById("working-meta"),
 };
 
 const api = (path, init) =>
@@ -35,15 +39,13 @@ function rosterRow(row) {
   label.className = "label";
   label.textContent = row.label;
 
-  const stateEl = document.createElement("div");
-  stateEl.className = "state";
-  stateEl.textContent = row.status.replace(/_/g, " ");
-
   const detail = document.createElement("div");
   detail.className = "detail";
-  detail.textContent = row.detail;
+  detail.textContent = row.status === "awaiting_decision"
+    ? row.detail
+    : `${row.status.replace(/_/g, " ")} · ${row.detail}`;
 
-  li.append(label, stateEl, detail);
+  li.append(label, detail);
   return li;
 }
 
@@ -139,16 +141,24 @@ function relativeTime(iso) {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-function emptyThread(message) {
+function emptyThread(heading, body) {
   const p = document.createElement("p");
   p.id = "empty";
-  p.textContent = message;
+  const b = document.createElement("b");
+  b.textContent = heading;
+  p.append(b, document.createTextNode(body));
   el.thread.replaceChildren(p);
 }
 
 function renderThread() {
-  if (!state.selectedId) return emptyThread("Select a specialist.");
-  if (state.entries.length === 0) return emptyThread("No messages yet.");
+  if (!state.selectedId) {
+    return state.rows.length === 0
+      ? emptyThread("No specialists yet.", "Start one with New and it will appear on the left.")
+      : emptyThread("Nothing selected.", "Pick a specialist on the left to read what it has for you.");
+  }
+  if (state.entries.length === 0) {
+    return emptyThread("Working.", "Nothing to read yet — the first report will land here.");
+  }
 
   el.thread.replaceChildren(...state.entries.map((entry) => {
     const wrap = document.createElement("div");
@@ -167,11 +177,13 @@ function renderThread() {
     }
 
     if (entry.kind === "report") {
+      wrap.classList.add("wide");
       wrap.append(artifactCard({
         label: "report", title: entry.body, seq: entry.reportSeq, file: "report.html",
       }));
     } else if (entry.kind === "reply" && entry.replySeq) {
       // The specialist answered with a page. Open it - it is the answer.
+      wrap.classList.add("wide");
       wrap.append(artifactCard({
         label: "answer", title: entry.body, seq: entry.replySeq, file: "reply.html", open: true,
       }));
@@ -184,7 +196,20 @@ function renderThread() {
     return wrap;
   }));
 
-  el.thread.scrollTop = el.thread.scrollHeight;
+  pinToBottom();
+}
+
+/**
+ * Frames have no height until they load, so one scroll at render time
+ * lands somewhere in the middle. Re-pin as each settles.
+ */
+function pinToBottom() {
+  const jump = () => { el.thread.scrollTop = el.thread.scrollHeight; };
+  jump();
+  requestAnimationFrame(jump);
+  for (const frame of el.thread.querySelectorAll("iframe")) {
+    frame.addEventListener("load", jump, { once: true });
+  }
 }
 
 function renderComposer() {
@@ -194,9 +219,10 @@ function renderComposer() {
   if (!state.decision) {
     el.decision.hidden = true;
     el.text.placeholder = "Message this specialist";
-    el.hint.textContent = row && row.status === "working"
-      ? "Working. A message queues and is answered when the current turn ends."
-      : "";
+    el.hint.replaceChildren();
+    if (row && (row.status === "working" || row.status === "provisioning")) {
+      el.hint.textContent = "Working — a message queues and is answered when this turn ends.";
+    }
     return;
   }
 
@@ -204,9 +230,17 @@ function renderComposer() {
   el.title.textContent = state.decision.title;
   el.summary.textContent = state.decision.summary;
   el.text.placeholder = "Or type an answer";
-  el.hint.textContent = state.decision.options.length
-    ? "Number keys pick, Enter confirms."
-    : "Enter sends.";
+  el.hint.replaceChildren();
+  if (state.decision.options.length) {
+    const kbd = (t) => { const k = document.createElement("kbd"); k.textContent = t; return k; };
+    el.hint.append(
+      kbd("1"), document.createTextNode("–"), kbd(String(state.decision.options.length)),
+      document.createTextNode(" to pick  "), kbd("↵"), document.createTextNode(" to confirm  "),
+      kbd("/"), document.createTextNode(" to type instead"),
+    );
+  } else {
+    el.hint.textContent = "Press Enter to send.";
+  }
 
   el.options.replaceChildren(...state.decision.options.map((option, index) => {
     const button = document.createElement("button");
@@ -218,17 +252,88 @@ function renderComposer() {
     const key = document.createElement("span");
     key.className = "key";
     key.textContent = String(index + 1);
-    button.append(key, document.createTextNode(option.label));
+
+    const body = document.createElement("span");
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = option.label;
+    body.append(label);
 
     if (option.hint) {
       const hint = document.createElement("span");
       hint.className = "hint";
       hint.textContent = option.hint;
-      button.append(hint);
+      body.append(hint);
     }
+
+    button.append(key, body);
     return button;
   }));
 }
+
+/* ── Working indicator ──────────────────────────────────────────────── */
+
+// Deliberately unhurried words. A specialist is reading and thinking, not
+// spinning - the copy should say so without pretending to know what it is
+// doing at any instant.
+const VERBS = [
+  "Reading", "Tracing", "Rummaging", "Untangling", "Cross-checking",
+  "Squinting", "Collating", "Whittling", "Deliberating", "Circling back",
+  "Following a hunch", "Second-guessing", "Reconsidering", "Digging",
+];
+const GLYPHS = ["✢", "✦", "✧", "✶"];
+
+function hashOf(text) {
+  let h = 0;
+  for (let i = 0; i < text.length; i += 1) h = (h * 31 + text.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function elapsedSince(iso) {
+  const started = Date.parse(iso);
+  if (Number.isNaN(started)) return "";
+  const total = Math.max(0, Math.round((Date.now() - started) / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, "0")}s` : `${seconds}s`;
+}
+
+function formatTokens(n) {
+  if (!n) return null;
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k tokens` : `${n} tokens`;
+}
+
+let tick = 0;
+
+function renderWorking() {
+  const row = selectedRow();
+  const live = row && (row.status === "working" || row.status === "provisioning");
+
+  if (!live || !state.selectedId) {
+    el.working.hidden = true;
+    return;
+  }
+
+  el.working.hidden = false;
+
+  // The verb changes slowly, and is seeded per session so two specialists
+  // working at once do not say the same thing.
+  const seed = hashOf(row.id);
+  const verb = VERBS[(seed + Math.floor(tick / 24)) % VERBS.length];
+
+  el.glyph.textContent = GLYPHS[tick % GLYPHS.length];
+  el.verb.textContent = row.status === "provisioning" ? "Preparing worktree" : verb;
+
+  const parts = [];
+  if (row.startedAt) parts.push(elapsedSince(row.startedAt));
+  const tokens = formatTokens(row.tokens);
+  if (tokens) parts.push(`↓ ${tokens}`);
+  if (row.detail && row.status === "working") parts.push(row.detail);
+  el.meta.textContent = parts.join("  ·  ");
+}
+
+// 250ms drives the glyph; everything else derives from it.
+setInterval(() => { tick += 1; renderWorking(); }, 250);
 
 function renderHead() {
   const row = selectedRow();
@@ -258,7 +363,7 @@ async function select(id) {
   state.selectedId = id;
   await refreshThread();
   await loadDecision(selectedRow());
-  renderRoster(); renderHead(); renderThread(); renderComposer();
+  renderRoster(); renderHead(); renderThread(); renderComposer(); renderWorking();
 }
 
 async function submit() {
@@ -431,6 +536,7 @@ function connect() {
     await loadDecision(selectedRow());
     renderThread();
     renderComposer();
+    renderWorking();
   };
 
   // The daemon outlives the UI, so a dropped socket is a reconnect.

@@ -62,6 +62,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         status: "provisioning",
         detail: "creating worktree",
         latestReportSeq: null,
+        startedAt: new Date().toISOString(),
+        tokens: 0,
       },
     });
     this.emit("roster");
@@ -90,7 +92,24 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         port,
       });
 
-      session.on("activity", (line: string) => this.update(id, "working", line));
+      const syncProgress = () => {
+        const entry = this.entries.get(id);
+        if (!entry) return;
+        entry.row.startedAt = session.turnStartedAt;
+        entry.row.tokens = session.turnTokens;
+      };
+
+      let progressPending = false;
+      session.on("progress", () => {
+        syncProgress();
+        // At most one roster broadcast a second: the estimate updates far
+        // faster than anyone can read it.
+        if (progressPending) return;
+        progressPending = true;
+        setTimeout(() => { progressPending = false; this.emit("roster"); }, 1000).unref?.();
+      });
+
+      session.on("activity", (line: string) => { syncProgress(); this.update(id, "working", line); });
       session.on("exit", () => {
         const entry = this.entries.get(id);
         if (entry) entry.alive = false;
@@ -136,6 +155,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           });
         }
 
+        syncProgress();
         const outcome = resolveTurnOutcome({
           isError: result?.is_error === true,
           subtype: result?.subtype ?? "unknown",
