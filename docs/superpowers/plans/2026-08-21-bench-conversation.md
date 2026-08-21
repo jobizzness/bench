@@ -21,6 +21,7 @@
 - **Small focused files.** Logic lives in its own module, never in `server.ts`. Shared types live in `src/shared/types.ts`.
 - **The gate fails safe.** An unreadable or missing turn kind means `work`, so a bug can never silently disable the report requirement.
 - **Accent is reserved.** `--accent` marks only the thing needing action. If it appears twice on screen, one is a bug.
+- **Sessions are scoped by project.** The roster groups specialists under a project heading and never renders a flat list. Everything lives in one window; no tab or pane per session. A collapsed project must still surface any specialist inside it that needs attention, so collapsing never hides urgency.
 
 ## File Structure
 
@@ -1040,6 +1041,23 @@ button, input { font: inherit; color: inherit; }
 
 #roster-list { list-style: none; margin: 0; padding: 0; }
 
+/* Specialists are grouped by project - never a flat list. */
+.group > summary {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 10px 16px; cursor: pointer; list-style: none;
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+.group > summary::-webkit-details-marker { display: none; }
+.group > summary:hover { background: var(--hover); }
+.group .count { margin-left: auto; }
+
+/* A collapsed project still shows that something inside it needs you. */
+.group .waiting { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.group[open] .waiting { display: none; }
+
 .row {
   padding: 12px 16px; border-bottom: 1px solid var(--line);
   cursor: pointer; border-left: 2px solid transparent;
@@ -1162,28 +1180,78 @@ const el = {
 const api = (path, init) => fetch(path, { ...init, headers: { ...authHeaders, ...(init?.headers ?? {}) } });
 const selectedRow = () => state.rows.find((r) => r.id === state.selectedId) ?? null;
 
+const collapsed = new Set();
+
+function rosterRow(row) {
+  const li = document.createElement("li");
+  li.className = "row";
+  li.dataset.status = row.status;
+  li.setAttribute("aria-selected", String(row.id === state.selectedId));
+  li.onclick = () => select(row.id);
+
+  const label = document.createElement("div");
+  label.className = "label";
+  label.textContent = row.label;
+
+  const state_ = document.createElement("div");
+  state_.className = "state";
+  state_.textContent = row.status.replace(/_/g, " ");
+
+  const detail = document.createElement("div");
+  detail.className = "detail";
+  detail.textContent = row.detail;
+
+  li.append(label, state_, detail);
+  return li;
+}
+
+/**
+ * Grouped by project, never flat. Working across many repos at once, a flat
+ * list gives no way to tell which specialist belongs to which codebase.
+ */
 function renderRoster() {
-  el.list.replaceChildren(...state.rows.map((row) => {
-    const li = document.createElement("li");
-    li.className = "row";
-    li.dataset.status = row.status;
-    li.setAttribute("aria-selected", String(row.id === state.selectedId));
-    li.onclick = () => select(row.id);
+  const groups = new Map();
+  for (const row of state.rows) {
+    if (!groups.has(row.project)) groups.set(row.project, []);
+    groups.get(row.project).push(row);
+  }
 
-    const label = document.createElement("div");
-    label.className = "label";
-    label.textContent = row.label;
+  el.list.replaceChildren(...[...groups.entries()].map(([project, rows]) => {
+    const group = document.createElement("details");
+    group.className = "group";
+    group.open = !collapsed.has(project);
+    group.ontoggle = () => {
+      if (group.open) collapsed.delete(project); else collapsed.add(project);
+    };
 
-    const state_ = document.createElement("div");
-    state_.className = "state";
-    state_.textContent = row.status.replace(/_/g, " ");
+    const summary = document.createElement("summary");
+    summary.title = project;
 
-    const detail = document.createElement("div");
-    detail.className = "detail";
-    detail.textContent = row.detail;
+    const name = document.createElement("span");
+    name.textContent = project.split("/").filter(Boolean).pop() ?? project;
+    summary.append(name);
 
-    li.append(label, state_, detail);
-    return li;
+    // Collapsing must never hide a specialist that needs an answer.
+    if (rows.some((r) => r.status === "awaiting_decision")) {
+      const dot = document.createElement("span");
+      dot.className = "waiting";
+      dot.title = "a specialist here is waiting on you";
+      summary.append(dot);
+    }
+
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = String(rows.length);
+    summary.append(count);
+
+    const list = document.createElement("ul");
+    list.style.listStyle = "none";
+    list.style.margin = "0";
+    list.style.padding = "0";
+    list.append(...rows.map(rosterRow));
+
+    group.append(summary, list);
+    return group;
   }));
 }
 
@@ -1554,3 +1622,4 @@ The point of this work is the experience, and only a real session shows whether 
 5. Expand the report card and confirm the report renders inside it.
 6. Refresh the browser. The thread must come back intact.
 7. Confirm the only accent-coloured thing on screen is the specialist awaiting you.
+8. Create a second specialist in a different project. Confirm the roster groups them under separate project headings, that collapsing a group still shows its accent dot when something inside is waiting, and that the collapse survives roster updates.
