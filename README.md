@@ -9,9 +9,9 @@ built for a machine.
 
 ## Status
 
-Design approved, implementation not started. Read
-[`docs/superpowers/specs/2026-08-21-bench-design.md`](docs/superpowers/specs/2026-08-21-bench-design.md)
-for the architecture and the Slice 1 scope.
+Running, with two known bugs. **[docs/STATUS.md](docs/STATUS.md)** is the
+honest account: what is proven against the real CLI, what is built but
+unproven, what is broken, and what was deliberately left out.
 
 ## Shape
 
