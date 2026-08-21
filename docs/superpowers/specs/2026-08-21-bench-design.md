@@ -197,6 +197,12 @@ Enforced by the `bench-report` skill:
   section on the page and it is mandatory.
 - **What it would do next** if the answer is just "go".
 
+The report contract is provisional by intent. It is approved for Slice 1 so
+we can use it, not because it is settled — the sections a report must carry
+and the shape of `decision.json` are expected to change once real reports
+have been read and answered. Treat a change here as expected feedback, not
+as a design failure.
+
 ### Answering
 
 An answer is delivered as one structured user message on stdin:
