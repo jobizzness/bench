@@ -1,7 +1,7 @@
 # Bench — where it stands
 
-Last updated 2026-08-21. 37 commits, 114 tests passing, 2 end-to-end suites
-run separately against the real CLI.
+Last updated 2026-08-21. 115 tests passing, 2 end-to-end suites run
+separately against the real CLI.
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
 work as decision-shaped pages served on localhost. This is an honest
@@ -32,10 +32,14 @@ created, 1.2G of dependencies installed, `.env` symlinked to the main
 checkout rather than copied, correct branch, and the main working tree left
 clean.
 
-**Chat.** A message can be sent to a specialist and answered. Mid-turn
-input queues rather than being dropped — verified by writing a second
-message 800ms into a running turn and watching both turns complete in
-order.
+**Chat, including mid-turn.** A message can be sent to a specialist and
+answered in its own turn, whether the specialist is idle or working. A
+message that arrives mid-turn is held by the daemon and only written to
+stdin once the running turn ends — writing it earlier let the CLI feed it
+to the turn already in flight, which is what [#1](https://github.com/jobizzness/bench/issues/1)
+was. Verified against the real CLI: a message enqueued 700ms into a work
+turn produced two turn ends, and the gate log shows turn 2 marked `chat`
+and exempt.
 
 **Reply artifacts.** A chat answer with any structure comes back as a
 rendered page, not prose. Verified: a specialist wrote a 3127-byte
@@ -51,19 +55,17 @@ fragment and spoke a one-line summary, unprompted beyond the skill.
 
 ## Known broken
 
-Both filed, both reproducible.
-
-**[#1](https://github.com/jobizzness/bench/issues/1) — a message to a
-*working* specialist is absorbed, not answered.** The report gate blocks
-the running turn at `Stop`, the conversation continues through that block,
-and it swallows the queued message. No separate reply is produced. Talking
-to an idle specialist works correctly.
-
-**[#2](https://github.com/jobizzness/bench/issues/2) — the gate causes
-turn thrashing.** A task whose honest answer is one sentence produced
-`num_turns=24` and two report directories. Expensive on a flagship model.
-Every existing test asserts only that a report exists, so none of them
-catch a gate that gets there through twenty retries.
+**[#2](https://github.com/jobizzness/bench/issues/2) — a trivial task once
+cost `num_turns=24`.** Not yet explained. What has been ruled out is the
+issue's own hypothesis: the gate does not thrash. Instrumenting every hook
+invocation against the real CLI shows it blocks at most once per turn —
+once when the agent tries to finish without a report, then allowing the
+retry — and in some runs not at all. The duplicate report directory in that
+run was [#1](https://github.com/jobizzness/bench/issues/1), not retries: the
+absorbed message carried its own `Turn 2. Write ... into .../2` framing and
+the agent obeyed both instructions inside one turn. That half is fixed. The
+24 turns were on a flagship model and have not been reproduced on a cheap
+one, so the issue stays open with a corrected premise.
 
 ## Deliberately not built
 
@@ -85,6 +87,16 @@ write denial.
 
 Worth recording, because none were caught by tests.
 
+- **A message sent to a working specialist was never answered.** It was
+  written to stdin immediately, framed for a turn that had not started; the
+  CLI handed it to the turn already running, which absorbed it. Fixed by
+  holding the queue in the daemon and dispatching only when the turn it
+  belongs to begins. ([#1](https://github.com/jobizzness/bench/issues/1))
+- **An end-to-end assertion was decided by the model's judgement.** The chat
+  test asserted a chat turn creates no directory at all, while the reply
+  skill tells that turn to write `reply.html` into one — so it passed only
+  when the model chose prose. Now asserts what the contract actually says:
+  no report.
 - **A queued message silently disabled the report gate.** Turn markers
   advanced when a message was *enqueued* rather than when its turn *began*,
   so a chat message relabelled the running work turn as chat and its `Stop`

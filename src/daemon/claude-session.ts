@@ -99,8 +99,7 @@ export class ClaudeSession extends EventEmitter {
     });
 
     this.running = true;
-    this.beginTurn(1, "work");
-    this.child.stdin.write(userMessageLine(this.framed(task, 1, "work")));
+    this.dispatch(task, "work");
   }
 
   answer(text: string): void {
@@ -117,29 +116,35 @@ export class ClaudeSession extends EventEmitter {
   }
 
   /**
-   * Writing to stdin does not start a turn - the CLI buffers it until the
-   * running turn ends. So the text goes out now, but the on-disk markers
-   * that the report gate reads must not move until this turn actually
-   * begins. Advancing them here would let a queued chat message exempt the
-   * running work turn from its report.
+   * Writing to stdin does not start a turn. The CLI buffers whatever arrives
+   * while a turn is running and feeds it to that turn, so a message written
+   * mid-turn is absorbed by the turn already in flight rather than answered
+   * on its own. The queue therefore lives here: nothing reaches stdin until
+   * the turn it belongs to actually begins, which is also what keeps its
+   * framing - turn number and report directory - true when the agent reads
+   * it.
    */
   private enqueue(text: string, kind: TurnKind): void {
     if (!this.child) throw new Error("session not started");
 
     if (this.running) {
-      // A turn is in flight. The text goes to stdin now and the CLI buffers
-      // it, but the markers stay on the running turn until it ends.
-      const turn = this.turnCount + this.queued.length + 1;
+      // A turn is in flight. Hold the text; `consume` dispatches it when the
+      // running turn ends.
       this.queued.push({ text, kind });
-      this.child.stdin.write(userMessageLine(this.framed(text, turn, kind)));
       return;
     }
 
     // Idle: this message becomes the running turn immediately.
     this.running = true;
+    this.dispatch(text, kind);
+  }
+
+  /** Begin a turn and hand it to the CLI. Only ever called for a turn that
+   * starts now, so the framing matches the markers the gate reads. */
+  private dispatch(text: string, kind: TurnKind): void {
     const turn = this.turnCount + 1;
     this.beginTurn(turn, kind);
-    this.child.stdin.write(userMessageLine(this.framed(text, turn, kind)));
+    this.child!.stdin.write(userMessageLine(this.framed(text, turn, kind)));
   }
 
   stop(): void {
@@ -201,7 +206,7 @@ export class ClaudeSession extends EventEmitter {
         const next = this.queued.shift();
         if (next) {
           this.running = true;
-          this.beginTurn(this.turnCount + 1, next.kind);
+          this.dispatch(next.text, next.kind);
         }
 
         if (reply) this.emit("reply", reply, endedKind);
