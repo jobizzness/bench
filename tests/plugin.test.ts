@@ -43,6 +43,11 @@ describe("bench-reply skill", () => {
     expect(skill).toContain("reply.html");
   });
 
+  it("warns against ending a sans stack with monospace", async () => {
+    const skill = await readFile(join(root, "skills", "bench-reply", "SKILL.md"), "utf8");
+    expect(skill).toMatch(/never end a sans-serif font stack with `monospace`/i);
+  });
+
   it("keeps decision controls out of replies", async () => {
     const skill = await readFile(join(root, "skills", "bench-reply", "SKILL.md"), "utf8");
     expect(skill).toMatch(/no decision controls/i);

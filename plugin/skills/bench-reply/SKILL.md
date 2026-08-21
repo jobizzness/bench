@@ -38,8 +38,10 @@ Rules that always hold:
   question. Context comes after, if at all.
 - **Code only where it carries the answer.** The hunk that matters, never
   a whole file.
-- **Say what you did not check.** If your answer rests on something you
-  assumed rather than read, say so on the page.
+- **Say what you did not check.** Every page ends with this, briefly. If
+  your answer rests on something you assumed rather than read, or you only
+  looked at part of what was asked about, say so. Leaving it out reads as
+  a claim you checked everything.
 - **No decision controls.** Approve and reject buttons belong to Bench,
   and a chat answer is not a decision. If your answer means the developer
   now has a real choice to make, say so in the summary line and let them
@@ -59,3 +61,8 @@ border rgba(255,255,255,0.08)        accent #4fd18b
 ```
 
 Do not set a fixed width or height - the frame supplies both.
+
+Never end a sans-serif font stack with `monospace` - the whole page falls
+back to monospace wherever the earlier faces are missing. Use
+`ui-sans-serif, system-ui, sans-serif` for prose and
+`ui-monospace, monospace` only on code.
