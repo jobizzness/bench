@@ -45,8 +45,62 @@ function rosterRow(row) {
     ? row.detail
     : `${row.status.replace(/_/g, " ")} · ${row.detail}`;
 
-  li.append(label, detail);
+  const close = document.createElement("button");
+  close.className = "close";
+  close.type = "button";
+  close.textContent = "\u00d7";
+  close.title = "Close this specialist";
+  close.setAttribute("aria-label", `Close ${row.label}`);
+  close.onclick = (event) => {
+    // The row underneath selects a specialist; closing one must not.
+    event.stopPropagation();
+    closeSpecialist(row);
+  };
+
+  li.append(label, detail, close);
   return li;
+}
+
+/**
+ * Closing is permanent - the record is what a restart reads - and it takes
+ * the worktree with it. The daemon refuses when that would destroy work, and
+ * says what, so the second question can be asked with the number in it.
+ */
+async function closeSpecialist(row) {
+  if (!confirm(`Close ${row.label}?\n\nIts worktree and branch are removed. The thread and any reports are kept.`)) return;
+
+  let res = await api(`/api/sessions/${row.id}/close`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+
+  if (res.status === 409) {
+    const { changes, unmergedCommits } = await res.json();
+    const lost = [
+      changes ? `${changes} uncommitted file${changes === 1 ? "" : "s"}` : null,
+      unmergedCommits ? `${unmergedCommits} commit${unmergedCommits === 1 ? "" : "s"} on no other branch` : null,
+    ].filter(Boolean).join(" and ");
+
+    if (!confirm(`${row.label} has ${lost}.\n\nClosing destroys that. Close anyway?`)) return;
+
+    res = await api(`/api/sessions/${row.id}/close`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ force: true }),
+    });
+  }
+
+  if (!res.ok) {
+    el.hint.textContent = (await res.json()).error ?? "could not close";
+    return;
+  }
+
+  if (state.selectedId === row.id) {
+    state.selectedId = null;
+    state.entries = [];
+    state.decision = null;
+  }
 }
 
 /**

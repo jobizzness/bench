@@ -13,6 +13,7 @@ export interface SessionRegistryLike {
   list(): RosterRow[];
   get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null;
   send(id: string, text: string): void;
+  close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
   stop(id: string): void;
   create(input: { project: string; label: string; model: string }): Promise<string>;
   on(event: "roster", listener: () => void): unknown;
@@ -181,6 +182,26 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
       if (!registry.get(answer[1])) { json(res, 404, { error: "no such session" }); return; }
       const body = await readBody(req);
       registry.send(answer[1], formatAnswer(body.optionId, body.text));
+      json(res, 200, { ok: true });
+      return;
+    }
+
+    const close = path.match(/^\/api\/sessions\/([^/]+)\/close$/);
+    if (close && req.method === "POST") {
+      if (!registry.get(close[1])) { json(res, 404, { error: "no such session" }); return; }
+      const body = await readBody(req);
+      const result = await registry.close(close[1], { force: body.force === true });
+
+      // Refusing is the point: say what would have been destroyed so the
+      // developer can look before deciding to force it.
+      if (!result.closed) {
+        json(res, 409, {
+          error: "the worktree has work that exists nowhere else",
+          changes: result.changes,
+          unmergedCommits: result.unmergedCommits,
+        });
+        return;
+      }
       json(res, 200, { ok: true });
       return;
     }

@@ -50,3 +50,105 @@ export async function excludeBenchDir(repo: string): Promise<void> {
   const next = current.endsWith("\n") || current === "" ? current : current + "\n";
   await writeFile(excludePath, next + missing.join("\n") + "\n");
 }
+
+
+/**
+ * Bench installs into every worktree it creates, so node_modules, a lockfile
+ * the install generated and the env symlinks are its own leavings rather
+ * than the specialist's work. Counting them would make every worktree look
+ * unsaved and close would refuse forever.
+ *
+ * Only untracked entries are forgiven. A lockfile the repo actually tracks
+ * shows as modified, not untracked, and still counts.
+ */
+const BOOTSTRAP_LEFTOVERS = [
+  "node_modules/",
+  "pnpm-lock.yaml",
+  "package-lock.json",
+  "yarn.lock",
+  ".env",
+  ".env.local",
+  ".env.production",
+  ".bench/",
+  ".claude/",
+];
+
+function isBootstrapLeftover(statusLine: string): boolean {
+  if (!statusLine.startsWith("??")) return false;
+  const path = statusLine.slice(3).trim().replace(/^"|"$/g, "");
+  return BOOTSTRAP_LEFTOVERS.some((entry) =>
+    entry.endsWith("/") ? path === entry || path.startsWith(entry) : path === entry);
+}
+
+export interface WorktreeState {
+  /** Nothing would be lost by removing it. */
+  clean: boolean;
+  /** Uncommitted changes, untracked files included - work is work. */
+  changes: number;
+  /** Commits on this branch that exist nowhere else in the repo. */
+  unmergedCommits: number;
+}
+
+/**
+ * What closing a specialist would destroy. A worktree is cheap to recreate
+ * and its contents are not: the only irreversible part of closing one is the
+ * work inside it, so it is counted before anything is removed.
+ */
+export async function inspectWorktree(
+  repo: string,
+  worktree: string,
+  branch: string,
+): Promise<WorktreeState> {
+  let changes = 0;
+  try {
+    const { stdout } = await exec("git", ["status", "--porcelain"], { cwd: worktree });
+    changes = stdout.split("\n")
+      .filter((line) => line.trim() !== "")
+      .filter((line) => !isBootstrapLeftover(line))
+      .length;
+  } catch {
+    // No worktree on disk means nothing to lose.
+    return { clean: true, changes: 0, unmergedCommits: 0 };
+  }
+
+  // Commits reachable from this branch and from no other branch. Every other
+  // ref is listed explicitly rather than using `--all`, which would include
+  // this branch and so always report nothing. Comparing against all branches
+  // rather than a guessed default means a branch merged anywhere counts as
+  // nothing to lose.
+  let unmergedCommits = 0;
+  try {
+    const { stdout: refs } = await exec(
+      "git", ["for-each-ref", "--format=%(refname)", "refs/heads/"], { cwd: repo },
+    );
+    const others = refs.split("\n")
+      .map((r) => r.trim())
+      .filter((r) => r !== "" && r !== `refs/heads/${branch}`);
+
+    if (others.length > 0) {
+      const { stdout } = await exec(
+        "git", ["rev-list", "--count", branch, "--not", ...others], { cwd: repo },
+      );
+      unmergedCommits = Number(stdout.trim()) || 0;
+    }
+  } catch {
+    unmergedCommits = 0;
+  }
+
+  return { clean: changes === 0 && unmergedCommits === 0, changes, unmergedCommits };
+}
+
+/** Remove the worktree and the branch it was created on. Idempotent. */
+export async function removeWorktree(
+  repo: string,
+  worktree: string,
+  branch: string,
+): Promise<void> {
+  try {
+    await exec("git", ["worktree", "remove", "--force", worktree], { cwd: repo });
+  } catch {
+    // Already gone, or never registered. Prune so `git worktree list` agrees.
+    await exec("git", ["worktree", "prune"], { cwd: repo }).catch(() => {});
+  }
+  await exec("git", ["branch", "-D", branch], { cwd: repo }).catch(() => {});
+}

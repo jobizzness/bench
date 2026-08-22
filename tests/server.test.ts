@@ -28,6 +28,12 @@ class StubRegistry extends EventEmitter {
       : null;
   }
   send(id: string, text: string) { this.sent.push({ id, text }); }
+  closed: Array<{ id: string; force: boolean }> = [];
+  closeResult: any = { closed: true, changes: 0, unmergedCommits: 0 };
+  async close(id: string, opts: any = {}) {
+    this.closed.push({ id, force: opts.force === true });
+    return this.closeResult;
+  }
   stop() {}
   async create(input: any) { this.created.push(input); return "s2"; }
 }
@@ -238,6 +244,50 @@ describe("POST /api/sessions/:id/message", () => {
     expect(res.status).toBe(409);
     expect((await res.json()).error).toMatch(/not running/i);
     registry.aliveValue = true;
+  });
+});
+
+describe("POST /api/sessions/:id/close", () => {
+  it("closes a specialist", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/close`, {
+      method: "POST", headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.closed.at(-1)).toEqual({ id: "s1", force: false });
+  });
+
+  it("409s with what would be lost when the worktree is not clean", async () => {
+    registry.closeResult = { closed: false, changes: 3, unmergedCommits: 2 };
+    const res = await fetch(`${base}/api/sessions/s1/close`, {
+      method: "POST", headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.changes).toBe(3);
+    expect(body.unmergedCommits).toBe(2);
+    registry.closeResult = { closed: true, changes: 0, unmergedCommits: 0 };
+  });
+
+  it("passes force through", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/close`, {
+      method: "POST", headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ force: true }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.closed.at(-1)).toEqual({ id: "s1", force: true });
+  });
+
+  it("404s for a session that does not exist", async () => {
+    const res = await fetch(`${base}/api/sessions/nope/close`, {
+      method: "POST", headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(404);
   });
 });
 

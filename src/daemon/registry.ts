@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { loadConfig } from "./config.js";
 import { createServer, type SessionRegistryLike } from "./server.js";
-import { createWorktree, excludeBenchDir } from "./worktree.js";
+import { createWorktree, excludeBenchDir, inspectWorktree, removeWorktree } from "./worktree.js";
 import { bootstrapWorktree, BootstrapError } from "./bootstrap.js";
 import { ClaudeSession } from "./claude-session.js";
 import { existsSync } from "node:fs";
@@ -289,5 +289,43 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   stop(id: string): void {
     this.entries.get(id)?.session?.stop();
+  }
+
+  /**
+   * Close a specialist for good. The store is what boot reads, so deleting
+   * the record is what makes it stay gone.
+   *
+   * The worktree goes too - it is the expensive part, and leaving one behind
+   * per closed specialist is how a machine fills up. What is inside it is
+   * not cheap, though, so anything uncommitted or unmerged stops the close
+   * and says what would be lost. The thread and reports are kept: they are
+   * small, and they are the record of what the specialist actually did.
+   */
+  async close(id: string, opts: { force?: boolean } = {}): Promise<{
+    closed: boolean;
+    changes: number;
+    unmergedCommits: number;
+  }> {
+    const entry = this.entries.get(id);
+    if (!entry) return { closed: false, changes: 0, unmergedCommits: 0 };
+
+    const branch = `worktree-${entry.row.label}`;
+    const state = entry.worktree === ""
+      ? { clean: true, changes: 0, unmergedCommits: 0 }
+      : await inspectWorktree(entry.row.project, entry.worktree, branch);
+
+    if (!state.clean && !opts.force) {
+      return { closed: false, changes: state.changes, unmergedCommits: state.unmergedCommits };
+    }
+
+    entry.session?.stop();
+    if (entry.worktree !== "") {
+      await removeWorktree(entry.row.project, entry.worktree, branch).catch(() => {});
+    }
+    await this.store.remove(id);
+    this.entries.delete(id);
+    this.emit("roster");
+
+    return { closed: true, changes: state.changes, unmergedCommits: state.unmergedCommits };
   }
 }

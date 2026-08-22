@@ -1,6 +1,6 @@
 # Bench — where it stands
 
-Last updated 2026-08-22. 127 tests passing, 2 end-to-end suites run
+Last updated 2026-08-22. 147 tests passing, 2 end-to-end suites run
 separately against the real CLI.
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
@@ -50,6 +50,16 @@ to read what it already wrote. The first prompt revives it with `--resume`,
 so it comes back knowing what it was doing. Verified by killing the daemon
 outright: roster and thread restored, no `claude` process running, and on
 the next prompt the specialist recalled a codeword from before the restart.
+
+**Closing a specialist, permanently.** A specialist can be closed from the
+roster: the process stops, the git worktree and its branch are removed, and
+the record is deleted — and the record is what boot reads, so it stays gone.
+The thread and any reports are kept; they are small and they are what
+actually happened. Closing refuses when the worktree holds uncommitted
+changes or commits that exist on no other branch, and says how many, so
+forcing it is a decision rather than an accident. Verified against real
+repositories: a clean specialist closed and took its branch with it, one
+with a single uncommitted file was refused, and forcing removed it.
 
 **Prompting, including mid-turn.** A specialist is created empty and waits;
 what it is for is the first thing you type at it, not a field in a dialog.
@@ -111,6 +121,13 @@ write denial. The last one has already bitten: a specialist editing
 
 Worth recording, because none were caught by tests.
 
+- **Every worktree looked like it had unsaved work.** Bench installs into
+  each worktree it creates, so `node_modules/` and a generated lockfile sit
+  there untracked. The first close refused on a specialist that had done
+  nothing at all, counting Bench's own leavings as the developer's work. A
+  guard that always fires is no guard, so untracked bootstrap artifacts are
+  now forgiven — while a lockfile the repo actually tracks shows as modified
+  and still counts. Found on the first live close, not by the tests.
 - **A restored specialist was refused its own first prompt.** The message
   route rejects a session whose process is not alive, which is exactly the
   state a specialist restored from disk is in — so reviving it was blocked

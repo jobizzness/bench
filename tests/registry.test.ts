@@ -1,9 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionRegistry } from "../src/daemon/registry.js";
 import { SessionStore } from "../src/daemon/store.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const exec = promisify(execFile);
 
 async function setup() {
   const home = await mkdtemp(join(tmpdir(), "bench-home-"));
@@ -138,5 +143,116 @@ describe("SessionRegistry.restore", () => {
     const registry = new SessionRegistry(config as any);
     await registry.restore();
     expect(registry.list()).toEqual([]);
+  });
+});
+
+/** A real repo with a real worktree, since closing one is a git operation. */
+async function setupReal(label = "auth") {
+  const home = await mkdtemp(join(tmpdir(), "bench-home-"));
+  const project = await mkdtemp(join(tmpdir(), "bench-proj-"));
+  await exec("git", ["init", "-q", "-b", "main"], { cwd: project });
+  await exec("git", ["config", "user.email", "t@t.io"], { cwd: project });
+  await exec("git", ["config", "user.name", "t"], { cwd: project });
+  await writeFile(join(project, "README.md"), "x");
+  await exec("git", ["add", "-A"], { cwd: project });
+  await exec("git", ["commit", "-qm", "init"], { cwd: project });
+
+  const worktree = join(project, ".claude", "worktrees", label);
+  const branch = `worktree-${label}`;
+  await mkdir(join(project, ".claude", "worktrees"), { recursive: true });
+  await exec("git", ["worktree", "add", "-q", "-b", branch, worktree], { cwd: project });
+
+  const id = "sess-close";
+  const reportsDir = join(project, ".bench", "reports", id);
+  await mkdir(reportsDir, { recursive: true });
+
+  const config = {
+    home, port: 7420, token: "t",
+    pluginDir: "/nonexistent/plugin",
+    hookCommand: "node /nonexistent/hook.js",
+    projectsRoot: project,
+  };
+
+  const store = new SessionStore(home);
+  await store.put({
+    id, label, project, worktree, reportsDir, model: "opus",
+    port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+  });
+
+  const registry = new SessionRegistry(config as any);
+  await registry.restore();
+  return { home, project, worktree, branch, id, reportsDir, store, registry };
+}
+
+describe("SessionRegistry.close", () => {
+  it("removes the specialist so a restart cannot bring it back", async () => {
+    const { home, id, registry } = await setupReal();
+
+    const result = await registry.close(id);
+    expect(result.closed).toBe(true);
+    expect(registry.list()).toEqual([]);
+
+    // The next daemon reads the store, so this is what "won't come back" means.
+    const next = new SessionRegistry({ home } as any);
+    await next.restore();
+    expect(next.list()).toEqual([]);
+  });
+
+  it("removes the worktree and its branch", async () => {
+    const { project, worktree, branch, id, registry } = await setupReal();
+
+    await registry.close(id);
+
+    const { stdout } = await exec("git", ["worktree", "list"], { cwd: project });
+    expect(stdout).not.toContain(worktree);
+    const branches = await exec("git", ["branch", "--list", branch], { cwd: project });
+    expect(branches.stdout.trim()).toBe("");
+  });
+
+  it("refuses to close over uncommitted work", async () => {
+    const { worktree, id, registry, home } = await setupReal();
+    await writeFile(join(worktree, "notes.md"), "a spec nobody committed");
+
+    const result = await registry.close(id);
+    expect(result.closed).toBe(false);
+    expect(result.changes).toBe(1);
+
+    // Still there, and still there after a restart.
+    expect(registry.list()).toHaveLength(1);
+    const next = new SessionRegistry({ home } as any);
+    await next.restore();
+    expect(next.list()).toHaveLength(1);
+  });
+
+  it("keeps the worktree when it refuses", async () => {
+    const { worktree, id, registry } = await setupReal();
+    await writeFile(join(worktree, "notes.md"), "work in progress");
+
+    await registry.close(id);
+    expect(existsSync(join(worktree, "notes.md"))).toBe(true);
+  });
+
+  it("closes anyway when forced", async () => {
+    const { worktree, id, registry } = await setupReal();
+    await writeFile(join(worktree, "notes.md"), "throwaway");
+
+    const result = await registry.close(id, { force: true });
+    expect(result.closed).toBe(true);
+    expect(registry.list()).toEqual([]);
+    expect(existsSync(worktree)).toBe(false);
+  });
+
+  it("keeps the thread and reports, which are the record of what happened", async () => {
+    const { reportsDir, id, registry } = await setupReal();
+    await writeFile(join(reportsDir, "thread.jsonl"), "{}\n");
+
+    await registry.close(id);
+    expect(existsSync(join(reportsDir, "thread.jsonl"))).toBe(true);
+  });
+
+  it("is a no-op for a specialist that does not exist", async () => {
+    const { registry } = await setupReal();
+    const result = await registry.close("nope");
+    expect(result.closed).toBe(false);
   });
 });

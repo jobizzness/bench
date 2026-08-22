@@ -482,3 +482,35 @@ button, input, textarea, select { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   #working-glyph { animation: none; }
 }
+
+/* Closing is destructive, so it stays out of the way until the row is
+   deliberately pointed at. */
+.row {
+  position: relative;
+}
+
+.row .close {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.row:hover .close,
+.row .close:focus-visible {
+  opacity: 0.55;
+}
+
+.row .close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
