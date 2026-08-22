@@ -6,6 +6,7 @@ import { WebSocketServer } from "ws";
 import type { BenchConfig } from "./config.js";
 import { findReport } from "./reports.js";
 import { readPlan } from "./plan.js";
+import { artifactPage } from "./artifact-page.js";
 import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import type { IntakeAnswer, RosterRow } from "../shared/types.js";
@@ -206,7 +207,8 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
         "content-type": "text/html; charset=utf-8",
         "content-security-policy": REPORT_CSP,
       });
-      res.end(body);
+      // The skills ask for a fragment; the frame supplies the page it sits in.
+      res.end(artifactPage(body));
       return;
     }
 

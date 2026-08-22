@@ -107,6 +107,26 @@ most of the evidence.
 
 If the page is longer than the work was hard, you are narrating.
 
+## Style
+
+The frame supplies the page: a dark ground, sensible defaults for headings,
+code, tables and quotes, and the padding. You are writing onto it, so a
+report with no styling at all already reads correctly. Style only where it
+earns its place.
+
+If you do set colours, inherit the cockpit rather than fighting it. Light-mode
+values render as near-black on a dark ground, which looks like a report that
+lost its stylesheet.
+
+```
+background #16211c   text #e8efe9   muted #8ba396
+border rgba(255,255,255,0.08)        accent #4fd18b
+```
+
+Do not set a fixed width or height - the frame supplies both. Never end a
+sans-serif font stack with `monospace`: the whole page falls back to
+monospace wherever the earlier faces are missing.
+
 ## decision.json
 
 ```json
