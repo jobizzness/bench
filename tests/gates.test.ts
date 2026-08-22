@@ -63,6 +63,12 @@ describe("buildSettings", () => {
     expect(allow).toContain("Bash(git:*)");
   });
 
+  it("lets a specialist look at the UI it wrote", () => {
+    // Layout is the one thing a jsdom suite cannot report on.
+    const allow: string[] = (buildSettings({ hookCommand: "x" }) as any).permissions.allow;
+    expect(allow).toContain("Bash(google-chrome:*)");
+  });
+
   it("does not let a specialist publish its branch", () => {
     const settings = buildSettings({ hookCommand: "node /opt/bench/hook.js" }) as any;
     expect(settings.permissions.deny).toContain("Bash(git push:*)");

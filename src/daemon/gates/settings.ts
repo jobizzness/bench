@@ -20,6 +20,9 @@ const TOOLCHAIN = [
   "node", "tsc", "vitest", "jest",
   "make", "cargo", "go", "python", "python3", "pytest", "uv", "ruff",
   "git",
+  // A specialist doing UI work has to be able to look at it. jsdom cannot
+  // tell you what a layout does, which has already cost one bug here.
+  "google-chrome", "google-chrome-stable", "chromium",
 ].map((cmd) => `Bash(${cmd}:*)`);
 
 export function buildSettings(opts: { hookCommand: string }): object {
