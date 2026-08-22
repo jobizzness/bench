@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { evaluateCommit } from "../src/daemon/gates/commit-attribution.js";
-import { evaluateStop } from "../src/daemon/gates/report-required.js";
 import { buildSettings } from "../src/daemon/gates/settings.js";
 
 describe("evaluateCommit", () => {
@@ -41,65 +37,18 @@ describe("evaluateCommit", () => {
   });
 });
 
-describe("evaluateStop", () => {
-  const makeReports = async () => mkdtemp(join(tmpdir(), "bench-reports-"));
-
-  it("blocks when the turn produced no report", async () => {
-    const reportsDir = await makeReports();
-    const r = await evaluateStop({ reportsDir, turn: 1, kind: "work" });
-    expect(r.block).toBe(true);
-    expect(r.reason).toMatch(/report/i);
-  });
-
-  it("allows when the turn produced a report", async () => {
-    const reportsDir = await makeReports();
-    await mkdir(join(reportsDir, "1"), { recursive: true });
-    await writeFile(join(reportsDir, "1", "report.html"), "<h1>done</h1>");
-
-    const r = await evaluateStop({ reportsDir, turn: 1, kind: "work" });
-    expect(r.block).toBe(false);
-  });
-
-  it("blocks when only an older turn's report exists", async () => {
-    const reportsDir = await makeReports();
-    await mkdir(join(reportsDir, "1"), { recursive: true });
-    await writeFile(join(reportsDir, "1", "report.html"), "<h1>old</h1>");
-
-    const r = await evaluateStop({ reportsDir, turn: 2, kind: "work" });
-    expect(r.block).toBe(true);
-  });
-
-  it("exempts a chat turn from needing a report", async () => {
-    const reportsDir = await makeReports();
-    const r = await evaluateStop({ reportsDir, turn: 1, kind: "chat" });
-    expect(r.block).toBe(false);
-  });
-
-  it("still blocks a work turn with no report", async () => {
-    const reportsDir = await makeReports();
-    const r = await evaluateStop({ reportsDir, turn: 1, kind: "work" });
-    expect(r.block).toBe(true);
-  });
-
-  it("blocks when the directory exists but report.html does not", async () => {
-    const reportsDir = await makeReports();
-    await mkdir(join(reportsDir, "1"), { recursive: true });
-
-    const r = await evaluateStop({ reportsDir, turn: 1, kind: "work" });
-    expect(r.block).toBe(true);
-  });
-});
-
 describe("buildSettings", () => {
-  it("registers a PreToolUse Bash hook and a Stop hook", () => {
+  it("registers a PreToolUse Bash hook", () => {
     const settings = buildSettings({ hookCommand: "node /opt/bench/hook.js" }) as any;
 
     const pre = settings.hooks.PreToolUse;
     expect(pre[0].matcher).toBe("Bash");
     expect(pre[0].hooks[0].command).toContain("commit-attribution");
+  });
 
-    const stop = settings.hooks.Stop;
-    expect(stop[0].hooks[0].command).toContain("report-required");
+  it("registers no Stop hook: whether a turn earns a report is the agent's call", () => {
+    const settings = buildSettings({ hookCommand: "node /opt/bench/hook.js" }) as any;
+    expect(settings.hooks.Stop).toBeUndefined();
   });
 
   it("serialises to JSON, since it is passed to --settings as a string", () => {

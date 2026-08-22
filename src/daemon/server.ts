@@ -12,10 +12,9 @@ import type { RosterRow } from "../shared/types.js";
 export interface SessionRegistryLike {
   list(): RosterRow[];
   get(id: string): { reportsDir: string; threadPath: string; alive: boolean } | null;
-  answer(id: string, text: string): void;
-  message(id: string, text: string): void;
+  send(id: string, text: string): void;
   stop(id: string): void;
-  create(input: { project: string; label: string; task: string; model: string }): Promise<string>;
+  create(input: { project: string; label: string; model: string }): Promise<string>;
   on(event: "roster", listener: () => void): unknown;
 }
 
@@ -84,14 +83,13 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
 
     if (path === "/api/sessions" && req.method === "POST") {
       const body = await readBody(req);
-      if (!body.project || !body.label || !body.task) {
-        json(res, 400, { error: "project, label and task are required" });
+      if (!body.project || !body.label) {
+        json(res, 400, { error: "project and label are required" });
         return;
       }
       const id = await registry.create({
         project: String(body.project),
         label: String(body.label),
-        task: String(body.task),
         model: String(body.model ?? "opus"),
       });
       json(res, 200, { id });
@@ -169,7 +167,7 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
       // message would strand it forever.
       if (!session.alive) { json(res, 409, { error: "session is not running" }); return; }
 
-      registry.message(message[1], text);
+      registry.send(message[1], text);
       json(res, 200, { ok: true });
       return;
     }
@@ -178,7 +176,7 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
     if (answer && req.method === "POST") {
       if (!registry.get(answer[1])) { json(res, 404, { error: "no such session" }); return; }
       const body = await readBody(req);
-      registry.answer(answer[1], formatAnswer(body.optionId, body.text));
+      registry.send(answer[1], formatAnswer(body.optionId, body.text));
       json(res, 200, { ok: true });
       return;
     }

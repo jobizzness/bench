@@ -10,7 +10,7 @@ import { ClaudeSession } from "./claude-session.js";
 import { latestReportSeq, findReport } from "./reports.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
 import { appendEntry } from "./thread.js";
-import type { RosterRow, SessionStatus, TurnKind } from "../shared/types.js";
+import type { RosterRow, SessionStatus } from "../shared/types.js";
 
 interface Entry {
   row: RosterRow;
@@ -46,7 +46,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     this.emit("roster");
   }
 
-  async create(input: { project: string; label: string; task: string; model: string }): Promise<string> {
+  async create(input: { project: string; label: string; model: string }): Promise<string> {
     const id = randomUUID();
     const reportsDir = join(input.project, ".bench", "reports", id);
 
@@ -116,14 +116,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         this.update(id, "crashed", "process exited");
       });
 
-      session.on("reply", async (text: string, kind: TurnKind) => {
-        // A work turn's prose is not shown - its report card is the entry.
-        if (kind !== "chat") return;
+      session.on("reply", async (text: string) => {
+        // Whatever the specialist said out loud. If it also wrote a report,
+        // that card is appended separately when the turn ends.
         const entry = this.entries.get(id);
         if (!entry) return;
 
-        // Specialists answer with a rendered page where the answer has any
-        // shape to it. The prose becomes the card's one-line summary.
+        // Where the answer had shape worth rendering, the specialist wrote a
+        // page too. The prose becomes the card's one-line summary.
         const seq = session.turn;
         const hasArtifact = await access(join(reportsDir, String(seq), "reply.html"))
           .then(() => true)
@@ -141,7 +141,6 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         const entry = this.entries.get(id);
         if (!entry) return;
 
-        const kind = session.turnKind;
         const seq = await latestReportSeq(reportsDir);
         const hasNewReport = seq !== null && seq !== entry.row.latestReportSeq;
         entry.row.latestReportSeq = seq;
@@ -159,7 +158,6 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         const outcome = resolveTurnOutcome({
           isError: result?.is_error === true,
           subtype: result?.subtype ?? "unknown",
-          kind,
           hasNewReport,
         });
         this.update(id, outcome.status, outcome.detail);
@@ -167,8 +165,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
       this.entries.get(id)!.session = session;
       this.entries.get(id)!.alive = true;
-      session.start(input.task);
-      this.update(id, "working", "starting");
+      // Open the process and wait. A specialist is given work by prompting
+      // it, not by being created.
+      session.open();
+      this.update(id, "awaiting_decision", "ready");
     } catch (error) {
       const detail = error instanceof BootstrapError
         ? `${error.step}: ${error.stderr.trim().slice(0, 200)}`
@@ -179,20 +179,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     return id;
   }
 
-  answer(id: string, text: string): void {
+  /** Every prompt takes the same path in. What the turn becomes is the
+   * agent's call. */
+  send(id: string, text: string): void {
     const entry = this.entries.get(id);
     if (!entry?.session) return;
     void appendEntry(entry.threadPath, { kind: "user", body: text });
-    entry.session.answer(text);
-    this.update(id, "working", "resumed");
-  }
-
-  message(id: string, text: string): void {
-    const entry = this.entries.get(id);
-    if (!entry?.session) return;
-    void appendEntry(entry.threadPath, { kind: "user", body: text });
-    entry.session.message(text);
-    this.update(id, "working", "answering your question");
+    entry.session.send(text);
+    this.update(id, "working", "starting");
   }
 
   stop(id: string): void {

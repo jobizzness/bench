@@ -13,11 +13,6 @@ export function buildSettings(opts: { hookCommand: string }): object {
           hooks: [{ type: "command", command: `${opts.hookCommand} commit-attribution` }],
         },
       ],
-      Stop: [
-        {
-          hooks: [{ type: "command", command: `${opts.hookCommand} report-required` }],
-        },
-      ],
     },
   };
 }
