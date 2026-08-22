@@ -2,6 +2,7 @@ import type { Decision, IntakeQuestion, RosterRow } from "../shared/types.js";
 import type { PlanStep } from "../daemon/plan.js";
 import { progressVisible } from "./progress.js";
 import { isWaiting } from "./waiting.js";
+import { shouldReconnect } from "./reconnect.js";
 
 /**
  * Every element here is in index.html. A missing one is a bug in the markup,
@@ -91,10 +92,22 @@ const el = {
   glyph: byId("working-glyph"),
   verb: byId("working-verb"),
   meta: byId("working-meta"),
+  stale: byId("stale"),
 };
 
-const api = (path: string, init?: RequestInit) =>
-  fetch(path, { ...init, headers: { ...authHeaders, ...(init?.headers ?? {}) } });
+/**
+ * Every request that comes back unauthorised means the same thing, and the
+ * page cannot recover from it by trying harder.
+ */
+function linkIsStale(): void {
+  el.stale.hidden = false;
+}
+
+const api = async (path: string, init?: RequestInit) => {
+  const res = await fetch(path, { ...init, headers: { ...authHeaders, ...(init?.headers ?? {}) } });
+  if (res.status === 401) linkIsStale();
+  return res;
+};
 const selectedRow = () => state.rows.find((r) => r.id === state.selectedId) ?? null;
 
 async function closeSpecialist(row: RosterRow) {
@@ -1110,8 +1123,12 @@ function connect() {
     renderWorking();
   };
 
-  // The daemon outlives the UI, so a dropped socket is a reconnect.
-  socket.onclose = () => setTimeout(connect, 1000);
+  socket.onclose = (event) => {
+    // A refused socket is not a dropped one. Retrying it forever is what
+    // turned a stale link into "all my specialists are gone".
+    if (!shouldReconnect(event.code)) { linkIsStale(); return; }
+    setTimeout(connect, 1000);
+  };
 }
 
 renderComposer();
