@@ -315,6 +315,36 @@ describe("POST /api/sessions/:id/message", () => {
   });
 });
 
+describe("GET /api/sessions/:id/plan", () => {
+  it("returns the specialist's checklist", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bench-planapi-"));
+    await mkdir(join(dir, "1"), { recursive: true });
+    await writeFile(join(dir, ".turn"), "1");
+    await writeFile(join(dir, "1", "plan.json"), JSON.stringify({
+      steps: [{ text: "Fix the guard", state: "doing" }],
+    }));
+    registry.reportsDir = dir;
+
+    const res = await fetch(`${base}/api/sessions/s1/plan`, auth);
+    expect(res.status).toBe(200);
+    expect((await res.json()).steps).toEqual([{ text: "Fix the guard", state: "doing" }]);
+  });
+
+  it("returns null steps when there is no plan, not an empty list", async () => {
+    // An empty checklist would read as "nothing left to do".
+    registry.reportsDir = await mkdtemp(join(tmpdir(), "bench-planapi-"));
+
+    const res = await fetch(`${base}/api/sessions/s1/plan`, auth);
+    expect(res.status).toBe(200);
+    expect((await res.json()).steps).toBeNull();
+  });
+
+  it("404s for a session that does not exist", async () => {
+    const res = await fetch(`${base}/api/sessions/nope/plan`, auth);
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("POST /api/sessions/:id/close", () => {
   it("closes a specialist", async () => {
     const res = await fetch(`${base}/api/sessions/s1/close`, {

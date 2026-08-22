@@ -170,7 +170,11 @@ export class ClaudeSession extends EventEmitter {
       `to understand what it means, when a spec needs approving before you build, ` +
       `or when you are stuck. Otherwise just reply: use the bench-reply skill ` +
       `where the answer has structure worth rendering, plain prose where it does ` +
-      `not. Which of those this turn is, is your call.\n\n${text}`;
+      `not. Which of those this turn is, is your call.\n` +
+      `If this turn takes more than a couple of steps, keep a checklist at ` +
+      `${join(dir, "plan.json")} - {"steps":[{"text":"...","state":"todo|doing|done"}]} - ` +
+      `and update it as you go. It is the only way the developer can see where ` +
+      `you have got to while you work.\n\n${text}`;
   }
 
   private consume(chunk: string): void {

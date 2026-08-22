@@ -805,3 +805,58 @@ button, input, textarea, select { font: inherit; color: inherit; }
   opacity: 1;
   background: rgba(255, 255, 255, 0.08);
 }
+
+/* Where the specialist has got to: its own checklist, and the trail of what
+   it actually did. Kept between the thread and the composer so it reads as
+   status rather than conversation. */
+#progress {
+  border-top: 1px solid var(--rule, rgba(255, 255, 255, 0.08));
+  padding: 0.6rem 1rem;
+  display: grid;
+  gap: 0.5rem;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+#plan,
+#trail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 1.1rem 1fr;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.86rem;
+  opacity: 0.75;
+}
+
+.step[data-state="done"] { opacity: 0.45; }
+.step[data-state="done"] span:last-child { text-decoration: line-through; }
+.step[data-state="doing"] { opacity: 1; font-weight: 600; }
+
+.step .mark { text-align: center; }
+
+.trail-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.78rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
+.trail-item:first-child { opacity: 0.85; }
+
+.trail-item span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trail-item .when { flex: none; }

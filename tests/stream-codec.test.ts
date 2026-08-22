@@ -59,13 +59,47 @@ describe("userMessageLine", () => {
   });
 });
 
+const toolUse = (name: string, input?: Record<string, unknown>) => ({
+  type: "assistant" as const,
+  message: { content: [{ type: "tool_use", name, input }] },
+});
+
 describe("activityLine", () => {
-  it("describes a tool call for the roster", () => {
-    const line = activityLine({
-      type: "assistant",
-      message: { content: [{ type: "tool_use", name: "Bash" }] },
-    });
-    expect(line).toBe("Bash");
+  it("names the tool when there is nothing else to say", () => {
+    expect(activityLine(toolUse("Bash"))).toBe("Bash");
+  });
+
+  it("shows the command being run, not just that a command is running", () => {
+    // "Bash" for twelve minutes is indistinguishable from a hang.
+    expect(activityLine(toolUse("Bash", { command: "pnpm test" }))).toBe("Bash pnpm test");
+  });
+
+  it("collapses a multi-line command to its first line", () => {
+    expect(activityLine(toolUse("Bash", { command: "pnpm build \\\n  && pnpm test" })))
+      .toBe("Bash pnpm build");
+  });
+
+  it("shows which file is being edited", () => {
+    expect(activityLine(toolUse("Edit", { file_path: "/var/www/bench/src/daemon/registry.ts" })))
+      .toBe("Edit src/daemon/registry.ts");
+  });
+
+  it("keeps a short path whole", () => {
+    expect(activityLine(toolUse("Read", { file_path: "README.md" }))).toBe("Read README.md");
+  });
+
+  it("shows what is being searched for", () => {
+    expect(activityLine(toolUse("Grep", { pattern: "evaluateStop" }))).toBe("Grep evaluateStop");
+  });
+
+  it("names the skill being invoked", () => {
+    expect(activityLine(toolUse("Skill", { skill: "bench-report" }))).toBe("Skill bench-report");
+  });
+
+  it("truncates something far too long to read at a glance", () => {
+    const line = activityLine(toolUse("Bash", { command: "x".repeat(200) }))!;
+    expect(line.length).toBeLessThanOrEqual(72);
+    expect(line.endsWith("\u2026")).toBe(true);
   });
 
   it("returns null for events with nothing worth showing", () => {

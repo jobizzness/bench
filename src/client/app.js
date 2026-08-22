@@ -2,7 +2,7 @@ const token = new URLSearchParams(location.search).get("token") ?? "";
 const authHeaders = { "x-bench-token": token };
 
 const state = {
-  rows: [], selectedId: null, entries: [], decision: null, choice: null,
+  rows: [], selectedId: null, entries: [], decision: null, choice: null, plan: null,
   /** `sessionId:reportSeq` of the decision on the table, so a roster tick
       does not reload it out from under a half-given answer. */
   decisionSeq: null,
@@ -19,6 +19,9 @@ const el = {
   headLabel: document.getElementById("stage-label"),
   headStatus: document.getElementById("stage-status"),
   thread: document.getElementById("thread"),
+  progress: document.getElementById("progress"),
+  plan: document.getElementById("plan"),
+  trail: document.getElementById("trail"),
   decision: document.getElementById("decision"),
   kind: document.getElementById("decision-kind"),
   title: document.getElementById("decision-title"),
@@ -763,11 +766,92 @@ function renderWorking() {
   const tokens = formatTokens(row.tokens);
   if (tokens) parts.push(`↓ ${tokens}`);
   if (row.detail && row.status === "working") parts.push(row.detail);
+  // Elapsed time alone cannot tell a long turn from a wedged one.
+  const last = row.activity?.at(-1);
+  if (last && row.status === "working") parts.push(ago(last.at));
   el.meta.textContent = parts.join("  ·  ");
 }
 
+/** How long ago, in the shortest form that is still honest. */
+function ago(iso) {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
+}
+
+async function loadPlan(row) {
+  if (!row) { state.plan = null; return; }
+  try {
+    const res = await api(`/api/sessions/${row.id}/plan`);
+    state.plan = res.ok ? (await res.json()).steps : null;
+  } catch {
+    state.plan = null;
+  }
+}
+
+/**
+ * Two views of the same turn. The plan is what the specialist says it is
+ * doing and can go stale; the trail is derived from its tool calls and
+ * cannot. Showing both is what makes either one trustworthy.
+ */
+function renderProgress() {
+  const row = selectedRow();
+  const steps = state.plan;
+  const trail = row?.activity ?? [];
+
+  if (!row || (!steps?.length && trail.length === 0)) {
+    el.progress.hidden = true;
+    return;
+  }
+  el.progress.hidden = false;
+
+  el.plan.replaceChildren(...(steps ?? []).map((step) => {
+    const li = document.createElement("li");
+    li.className = "step";
+    li.dataset.state = step.state;
+
+    const mark = document.createElement("span");
+    mark.className = "mark";
+    mark.textContent = step.state === "done" ? "\u2713" : step.state === "doing" ? "\u25b8" : "\u00b7";
+
+    const text = document.createElement("span");
+    text.textContent = step.text;
+
+    li.append(mark, text);
+    return li;
+  }));
+
+  // Newest first: what it is doing now is the thing you came to look at.
+  el.trail.replaceChildren(...[...trail].reverse().map((item) => {
+    const li = document.createElement("li");
+    li.className = "trail-item";
+
+    const what = document.createElement("span");
+    what.textContent = item.text;
+
+    const when = document.createElement("span");
+    when.className = "when";
+    when.textContent = ago(item.at);
+
+    li.append(what, when);
+    return li;
+  }));
+}
+
 // 250ms drives the glyph; everything else derives from it.
-setInterval(() => { tick += 1; renderWorking(); }, 250);
+setInterval(() => {
+  tick += 1;
+  renderWorking();
+  renderProgress();
+
+  // The plan is a file the specialist rewrites as it goes, so it is polled
+  // while the turn runs and left alone when nothing can change it.
+  const row = selectedRow();
+  if (row && row.status === "working" && tick % 8 === 0) {
+    void loadPlan(row).then(renderProgress);
+  }
+}, 250);
 
 function renderHead() {
   const row = selectedRow();
@@ -809,6 +893,8 @@ async function select(id) {
   await refreshThread();
   await loadDecision(selectedRow());
   renderRoster(); renderHead(); renderThread(); renderComposer(); renderWorking();
+  state.plan = null;
+  void loadPlan(selectedRow()).then(renderProgress);
 }
 
 async function submit() {
