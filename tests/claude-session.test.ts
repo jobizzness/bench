@@ -30,16 +30,44 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
-async function makeFakeCli(): Promise<string> {
+/**
+ * A CLI that takes its time. Each result reports how many stdin lines had
+ * arrived by the moment it was produced, which is how a test can see whether
+ * a queued message reached the CLI while a turn was still running.
+ */
+const SLOW_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let received = 0;
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    received += 1;
+    const text = JSON.parse(line).message.content;
+    setTimeout(() => {
+      process.stdout.write(JSON.stringify({
+        type: "result", subtype: "success", is_error: false,
+        session_id: "fake",
+        result: "echo:" + text + "|received=" + received,
+      }) + "\\n");
+    }, 250);
+  }
+});
+`;
+
+async function makeFakeCli(source: string = FAKE_CLI): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "bench-fakecli-"));
   const path = join(dir, "fake-claude.mjs");
-  await writeFile(path, FAKE_CLI);
+  await writeFile(path, source);
   await chmod(path, 0o755);
   return path;
 }
 
-async function makeSession() {
-  const claudeBin = await makeFakeCli();
+async function makeSession(cli: string = FAKE_CLI) {
+  const claudeBin = await makeFakeCli(cli);
   const worktree = await mkdtemp(join(tmpdir(), "bench-wt-"));
   const reportsDir = join(worktree, ".bench", "reports", "sess-1");
   await mkdir(reportsDir, { recursive: true });
@@ -178,6 +206,28 @@ describe("ClaudeSession", () => {
     expect(result.result).toMatch(/no report is required/i);
     expect(result.result).toContain("reply.html");
     expect(result.result).toContain("status?");
+    session.stop();
+  });
+
+  it("holds a mid-turn message until the running turn has ended", async () => {
+    const session = await makeSession(SLOW_CLI);
+    const results: string[] = [];
+    session.on("turn-end", (ev: any) => results.push(String(ev.result)));
+
+    session.start("do the work");
+    // Arrives while turn 1 is still running.
+    session.message("what directory are you in?");
+
+    await once(session, "turn-end");
+    // Turn 1 must have been the only thing the CLI had received.
+    expect(results[0]).toContain("received=1");
+    expect(results[0]).toContain("do the work");
+
+    await once(session, "turn-end");
+    expect(results).toHaveLength(2);
+    expect(results[1]).toContain("what directory are you in?");
+    expect(results[1]).toContain("Turn 2");
+
     session.stop();
   });
 
