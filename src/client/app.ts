@@ -3,6 +3,7 @@ import type { PlanStep } from "../daemon/plan.js";
 import { progressVisible } from "./progress.js";
 import { isWaiting } from "./waiting.js";
 import { shouldReconnect } from "./reconnect.js";
+import { renderMarkdown } from "./markdown.js";
 
 /**
  * Every element here is in index.html. A missing one is a bug in the markup,
@@ -287,20 +288,21 @@ function renderThread() {
     }
 
     if (entry.kind === "report") {
-      wrap.classList.add("wide");
       wrap.append(artifactCard({
         label: "report", title: entry.body, seq: entry.reportSeq!, file: "report.html",
       }));
     } else if (entry.kind === "reply" && entry.replySeq) {
       // The specialist answered with a page. Preview it - it is the answer.
-      wrap.classList.add("wide");
       wrap.append(artifactCard({
         label: "answer", title: entry.body, seq: entry.replySeq, file: "reply.html", preview: "true",
       }));
     } else {
       const bubble = document.createElement("div");
       bubble.className = "bubble";
-      bubble.textContent = entry.body;
+      // Specialists write markdown. Showing its punctuation instead of its
+      // shape made every reply harder to read than the transcript it exists
+      // to replace.
+      bubble.append(renderMarkdown(entry.body));
       wrap.append(bubble);
     }
     return wrap;
