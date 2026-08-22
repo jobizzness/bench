@@ -706,6 +706,10 @@ button, input, textarea, select { font: inherit; color: inherit; }
 #new-form input[aria-invalid="true"] { border-color: var(--broken); }
 
 .field-note { margin: 3px 0 18px; font-size: 12px; color: var(--faint); line-height: 1.5; }
+
+#new-form .check { display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
+#new-form .check input { width: auto; margin: 0; accent-color: var(--wants); }
+#new-form .check label { margin: 0; text-transform: none; letter-spacing: 0; }
 #new-form textarea, #new-form select { margin-bottom: 18px; }
 
 .error {

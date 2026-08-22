@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { loadConfig } from "./config.js";
 import { createServer, type SessionRegistryLike } from "./server.js";
-import { createWorktree, excludeBenchDir, inspectWorktree, removeWorktree } from "./worktree.js";
+import { createWorktree, currentBranch, excludeBenchDir, inspectWorktree, removeWorktree } from "./worktree.js";
 import { bootstrapWorktree, BootstrapError } from "./bootstrap.js";
 import { ClaudeSession } from "./claude-session.js";
 import { existsSync } from "node:fs";
@@ -25,6 +25,8 @@ interface Entry {
   /** Enough to bring the specialist back after the daemon has restarted. */
   worktree: string;
   branch: string;
+  /** False when the specialist works in the project checkout itself. */
+  isolated: boolean;
   model: string;
   port: number;
 }
@@ -55,6 +57,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // Records written before branches carried the session id named the
         // branch after the label.
         branch: rec.branch ?? `worktree-${rec.label}`,
+        // Absent on every record written before the toggle existed, and all
+        // of those had a worktree.
+        isolated: rec.isolated ?? true,
         model: rec.model,
         port: rec.port,
         row: {
@@ -214,7 +219,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     return session;
   }
 
-  async create(input: { project: string; label: string; model: string }): Promise<string> {
+  async create(input: {
+    project: string;
+    label: string;
+    model: string;
+    /** Default true: isolation is what a specialist is normally for. */
+    isolated?: boolean;
+  }): Promise<string> {
+    const isolated = input.isolated ?? true;
     const id = randomUUID();
     const reportsDir = join(input.project, ".bench", "reports", id);
 
@@ -225,6 +237,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       alive: false,
       worktree: "",
       branch: "",
+      isolated,
       model: input.model,
       port: 0,
       row: {
@@ -232,7 +245,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         label: input.label,
         project: input.project,
         status: "provisioning",
-        detail: "creating worktree",
+        detail: isolated ? "creating worktree" : "opening the checkout",
         latestReportSeq: null,
         answeredReportSeq: null,
         startedAt: new Date().toISOString(),
@@ -244,7 +257,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
     try {
       await excludeBenchDir(input.project);
-      const { worktree, branch } = await createWorktree(input.project, input.label, id);
+      // Without isolation the specialist works where the developer works: the
+      // checkout itself, on whatever branch is already there. Nothing is
+      // created, so nothing is Bench's to take away again.
+      const { worktree, branch } = isolated
+        ? await createWorktree(input.project, input.label, id)
+        : { worktree: input.project, branch: await currentBranch(input.project) };
       await mkdir(reportsDir, { recursive: true });
 
       const port = 3100 + this.entries.size;
@@ -269,7 +287,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       // by being created.
       await this.store.put({
         id, label: input.label, project: input.project, worktree, branch, reportsDir,
-        model: input.model, port, createdAt: new Date().toISOString(),
+        model: input.model, port, createdAt: new Date().toISOString(), isolated,
       });
       this.update(id, "awaiting_decision", "ready");
     } catch (error) {
@@ -338,7 +356,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     if (!entry) return { closed: false, changes: 0, unmergedCommits: 0 };
 
     const branch = entry.branch;
-    const state = entry.worktree === ""
+    // Closing a specialist that works in the checkout itself removes nothing,
+    // so there is no work for it to destroy and nothing to warn about. The
+    // developer's uncommitted changes stay exactly where they are.
+    const state = entry.worktree === "" || !entry.isolated
       ? { clean: true, changes: 0, unmergedCommits: 0 }
       : await inspectWorktree(entry.row.project, entry.worktree, branch);
 
@@ -347,7 +368,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     }
 
     entry.session?.stop();
-    if (entry.worktree !== "") {
+    // Only ever remove what Bench created. Pointed at a project checkout this
+    // would be `git worktree remove --force` and `branch -D` against the
+    // developer's own tree; git refuses both today, but not by our design.
+    if (entry.isolated && entry.worktree !== "") {
       await removeWorktree(entry.row.project, entry.worktree, branch).catch(() => {});
     }
     await this.store.remove(id);

@@ -16,7 +16,9 @@ export interface SessionRegistryLike {
   send(id: string, text: string): void;
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
   stop(id: string): void;
-  create(input: { project: string; label: string; model: string }): Promise<string>;
+  create(input: {
+    project: string; label: string; model: string; isolated?: boolean;
+  }): Promise<string>;
   on(event: "roster", listener: () => void): unknown;
 }
 
@@ -146,6 +148,9 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
         project: String(body.project),
         label: String(body.label),
         model: String(body.model ?? "opus"),
+        // Absent means isolated. A caller that has not heard of the toggle
+        // gets the safer of the two.
+        isolated: body.isolated !== false,
       });
       json(res, 200, { id });
       return;
