@@ -19,6 +19,12 @@ export interface SessionRecord {
   port: number;
   createdAt: string;
   /**
+   * Whether the CLI holds a conversation for this specialist yet. Absent
+   * means no: a specialist created and never prompted has nothing to resume,
+   * and asking the CLI to resume one anyway kills it on the spot.
+   */
+  resumable?: boolean;
+  /**
    * Whether the specialist got a worktree of its own. When it did not,
    * `worktree` is the project checkout itself and `branch` is whatever the
    * developer had checked out - neither is Bench's to remove.
@@ -69,6 +75,19 @@ export class SessionStore {
   async put(record: SessionRecord): Promise<void> {
     const rest = (await this.all()).filter((r) => r.id !== record.id);
     await this.write([...rest, record]);
+  }
+
+  /**
+   * Recorded when a turn ends rather than when one starts. A turn that never
+   * finished may have left no conversation behind, and the record has to mean
+   * "there is something to resume", not "we tried".
+   */
+  async markResumable(id: string): Promise<void> {
+    const all = await this.all();
+    const record = all.find((r) => r.id === id);
+    if (!record || record.resumable) return;
+    record.resumable = true;
+    await this.write(all);
   }
 
   async remove(id: string): Promise<void> {

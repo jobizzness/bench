@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { LineDecoder, userMessageLine, isResultEvent, activityLine, replyText } from "./stream-codec.js";
 import { buildSettings } from "./gates/settings.js";
 
+/** Enough for a refusal and a stack trace, not enough to hold a log file. */
+const STDERR_KEPT = 4000;
+
 export interface SessionOptions {
   id: string;
   label: string;
@@ -54,6 +57,7 @@ export class ClaudeSession extends EventEmitter {
   private running = false;
   private startedAt: number | null = null;
   private tokens = 0;
+  private lastStderr = "";
 
   /** Spawn the process and wait. A specialist with nothing to do costs
    * nothing: `claude -p` blocks on stdin until a prompt arrives. */
@@ -95,10 +99,18 @@ export class ClaudeSession extends EventEmitter {
     this.child.stdout.setEncoding("utf8");
     this.child.stdout.on("data", (chunk: string) => this.consume(chunk));
     this.child.stderr.setEncoding("utf8");
-    this.child.stderr.on("data", (chunk: string) => this.emit("stderr", chunk));
-    this.child.on("exit", (code) => {
+    this.child.stderr.on("data", (chunk: string) => {
+      // Kept rather than forwarded. When the CLI refuses to start it says why
+      // on stderr and exits, and that line is the whole explanation - without
+      // holding on to it the daemon can only report that a process exited.
+      // It used to be emitted instead, which nothing listened to.
+      this.lastStderr = (this.lastStderr + chunk).slice(-STDERR_KEPT);
+    });
+    // `close` rather than `exit`: exit can fire before the last stderr chunk
+    // has been read, which is exactly the chunk worth having.
+    this.child.on("close", (code) => {
       this.child = null;
-      this.emit("exit", code);
+      this.emit("exit", code, this.lastStderr.trim());
     });
 
   }

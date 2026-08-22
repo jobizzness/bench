@@ -27,6 +27,8 @@ interface Entry {
   branch: string;
   /** False when the specialist works in the project checkout itself. */
   isolated: boolean;
+  /** Whether the CLI has a conversation to resume. See SessionRecord. */
+  resumable: boolean;
   model: string;
   port: number;
 }
@@ -48,6 +50,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   async restore(): Promise<void> {
     for (const rec of await this.store.all()) {
       const worktreeGone = !existsSync(rec.worktree);
+      // Read once and used twice: what has already been answered, and whether
+      // this specialist has ever spoken.
+      const thread = await readThread(join(rec.reportsDir, "thread.jsonl"));
       this.entries.set(rec.id, {
         reportsDir: rec.reportsDir,
         threadPath: join(rec.reportsDir, "thread.jsonl"),
@@ -60,6 +65,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // Absent on every record written before the toggle existed, and all
         // of those had a worktree.
         isolated: rec.isolated ?? true,
+        // Absent on records written before this was tracked. Rather than
+        // guess, read it off the thread: a specialist with entries has taken
+        // turns, and a turn is exactly what leaves the CLI a conversation to
+        // resume. Guessing false is safe for the process and expensive for
+        // the developer - it silently drops everything the specialist knows.
+        resumable: rec.resumable ?? thread.length > 0,
         model: rec.model,
         port: rec.port,
         row: {
@@ -71,7 +82,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           latestReportSeq: await latestReportSeq(rec.reportsDir),
           // Derived from the thread rather than stored: the conversation
           // already records who spoke last, so it cannot drift.
-          answeredReportSeq: answeredReportSeq(await readThread(join(rec.reportsDir, "thread.jsonl"))),
+          answeredReportSeq: answeredReportSeq(thread),
           startedAt: null,
           tokens: 0,
           activity: [],
@@ -131,6 +142,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       model: opts.model,
       port: opts.port,
       resume: opts.resume,
+      claudeBin: this.config.claudeBin,
     });
 
     const syncProgress = () => {
@@ -160,10 +172,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       }
       this.update(id, "working", line);
     });
-    session.on("exit", () => {
+    session.on("exit", (code: number | null, stderr: string) => {
       const entry = this.entries.get(id);
       if (entry) entry.alive = false;
-      this.update(id, "crashed", "process exited");
+      // The CLI's own words first: it refuses with a plain sentence, and that
+      // sentence is the difference between a developer who knows what to do
+      // and one looking at "process exited".
+      const said = (stderr ?? "").split("\n").filter((l) => l.trim() !== "").pop();
+      this.update(id, "crashed", said ?? (code === null ? "process exited" : `process exited (${code})`));
     });
 
     session.on("reply", async (text: string) => {
@@ -204,6 +220,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         });
       }
 
+      // A turn has ended, so the CLI has written a conversation and the next
+      // process can pick it up.
+      if (!entry.resumable) {
+        entry.resumable = true;
+        void this.store.markResumable(id);
+      }
+
       syncProgress();
       const outcome = resolveTurnOutcome({
         isError: result?.is_error === true,
@@ -238,6 +261,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       worktree: "",
       branch: "",
       isolated,
+      resumable: false,
       model: input.model,
       port: 0,
       row: {
@@ -319,7 +343,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         worktree: entry.worktree,
         model: entry.model,
         port: entry.port,
-        resume: true,
+        // Only ever resume a conversation that exists. Asking the CLI to
+        // resume one that does not prints "No conversation found with session
+        // ID" and exits before the prompt is ever read.
+        resume: entry.resumable,
       });
     }
 

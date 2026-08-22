@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { describe, it, expect, vi } from "vitest";
+import { mkdtemp, mkdir, writeFile, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -184,6 +184,134 @@ async function setupReal(label = "auth") {
   return { home, project, worktree, branch, id, reportsDir, store, registry };
 }
 
+/**
+ * A stand-in for the CLI. `attach()` always spawns, so without one of these a
+ * unit test of the supervisor launches a real agent - and fails as an
+ * unhandled ENOENT on any machine that has no CLI installed.
+ */
+const DYING_CLI = `#!/usr/bin/env node
+process.stderr.write("No conversation found with session ID: sess-restore\\n");
+process.exit(1);
+`;
+
+const REPLYING_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "sess-restore", result: "ok",
+    }) + "\\n");
+  }
+});
+`;
+
+async function fakeCli(source: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "bench-fakecli-"));
+  const path = join(dir, "fake-claude.mjs");
+  await writeFile(path, source);
+  await chmod(path, 0o755);
+  return path;
+}
+
+describe("reviving a specialist after a restart", () => {
+  it("does not resume a specialist that has never had a turn", async () => {
+    // Created, then the daemon restarted before anyone prompted it. The CLI
+    // never wrote a conversation, so `--resume` finds nothing and the process
+    // dies on the spot: "No conversation found with session ID".
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    const store = new SessionStore(home);
+    await store.put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    const attach = vi.spyOn(registry as any, "attach").mockImplementation(() => {
+      (registry as any).entries.get(id).session = { send() {}, stop() {}, on() {} };
+    });
+    registry.send(id, "off you go");
+
+    expect(attach).toHaveBeenCalledWith(id, expect.objectContaining({ resume: false }));
+  });
+
+  it("records that there is something to resume once a turn has ended", async () => {
+    // The half of the fix that has to survive a restart. Without this write
+    // the next daemon resumes nothing and the process dies on the spot, which
+    // is the bug this whole change is about.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    const store = new SessionStore(home);
+    await store.put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+    const registry = new SessionRegistry({
+      ...config, claudeBin: await fakeCli(REPLYING_CLI),
+    } as any);
+    await registry.restore();
+
+    expect((await store.all()).find((r) => r.id === id)?.resumable).toBeUndefined();
+
+    registry.send(id, "off you go");
+    await new Promise((r) => setTimeout(r, 600));
+
+    expect((await store.all()).find((r) => r.id === id)?.resumable).toBe(true);
+  });
+
+  it("says why the process died rather than only that it did", async () => {
+    // The CLI explains itself on stderr before exiting. Reporting a bare
+    // "process exited" throws away the one line that would have told the
+    // developer what to do about it.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    const store = new SessionStore(home);
+    await store.put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    const registryWithFake = new SessionRegistry({
+      ...config, claudeBin: await fakeCli(DYING_CLI),
+    } as any);
+    await registryWithFake.restore();
+
+    (registryWithFake as any).attach(id, {
+      label: "auth", worktree, model: "opus", port: 3101, resume: false,
+    });
+    // The real thing dies on its own; waiting for that is the point.
+    await new Promise((r) => setTimeout(r, 400));
+
+    const row = registryWithFake.list().find((r) => r.id === id)!;
+    expect(row.status).toBe("crashed");
+    expect(row.detail).toContain("No conversation found with session ID");
+  });
+
+  it("resumes one that has, so it remembers what it was doing", async () => {
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    const store = new SessionStore(home);
+    await store.put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z", resumable: true,
+    });
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    const attach = vi.spyOn(registry as any, "attach").mockImplementation(() => {
+      (registry as any).entries.get(id).session = { send() {}, stop() {}, on() {} };
+    });
+    registry.send(id, "carry on");
+
+    expect(attach).toHaveBeenCalledWith(id, expect.objectContaining({ resume: true }));
+  });
+});
+
 /** A specialist created with the worktree toggle off works in the checkout. */
 async function setupInPlace() {
   const home = await mkdtemp(join(tmpdir(), "bench-home-"));
@@ -362,5 +490,53 @@ describe("answered decisions", () => {
     await registry.restore();
 
     expect(registry.list()[0].answeredReportSeq).toBeNull();
+  });
+});
+
+describe("what a restored specialist may resume", () => {
+  it("resumes one that has already spoken, even with no flag on its record", async () => {
+    // Records written before resumable was tracked belong to the specialists
+    // that have been working longest. Guessing false drops everything they
+    // know; the thread already says whether they have taken a turn.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await writeFile(join(reportsDir, "thread.jsonl"),
+      JSON.stringify({ at: "2026-08-22T00:00:00.000Z", kind: "user", body: "do it" }) + "\n" +
+      JSON.stringify({ at: "2026-08-22T00:01:00.000Z", kind: "reply", body: "done" }) + "\n");
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    } as any);
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect((registry as any).entries.get(id).resumable).toBe(true);
+  });
+
+  it("does not resume one that never took a turn", async () => {
+    // Resuming a conversation the CLI never wrote kills the process.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    } as any);
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect((registry as any).entries.get(id).resumable).toBe(false);
+  });
+
+  it("believes the record when it says so", async () => {
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z", resumable: true,
+    } as any);
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect((registry as any).entries.get(id).resumable).toBe(true);
   });
 });
