@@ -269,3 +269,43 @@ describe("branch identity", () => {
     expect(stdout.trim()).toBe("");
   });
 });
+
+describe("answered decisions", () => {
+  it("derives what has already been answered from the thread on restore", async () => {
+    // A restart must not put an answered question back on the table.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await mkdir(join(reportsDir, "1"), { recursive: true });
+    await writeFile(join(reportsDir, "1", "report.html"), "<h1>done</h1>");
+    await writeFile(join(reportsDir, "thread.jsonl"),
+      JSON.stringify({ at: "2026-08-22T00:00:00.000Z", kind: "report", body: "Ready", reportSeq: 1 }) + "\n" +
+      JSON.stringify({ at: "2026-08-22T00:01:00.000Z", kind: "user", body: "chose proceed" }) + "\n");
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    const row = registry.list()[0];
+    expect(row.latestReportSeq).toBe(1);
+    expect(row.answeredReportSeq).toBe(1);
+  });
+
+  it("leaves an unanswered report waiting after a restore", async () => {
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await mkdir(join(reportsDir, "1"), { recursive: true });
+    await writeFile(join(reportsDir, "1", "report.html"), "<h1>done</h1>");
+    await writeFile(join(reportsDir, "thread.jsonl"),
+      JSON.stringify({ at: "2026-08-22T00:00:00.000Z", kind: "report", body: "Ready", reportSeq: 1 }) + "\n");
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect(registry.list()[0].answeredReportSeq).toBeNull();
+  });
+});

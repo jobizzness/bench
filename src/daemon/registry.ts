@@ -12,7 +12,8 @@ import { latestReportSeq, findReport } from "./reports.js";
 import { SessionStore } from "./store.js";
 import { appendActivity } from "./activity.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
-import { appendEntry } from "./thread.js";
+import { appendEntry, readThread } from "./thread.js";
+import { answeredReportSeq } from "./answered.js";
 import type { RosterRow, SessionStatus } from "../shared/types.js";
 
 interface Entry {
@@ -63,6 +64,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           status: worktreeGone ? "crashed" : "awaiting_decision",
           detail: worktreeGone ? "worktree is gone" : "ready",
           latestReportSeq: await latestReportSeq(rec.reportsDir),
+          // Derived from the thread rather than stored: the conversation
+          // already records who spoke last, so it cannot drift.
+          answeredReportSeq: answeredReportSeq(await readThread(join(rec.reportsDir, "thread.jsonl"))),
           startedAt: null,
           tokens: 0,
           activity: [],
@@ -230,6 +234,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         status: "provisioning",
         detail: "creating worktree",
         latestReportSeq: null,
+        answeredReportSeq: null,
         startedAt: new Date().toISOString(),
         tokens: 0,
         activity: [],
@@ -301,6 +306,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     }
 
     void appendEntry(entry.threadPath, { kind: "user", body: text });
+    // Prompting a specialist is how a decision gets answered, so whatever
+    // was on the table is answered now.
+    entry.row.answeredReportSeq = entry.row.latestReportSeq;
     // The trail describes the turn in flight, so it starts empty.
     entry.row.activity = [];
     entry.session!.send(text);

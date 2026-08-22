@@ -126,6 +126,26 @@ beforeAll(async () => {
   await settle();
 });
 
+describe("an answered decision", () => {
+  it("leaves the screen once it has been answered", async () => {
+    // Answering is the whole interaction. The row still says it is waiting
+    // on you with the same latest report, so only the answered seq can tell
+    // the difference between a question and one already dealt with.
+    socket.onmessage({ data: JSON.stringify({ type: "roster", rows: [
+      { ...ROW, latestReportSeq: 1, answeredReportSeq: 1 },
+    ] }) });
+    await settle();
+    await settle();
+
+    expect($<HTMLElement>("#decision").hidden).toBe(true);
+
+    // Put it back for the suites that follow.
+    socket.onmessage({ data: JSON.stringify({ type: "roster", rows: [ROW] }) });
+    await settle();
+    await settle();
+  });
+});
+
 describe("the progress panel beside an intake", () => {
   it("gets out of the way while a decision is waiting", async () => {
     // A decision means the turn ended, so a checklist above it is stale by

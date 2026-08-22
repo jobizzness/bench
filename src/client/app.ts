@@ -1,6 +1,7 @@
 import type { Decision, IntakeQuestion, RosterRow } from "../shared/types.js";
 import type { PlanStep } from "../daemon/plan.js";
 import { progressVisible } from "./progress.js";
+import { isWaiting } from "./waiting.js";
 
 /**
  * Every element here is in index.html. A missing one is a bug in the markup,
@@ -848,7 +849,10 @@ function renderHead() {
 }
 
 async function loadDecision(row: RosterRow | null) {
-  if (!row || row.status !== "awaiting_decision" || row.latestReportSeq === null) {
+  // An answered decision is not a decision. Without this the same question
+  // renders again the moment the specialist's next turn ends, because the
+  // row still says "awaiting_decision" with the same latest report.
+  if (!row || !isWaiting(row)) {
     state.decision = null;
     state.decisionSeq = null;
     return;
