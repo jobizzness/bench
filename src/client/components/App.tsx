@@ -39,7 +39,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [artifact, setArtifact] = useState<ArtifactRef | null>(null);
   const [creating, setCreating] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
 
   // Closing the one you were reading leaves the stage pointing at nothing.
   const closeSpecialist = useCloseSpecialist(

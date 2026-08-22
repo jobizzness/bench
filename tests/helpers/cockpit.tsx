@@ -38,7 +38,11 @@ export interface Cockpit {
   /** Do something to the DOM directly and let React settle after it. */
   run: (fn: () => void) => Promise<void>;
   /** A key struck while the caret is in a field, which is where it bubbles from. */
-  pressIn: (element: Element | null | undefined, key: string) => Promise<void>;
+  pressIn: (
+    element: Element | null | undefined,
+    key: string,
+    modifiers?: { shiftKey?: boolean },
+  ) => Promise<void>;
   click: (element: Element | null | undefined) => Promise<void>;
   type: (input: Element | null | undefined, value: string) => Promise<void>;
   $: <T extends Element>(selector: string) => T | null;
@@ -148,10 +152,12 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       await settle();
     },
     run: async (fn) => { await act(async () => { fn(); }); await settle(); },
-    pressIn: async (element, key) => {
+    pressIn: async (element, key, modifiers = {}) => {
       if (!element) throw new Error("nothing to press a key in");
       await act(async () => {
-        element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+        element.dispatchEvent(
+          new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers }),
+        );
       });
       await settle();
     },
@@ -162,11 +168,15 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
     },
     type: async (input, value) => {
       if (!input) throw new Error("nothing to type into");
-      const field = input as HTMLInputElement;
+      const field = input as HTMLInputElement | HTMLTextAreaElement;
       await act(async () => {
         // React listens for input on its own value tracker, so the setter has
-        // to be the native one or the change never reaches state.
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+        // to be the native one or the change never reaches state - and it has
+        // to come off the right prototype, or the tracker never notices.
+        const proto = field instanceof HTMLTextAreaElement
+          ? HTMLTextAreaElement.prototype
+          : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, "value")!.set!;
         setter.call(field, value);
         field.dispatchEvent(new Event("input", { bubbles: true }));
       });

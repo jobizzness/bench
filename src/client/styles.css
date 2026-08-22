@@ -615,7 +615,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* ── Composer ───────────────────────────────────────────────────────── */
 
-#composer-form { display: flex; align-items: stretch; gap: 10px; }
+/* Bottom-aligned, not stretched: the box grows with what you type and a send
+   button that grew with it would become a slab. */
+#composer-form { display: flex; align-items: flex-end; gap: 10px; }
 
 /* The button says what pressing it does. With nothing overridden it reads
    "Go with all 6 assumptions" - the whole point is that this is one key. */
@@ -624,7 +626,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   border: 1px solid var(--wants-dim);
   border-bottom-width: 2px;
   border-radius: 8px;
-  padding: 0 18px;
+  padding: 12px 18px;
   background: linear-gradient(180deg, var(--raised), var(--panel));
   color: var(--wants);
   font: 500 13px/1 var(--sans);
@@ -650,9 +652,21 @@ button, input, textarea, select { font: inherit; color: inherit; }
   border-radius: 8px;
   padding: 11px 14px;
   font-size: 14px;
-  transition: border-color 120ms var(--ease);
+  /* Height is set from the content by useAutoGrow, so the drag handle would
+     only fight it. Vertical scroll takes over once the cap is reached. */
+  resize: none;
+  overflow-y: auto;
+  display: block;
+  transition: border-color 120ms var(--ease), background 120ms var(--ease);
 }
 #composer-text::placeholder { color: var(--faint); }
+/* The one box you type in said nothing until you were already in it. Hover
+   sits a step below focus - firm line, faint lift - so the two never read as
+   the same state. */
+#composer-text:hover:not(:disabled):not(:focus) {
+  border-color: var(--line-firm);
+  background: var(--hover);
+}
 #composer-text:focus { outline: none; border-color: var(--wants-dim); }
 #composer-text:disabled { opacity: 0.4; cursor: not-allowed; }
 
