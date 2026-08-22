@@ -50,6 +50,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   async restore(): Promise<void> {
     for (const rec of await this.store.all()) {
       const worktreeGone = !existsSync(rec.worktree);
+      // Read once and used twice: what has already been answered, and whether
+      // this specialist has ever spoken.
+      const thread = await readThread(join(rec.reportsDir, "thread.jsonl"));
       this.entries.set(rec.id, {
         reportsDir: rec.reportsDir,
         threadPath: join(rec.reportsDir, "thread.jsonl"),
@@ -62,10 +65,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // Absent on every record written before the toggle existed, and all
         // of those had a worktree.
         isolated: rec.isolated ?? true,
-        // Absent on records written before this was tracked. False is the
-        // safe reading: resuming nothing kills the process, while starting a
-        // conversation that already existed only costs its memory of it.
-        resumable: rec.resumable ?? false,
+        // Absent on records written before this was tracked. Rather than
+        // guess, read it off the thread: a specialist with entries has taken
+        // turns, and a turn is exactly what leaves the CLI a conversation to
+        // resume. Guessing false is safe for the process and expensive for
+        // the developer - it silently drops everything the specialist knows.
+        resumable: rec.resumable ?? thread.length > 0,
         model: rec.model,
         port: rec.port,
         row: {
@@ -77,7 +82,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           latestReportSeq: await latestReportSeq(rec.reportsDir),
           // Derived from the thread rather than stored: the conversation
           // already records who spoke last, so it cannot drift.
-          answeredReportSeq: answeredReportSeq(await readThread(join(rec.reportsDir, "thread.jsonl"))),
+          answeredReportSeq: answeredReportSeq(thread),
           startedAt: null,
           tokens: 0,
           activity: [],

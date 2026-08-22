@@ -492,3 +492,51 @@ describe("answered decisions", () => {
     expect(registry.list()[0].answeredReportSeq).toBeNull();
   });
 });
+
+describe("what a restored specialist may resume", () => {
+  it("resumes one that has already spoken, even with no flag on its record", async () => {
+    // Records written before resumable was tracked belong to the specialists
+    // that have been working longest. Guessing false drops everything they
+    // know; the thread already says whether they have taken a turn.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await writeFile(join(reportsDir, "thread.jsonl"),
+      JSON.stringify({ at: "2026-08-22T00:00:00.000Z", kind: "user", body: "do it" }) + "\n" +
+      JSON.stringify({ at: "2026-08-22T00:01:00.000Z", kind: "reply", body: "done" }) + "\n");
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    } as any);
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect((registry as any).entries.get(id).resumable).toBe(true);
+  });
+
+  it("does not resume one that never took a turn", async () => {
+    // Resuming a conversation the CLI never wrote kills the process.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    } as any);
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect((registry as any).entries.get(id).resumable).toBe(false);
+  });
+
+  it("believes the record when it says so", async () => {
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z", resumable: true,
+    } as any);
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect((registry as any).entries.get(id).resumable).toBe(true);
+  });
+});
