@@ -18,6 +18,15 @@ export interface SessionRecord {
   model: string;
   port: number;
   createdAt: string;
+  /**
+   * Whether the specialist got a worktree of its own. When it did not,
+   * `worktree` is the project checkout itself and `branch` is whatever the
+   * developer had checked out - neither is Bench's to remove.
+   *
+   * Optional because every record written before the toggle existed was
+   * isolated; absent means true.
+   */
+  isolated?: boolean;
 }
 
 const REQUIRED = ["id", "label", "project", "worktree", "reportsDir", "model"] as const;

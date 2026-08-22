@@ -86,13 +86,19 @@
 
     <label for="f-label">Label</label>
     <input id="f-label" autocomplete="off" placeholder="password-reset" required />
-    <p class="field-note">Lowercase letters, numbers and hyphens. Becomes the worktree and branch name.</p>
+    <p class="field-note">Lowercase letters, numbers and hyphens. Names the branch and worktree.</p>
 
     <label for="f-model">Model</label>
     <select id="f-model">
       <option value="opus">Opus</option>
       <option value="sonnet">Sonnet</option>
     </select>
+
+    <div class="check">
+      <input type="checkbox" id="f-worktree" checked />
+      <label for="f-worktree">Start in a worktree</label>
+    </div>
+    <p class="field-note" id="f-worktree-note"></p>
 
     <p id="f-error" class="error" hidden></p>
 

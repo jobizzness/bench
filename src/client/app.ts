@@ -1015,6 +1015,8 @@ const dialog = {
   projectList: byId<HTMLDataListElement>("project-list"),
   label: byId<HTMLInputElement>("f-label"),
   model: byId<HTMLSelectElement>("f-model"),
+  worktree: byId<HTMLInputElement>("f-worktree"),
+  worktreeNote: byId("f-worktree-note"),
   error: byId("f-error"),
   cancel: byId<HTMLButtonElement>("f-cancel"),
   create: byId<HTMLButtonElement>("f-create"),
@@ -1049,9 +1051,23 @@ function resolveProject(value: string) {
   return value.startsWith("/") ? value : null;
 }
 
+/**
+ * Two different jobs, and the difference is worth a sentence: a worktree is
+ * private, the checkout is shared with the developer and with every other
+ * specialist pointed at it.
+ */
+function describeWorktreeChoice() {
+  dialog.worktreeNote.textContent = dialog.worktree.checked
+    ? "Its own branch and files. Dependencies are linked from your checkout, never installed."
+    : "Works directly in your checkout, on the branch you have open - alongside you and any other specialist there.";
+}
+
+dialog.worktree.onchange = describeWorktreeChoice;
+
 el.newSession.onclick = async () => {
   showError("");
   dialog.form.reset();
+  describeWorktreeChoice();
   dialog.label.setAttribute("aria-invalid", "false");
   await loadProjects();
   dialog.root.showModal();
@@ -1089,7 +1105,9 @@ dialog.form.onsubmit = async (event) => {
     const res = await api("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ project, label, model: dialog.model.value }),
+      body: JSON.stringify({
+        project, label, model: dialog.model.value, isolated: dialog.worktree.checked,
+      }),
     });
 
     // The old prompt flow discarded this response, so a rejected request

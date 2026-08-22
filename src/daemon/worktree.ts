@@ -41,6 +41,20 @@ export async function createWorktree(
 }
 
 /**
+ * The branch the developer already has checked out. Recorded rather than
+ * assumed for a specialist working in the checkout itself, so the roster can
+ * say where it is - and so nothing later guesses "main" and deletes it.
+ */
+export async function currentBranch(repo: string): Promise<string> {
+  try {
+    const { stdout } = await exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: repo });
+    return stdout.trim() || "HEAD";
+  } catch {
+    return "HEAD";
+  }
+}
+
+/**
  * Everything Bench creates inside a target repo, kept out of git via
  * .git/info/exclude rather than .gitignore so the repo's own file is never
  * touched. The worktrees matter as much as the reports: a repo that does
@@ -69,8 +83,8 @@ export async function excludeBenchDir(repo: string): Promise<void> {
 
 
 /**
- * Bench installs into every worktree it creates, so node_modules, a lockfile
- * the install generated and the env symlinks are its own leavings rather
+ * Bench links node_modules and the env files into every worktree it creates,
+ * so those, and a lockfile some tool regenerated, are its own leavings rather
  * than the specialist's work. Counting them would make every worktree look
  * unsaved and close would refuse forever.
  *
@@ -92,8 +106,13 @@ const BOOTSTRAP_LEFTOVERS = [
 function isBootstrapLeftover(statusLine: string): boolean {
   if (!statusLine.startsWith("??")) return false;
   const path = statusLine.slice(3).trim().replace(/^"|"$/g, "");
-  return BOOTSTRAP_LEFTOVERS.some((entry) =>
-    entry.endsWith("/") ? path === entry || path.startsWith(entry) : path === entry);
+  return BOOTSTRAP_LEFTOVERS.some((entry) => {
+    if (!entry.endsWith("/")) return path === entry;
+    // git prints a directory with its trailing slash but a symlink to one
+    // without it, and bootstrap links node_modules rather than creating it.
+    // Matching only the slashed form left every worktree looking unsaved.
+    return path === entry || path === entry.slice(0, -1) || path.startsWith(entry);
+  });
 }
 
 export interface WorktreeState {

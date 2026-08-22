@@ -25,9 +25,16 @@ subagents, web search. Bench supervises it; it does not replace it.
 
 ## What it does
 
-- **Specialists.** One long-lived `claude -p` process each, in its own git
-  worktree on its own branch, bootstrapped with dependencies and a symlinked
-  `.env` so it can actually build and test what it writes.
+- **Specialists.** One long-lived `claude -p` process each, by default in its
+  own git worktree on its own branch, with `node_modules` and `.env` symlinked
+  from your checkout so it can build and test what it writes without an install
+  of its own. Untick **Start in a worktree** and it works directly in your
+  checkout instead, on the branch you already have open.
+- **Nothing is installed, and nothing is copied.** A worktree borrows the
+  dependencies your checkout already has, so provisioning takes milliseconds
+  rather than the twenty seconds an install cost. The flip side is that a
+  specialist cannot add a dependency: those commands are denied, because
+  through the link they would rewrite your own `node_modules`.
 - **Decisions, not transcripts.** Reports render as pages with numbered options.
   Press `1`–`n`, `Enter`. The answer goes back into the live session.
 - **Intake.** A specialist can ask everything it needs at once, with its own
