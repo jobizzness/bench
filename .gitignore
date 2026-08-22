@@ -5,6 +5,5 @@ dist/
 .env.*
 !.env.example
 .DS_Store
-
 # Worktrees Bench creates when pointed at this repo
 .claude/worktrees/

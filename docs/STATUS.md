@@ -18,10 +18,20 @@ speaking stream-json in both directions. A turn ends with a `result` event
 and the process blocks on stdin, so the turn is the unit of control and no
 separate "needs input" protocol exists. Verified by running one.
 
-**The report gate.** A Specialist cannot end a work turn without writing a
-report. Proven the hard way: an agent told only to "say done" was blocked
-at `Stop` and forced to produce `report.html` and `decision.json` it was
-never asked for.
+**Reports, written when the agent judges one is warranted.** There is one
+kind of turn. Nothing declares a prompt "work", and nothing blocks at
+`Stop`: the specialist decides whether a turn earned a report — a decision
+that needs you, finished work you have to understand, a spec to approve, or
+being stuck — and otherwise just replies. Verified against the real CLI:
+a trivial question produced a reply and no report, an explicit piece of
+work produced `report.html` and `decision.json`.
+
+This replaced a gate that blocked every work turn at `Stop` until a report
+existed. The gate did what it claimed — an agent told only to "say done"
+was forced to produce a report it was never asked for — but forcing the
+artifact is not the same as earning it, and it charged a flagship model for
+paperwork on trivial turns. The same trivial prompt now costs 11s instead
+of 49s.
 
 **The attribution gate.** A `git commit` carrying `Co-Authored-By: Claude`
 or a "Generated with" footer is denied at `PreToolUse`. It matches
@@ -32,14 +42,13 @@ created, 1.2G of dependencies installed, `.env` symlinked to the main
 checkout rather than copied, correct branch, and the main working tree left
 clean.
 
-**Chat, including mid-turn.** A message can be sent to a specialist and
-answered in its own turn, whether the specialist is idle or working. A
-message that arrives mid-turn is held by the daemon and only written to
+**Prompting, including mid-turn.** A specialist is created empty and waits;
+what it is for is the first thing you type at it, not a field in a dialog.
+A prompt that arrives mid-turn is held by the daemon and only written to
 stdin once the running turn ends — writing it earlier let the CLI feed it
 to the turn already in flight, which is what [#1](https://github.com/jobizzness/bench/issues/1)
-was. Verified against the real CLI: a message enqueued 700ms into a work
-turn produced two turn ends, and the gate log shows turn 2 marked `chat`
-and exempt.
+was. Verified against the real CLI: a prompt enqueued 700ms into a running
+turn produced two turn ends rather than one.
 
 **Reply artifacts.** A chat answer with any structure comes back as a
 rendered page, not prose. Verified: a specialist wrote a 3127-byte
@@ -74,19 +83,49 @@ one, so the issue stays open with a corrected premise.
 then resume into `acceptEdits`. Both halves are verified to work —
 `--resume` preserves full context across a mode switch, and plan mode
 genuinely refuses to write — but it is not wired up. Specialists currently
-run in `acceptEdits` for their whole life. The report gate still holds;
-what is missing is the guarantee that nothing was edited before you said
-yes. This is the first thing worth restoring.
+run in `acceptEdits` for their whole life. What is missing is the
+guarantee that nothing was edited before you said yes. This is the first thing worth restoring.
 
 **The fleet.** Real port allocation (currently `3100 + session count`), the
 sub-agent tree, a decision queue, the migration lock that stops two agents
 running Prisma migrations against the same dev database, and cross-worktree
-write denial.
+write denial. The last one has already bitten: a specialist editing
+`src/client/` on its own branch while the same files were being changed on
+`main` is a merge conflict nobody is warned about.
 
 ## Bugs found by using it
 
 Worth recording, because none were caught by tests.
 
+- **Specialists could write code and never run it.** `--permission-mode
+  acceptEdits` auto-accepts edits and nothing else, and a `-p` session is
+  non-interactive, so every `pnpm build`, `pnpm test` and `npx tsc` was
+  refused outright with no prompt to answer. A specialist could not compile
+  or test a single line it wrote — while the report it is asked to produce
+  is built around a Verified list. `buildSettings` now allows the common
+  toolchain, and denies `git push`: publishing a branch is not a build step.
+  Hooks are evaluated regardless of permissions, so the attribution gate
+  still denies an AI-attributed commit the allowlist would otherwise permit
+  — verified against the real CLI.
+- **Reports were written where the specialist was not allowed to write.**
+  The reports directory lives with the project so it outlives the worktree,
+  which put it outside the session's workspace: every `report.html` was
+  refused with *"Claude requested permissions to write to … but you haven't
+  granted it yet"*, and specialists quietly fell back to `/tmp`. The roster
+  showed no report waiting while a finished 13KB report sat on disk. Fixed
+  by passing `--add-dir` for the reports directory.
+
+  Worth its own line: **the test suite could not have caught this.** Every
+  test builds its fixtures with `mkdtemp(tmpdir())`, and writes under `/tmp`
+  are permitted where writes elsewhere are not — so the end-to-end test
+  passed against a path that could never fail. It now runs outside `/tmp`,
+  where the refusal actually reproduces.
+- **Creating a specialist demanded a task before it existed.** The New
+  Session dialog asked what the specialist was for, so the first prompt was
+  buried in a form rather than typed at it — and `create()` never wrote that
+  task to the thread, so the cockpit showed an empty conversation beside a
+  specialist burning Opus tokens. The field is gone; a specialist opens
+  empty and waits to be told.
 - **A message sent to a working specialist was never answered.** It was
   written to stdin immediately, framed for a turn that had not started; the
   CLI handed it to the turn already running, which absorbed it. Fixed by

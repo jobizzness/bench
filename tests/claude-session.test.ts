@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, writeFile, chmod, mkdir, readFile } from "node:fs/promises";
+import { mkdtemp, writeFile, chmod, mkdir, readFile, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
@@ -8,7 +8,6 @@ import { ClaudeSession } from "../src/daemon/claude-session.js";
 /** A stand-in for the claude CLI that speaks stream-json over stdio. */
 const FAKE_CLI = `#!/usr/bin/env node
 process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
-let turn = 0;
 let carry = "";
 process.stdin.on("data", (chunk) => {
   carry += chunk.toString();
@@ -16,7 +15,6 @@ process.stdin.on("data", (chunk) => {
   carry = lines.pop();
   for (const line of lines) {
     if (line.trim() === "") continue;
-    turn += 1;
     const text = JSON.parse(line).message.content;
     process.stdout.write(JSON.stringify({
       type: "assistant",
@@ -33,7 +31,7 @@ process.stdin.on("data", (chunk) => {
 /**
  * A CLI that takes its time. Each result reports how many stdin lines had
  * arrived by the moment it was produced, which is how a test can see whether
- * a queued message reached the CLI while a turn was still running.
+ * a queued prompt reached the CLI while a turn was still running.
  */
 const SLOW_CLI = `#!/usr/bin/env node
 process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
@@ -58,7 +56,7 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
-async function makeFakeCli(source: string = FAKE_CLI): Promise<string> {
+async function makeFakeCli(source: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "bench-fakecli-"));
   const path = join(dir, "fake-claude.mjs");
   await writeFile(path, source);
@@ -86,10 +84,25 @@ async function makeSession(cli: string = FAKE_CLI) {
 }
 
 describe("ClaudeSession", () => {
+  it("opens without starting a turn", async () => {
+    // A specialist is created before anyone has said what it is for. It must
+    // sit there costing nothing until it is prompted.
+    const session = await makeSession();
+    const opts = (session as any).opts;
+
+    session.open();
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(session.turn).toBe(0);
+    await expect(access(join(opts.reportsDir, ".turn"))).rejects.toThrow();
+    session.stop();
+  });
+
   it("emits turn-end when the result event arrives", async () => {
     const session = await makeSession();
     const ended = once(session, "turn-end");
-    session.start("do the thing");
+    session.open();
+    session.send("do the thing");
 
     const [result] = await ended;
     expect(result.type).toBe("result");
@@ -100,29 +113,46 @@ describe("ClaudeSession", () => {
 
   it("increments the turn counter across turns", async () => {
     const session = await makeSession();
+    session.open();
 
-    session.start("first");
+    session.send("first");
     await once(session, "turn-end");
     expect(session.turn).toBe(1);
 
-    session.answer("second");
+    session.send("second");
     await once(session, "turn-end");
     expect(session.turn).toBe(2);
 
     session.stop();
   });
 
-  it("delivers an answer as the next user message", async () => {
+  it("delivers a later prompt as the next user message", async () => {
     const session = await makeSession();
-    session.start("first");
+    session.open();
+    session.send("first");
     await once(session, "turn-end");
 
     const ended = once(session, "turn-end");
-    session.answer("chose option A");
+    session.send("chose option A");
     const [result] = await ended;
 
     expect(result.result).toContain("chose option A");
     expect(result.result).toContain("Turn 2");
+    session.stop();
+  });
+
+  it("leaves the choice of report or reply to the agent", async () => {
+    const session = await makeSession();
+    const ended = once(session, "turn-end");
+    session.open();
+    session.send("do it");
+    const [result] = await ended;
+
+    // The framing names the directory and the four cases, and says the call
+    // is the agent's. It must never declare the turn's kind for it.
+    expect(result.result).toMatch(/is your call/i);
+    expect(result.result).toMatch(/stuck/i);
+    expect(result.result).not.toMatch(/no report is required/i);
     session.stop();
   });
 
@@ -131,7 +161,8 @@ describe("ClaudeSession", () => {
     const seen: string[] = [];
     session.on("activity", (line: string) => seen.push(line));
 
-    session.start("work");
+    session.open();
+    session.send("work");
     await once(session, "turn-end");
 
     expect(seen).toContain("Bash");
@@ -140,7 +171,8 @@ describe("ClaudeSession", () => {
 
   it("emits exit when the process ends", async () => {
     const session = await makeSession();
-    session.start("work");
+    session.open();
+    session.send("work");
     await once(session, "turn-end");
 
     const exited = once(session, "exit");
@@ -148,75 +180,31 @@ describe("ClaudeSession", () => {
     await exited;
   });
 
-  it("writes a turn marker the report gate can read", async () => {
+  it("writes a turn marker naming the current turn", async () => {
     const session = await makeSession();
-    session.start("work");
+    session.open();
+    session.send("work");
     await once(session, "turn-end");
 
     const opts = (session as any).opts;
-    const marker = await readFile(join(opts.reportsDir, ".turn"), "utf8");
-    expect(marker).toBe("1");
+    expect(await readFile(join(opts.reportsDir, ".turn"), "utf8")).toBe("1");
 
-    session.answer("next");
+    session.send("next");
     await once(session, "turn-end");
     expect(await readFile(join(opts.reportsDir, ".turn"), "utf8")).toBe("2");
 
     session.stop();
   });
 
-  it("marks a started task and an answer as work turns", async () => {
-    const session = await makeSession();
-    const opts = (session as any).opts;
-
-    session.start("do it");
-    await once(session, "turn-end");
-    expect(await readFile(join(opts.reportsDir, ".turn-kind"), "utf8")).toBe("work");
-
-    session.answer("chose a");
-    await once(session, "turn-end");
-    expect(await readFile(join(opts.reportsDir, ".turn-kind"), "utf8")).toBe("work");
-
-    session.stop();
-  });
-
-  it("marks a message as a chat turn", async () => {
-    const session = await makeSession();
-    session.start("do it");
-    await once(session, "turn-end");
-
-    session.message("why zod?");
-    await once(session, "turn-end");
-
-    const opts = (session as any).opts;
-    expect(await readFile(join(opts.reportsDir, ".turn-kind"), "utf8")).toBe("chat");
-    expect(session.turnKind).toBe("chat");
-
-    session.stop();
-  });
-
-  it("tells a chat turn it does not need a report", async () => {
-    const session = await makeSession();
-    session.start("do it");
-    await once(session, "turn-end");
-
-    const ended = once(session, "turn-end");
-    session.message("status?");
-    const [result] = await ended;
-
-    expect(result.result).toMatch(/no report is required/i);
-    expect(result.result).toContain("reply.html");
-    expect(result.result).toContain("status?");
-    session.stop();
-  });
-
-  it("holds a mid-turn message until the running turn has ended", async () => {
+  it("holds a mid-turn prompt until the running turn has ended", async () => {
     const session = await makeSession(SLOW_CLI);
     const results: string[] = [];
     session.on("turn-end", (ev: any) => results.push(String(ev.result)));
 
-    session.start("do the work");
+    session.open();
+    session.send("do the work");
     // Arrives while turn 1 is still running.
-    session.message("what directory are you in?");
+    session.send("what directory are you in?");
 
     await once(session, "turn-end");
     // Turn 1 must have been the only thing the CLI had received.
@@ -231,49 +219,6 @@ describe("ClaudeSession", () => {
     session.stop();
   });
 
-  it("refuses to message before it has been started", async () => {
-    const session = await makeSession();
-    expect(() => session.message("hi")).toThrow(/not started/i);
-  });
-
-  it("emits a reply carrying the turn kind", async () => {
-    const session = await makeSession();
-    const seen: Array<{ text: string; kind: string }> = [];
-    session.on("reply", (text: string, kind: string) => seen.push({ text, kind }));
-
-    session.start("do it");
-    await once(session, "turn-end");
-    expect(seen[0].kind).toBe("work");
-
-    session.message("why?");
-    await once(session, "turn-end");
-    expect(seen[1].kind).toBe("chat");
-    expect(seen[1].text).toContain("why?");
-
-    session.stop();
-  });
-
-  it("does not let a queued message change the running turn's kind", async () => {
-    // A message sent to a working specialist cannot interrupt it - it
-    // queues. If the marker advanced at enqueue time, the running work
-    // turn's Stop hook would read "chat" and skip the report gate.
-    const session = await makeSession();
-    const opts = (session as any).opts;
-
-    const ended = once(session, "turn-end");
-    session.start("do the work");
-
-    // Enqueue while turn 1 is still in flight.
-    session.message("quick question");
-
-    // Turn 1 is still the running turn, so the marker must still say work.
-    expect(await readFile(join(opts.reportsDir, ".turn"), "utf8")).toBe("1");
-    expect(await readFile(join(opts.reportsDir, ".turn-kind"), "utf8")).toBe("work");
-
-    await ended;
-    session.stop();
-  });
-
   it("advances the marker to the queued turn once the running turn ends", async () => {
     const session = await makeSession();
     const opts = (session as any).opts;
@@ -285,17 +230,34 @@ describe("ClaudeSession", () => {
       session.on("turn-end", () => { ends += 1; if (ends === 2) resolve(); });
     });
 
-    session.start("do the work");
-    session.message("quick question");
+    session.open();
+    session.send("do the work");
+    session.send("quick question");
     await twoTurns;
 
     expect(await readFile(join(opts.reportsDir, ".turn"), "utf8")).toBe("2");
-    expect(await readFile(join(opts.reportsDir, ".turn-kind"), "utf8")).toBe("chat");
     session.stop();
   });
 
-  it("refuses to answer before it has been started", async () => {
+  it("refuses to send before it has been opened", async () => {
     const session = await makeSession();
-    expect(() => session.answer("too early")).toThrow(/not started/i);
+    expect(() => session.send("hi")).toThrow(/not started/i);
+  });
+
+  it("emits a reply for every turn", async () => {
+    const session = await makeSession();
+    const seen: string[] = [];
+    session.on("reply", (text: string) => seen.push(text));
+
+    session.open();
+    session.send("do it");
+    await once(session, "turn-end");
+    expect(seen[0]).toContain("do it");
+
+    session.send("why?");
+    await once(session, "turn-end");
+    expect(seen[1]).toContain("why?");
+
+    session.stop();
   });
 });

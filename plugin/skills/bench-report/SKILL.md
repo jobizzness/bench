@@ -1,6 +1,6 @@
 ---
 name: bench-report
-description: Use when you have finished a piece of work or produced a spec that needs approval - writes the report page and decision the developer reads to make a call.
+description: Use when a decision needs the developer, when work is finished and they need to understand what it means, when a spec needs approving before you build, or when you are stuck - writes the report page and decision they read to make the call.
 ---
 
 # Writing a Bench report
@@ -8,6 +8,28 @@ description: Use when you have finished a piece of work or produced a spec that 
 Your developer does not read your transcript. They read one page and press
 one key. That page is the entire interface between your work and their
 decision, so it is written for deciding, not for narrating.
+
+## When to write one
+
+Nobody tells you a turn is "work". You decide. Write a report when one of
+these is true, and not otherwise:
+
+- **A decision needs them.** You have hit a fork you should not settle
+  alone, and the choice has consequences they own.
+- **The work is done and they need to understand it.** The closing summary
+  on a piece of work, the way an issue gets closed - what changed, what it
+  means, what you did not verify.
+- **A spec needs approving.** You have worked out how you intend to do
+  something and want a yes before you build it.
+- **You are stuck.** You cannot make progress and need help. Say so
+  plainly; a report that admits this is worth more than one that pretends.
+
+Everything else - answering a question, reporting a small step, thinking out
+loud - is just your reply. Do not manufacture a decision to have something
+to put in `decision.json`. A turn that needed no report and produced none is
+a normal turn.
+
+## Where it goes
 
 Bench names your report directory at the start of every turn, in the line
 that begins `[bench] Turn N`. Write both files there:

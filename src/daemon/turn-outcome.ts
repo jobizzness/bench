@@ -1,4 +1,4 @@
-import type { SessionStatus, TurnKind } from "../shared/types.js";
+import type { SessionStatus } from "../shared/types.js";
 
 export interface TurnOutcome {
   status: SessionStatus;
@@ -7,13 +7,13 @@ export interface TurnOutcome {
 
 /**
  * What the roster should say once a turn ends. Kept separate from the
- * registry so the awkward cases - a failed turn, a work turn that somehow
- * produced no report - are stated once and can be tested.
+ * registry so the awkward case - a failed turn - is stated once and can be
+ * tested. Whether a turn produced a report is the agent's call, so a turn
+ * without one is ordinary rather than a fault.
  */
 export function resolveTurnOutcome(input: {
   isError: boolean;
   subtype: string;
-  kind: TurnKind;
   hasNewReport: boolean;
 }): TurnOutcome {
   if (input.isError) {
@@ -24,12 +24,5 @@ export function resolveTurnOutcome(input: {
     return { status: "awaiting_decision", detail: "waiting on you" };
   }
 
-  if (input.kind === "chat") {
-    return { status: "awaiting_decision", detail: "replied" };
-  }
-
-  // A work turn with no report should be impossible now that turn markers
-  // advance at turn start. Saying so plainly beats claiming a decision is
-  // waiting when there is nothing to read.
-  return { status: "awaiting_decision", detail: "ended without a report" };
+  return { status: "awaiting_decision", detail: "replied" };
 }

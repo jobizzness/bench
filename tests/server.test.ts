@@ -13,22 +13,20 @@ class StubRegistry extends EventEmitter {
   rows: RosterRow[] = [
     { id: "s1", label: "auth", project: "/var/www/demo", status: "awaiting_decision", detail: "waiting", latestReportSeq: 1, startedAt: null, tokens: 0 },
   ];
-  answers: Array<{ id: string; text: string }> = [];
+  sent: Array<{ id: string; text: string }> = [];
   created: any[] = [];
   reportsDir = "";
 
   list() { return this.rows; }
   threadPathValue = "";
   aliveValue = true;
-  messages: Array<{ id: string; text: string }> = [];
 
   get(id: string) {
     return id === "s1"
       ? { reportsDir: this.reportsDir, threadPath: this.threadPathValue, alive: this.aliveValue }
       : null;
   }
-  answer(id: string, text: string) { this.answers.push({ id, text }); }
-  message(id: string, text: string) { this.messages.push({ id, text }); }
+  send(id: string, text: string) { this.sent.push({ id, text }); }
   stop() {}
   async create(input: any) { this.created.push(input); return "s2"; }
 }
@@ -142,9 +140,9 @@ describe("POST /api/sessions/:id/answer", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(registry.answers[0].id).toBe("s1");
-    expect(registry.answers[0].text).toContain("ship");
-    expect(registry.answers[0].text).toContain("go");
+    expect(registry.sent[0].id).toBe("s1");
+    expect(registry.sent[0].text).toContain("ship");
+    expect(registry.sent[0].text).toContain("go");
   });
 
   it("404s for an unknown session", async () => {
@@ -162,7 +160,7 @@ describe("POST /api/sessions", () => {
     const res = await fetch(`${base}/api/sessions`, {
       method: "POST",
       headers: { ...auth.headers, "content-type": "application/json" },
-      body: JSON.stringify({ project: "/var/www/demo", label: "auth", task: "add reset" }),
+      body: JSON.stringify({ project: "/var/www/demo", label: "auth" }),
     });
     expect((await res.json()).id).toBe("s2");
     expect(registry.created[0].label).toBe("auth");
@@ -201,7 +199,7 @@ describe("POST /api/sessions/:id/message", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(registry.messages.at(-1)).toEqual({ id: "s1", text: "why zod?" });
+    expect(registry.sent.at(-1)).toEqual({ id: "s1", text: "why zod?" });
   });
 
   it("400s on an empty message", async () => {

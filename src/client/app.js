@@ -218,7 +218,11 @@ function renderComposer() {
 
   if (!state.decision) {
     el.decision.hidden = true;
-    el.text.placeholder = "Message this specialist";
+    // A specialist that has never been prompted is waiting to be told what
+    // it is for. That question used to be asked before it existed.
+    el.text.placeholder = row && state.entries.length === 0
+      ? "What should this specialist do?"
+      : "Message this specialist";
     el.hint.replaceChildren();
     if (row && (row.status === "working" || row.status === "provisioning")) {
       el.hint.textContent = "Working — a message queues and is answered when this turn ends.";
@@ -422,7 +426,6 @@ const dialog = {
   project: document.getElementById("f-project"),
   projectList: document.getElementById("project-list"),
   label: document.getElementById("f-label"),
-  task: document.getElementById("f-task"),
   model: document.getElementById("f-model"),
   error: document.getElementById("f-error"),
   cancel: document.getElementById("f-cancel"),
@@ -493,19 +496,12 @@ dialog.form.onsubmit = async (event) => {
     return;
   }
 
-  const task = dialog.task.value.trim();
-  if (task === "") {
-    showError("Describe what this specialist should do.");
-    dialog.task.focus();
-    return;
-  }
-
   dialog.create.disabled = true;
   try {
     const res = await api("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ project, label, task, model: dialog.model.value }),
+      body: JSON.stringify({ project, label, model: dialog.model.value }),
     });
 
     // The old prompt flow discarded this response, so a rejected request

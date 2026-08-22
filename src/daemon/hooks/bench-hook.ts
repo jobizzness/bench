@@ -1,8 +1,4 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { evaluateCommit } from "../gates/commit-attribution.js";
-import { evaluateStop } from "../gates/report-required.js";
-import type { TurnKind } from "../../shared/types.js";
 
 /**
  * Invoked by Claude Code as a hook command. Reads the hook payload as JSON
@@ -10,8 +6,6 @@ import type { TurnKind } from "../../shared/types.js";
  *
  * Output contracts verified against claude 2.1.238:
  *   PreToolUse -> { hookSpecificOutput: { hookEventName, permissionDecision, permissionDecisionReason } }
- *   Stop       -> { decision: "block", reason }   (Stop's hookSpecificOutput
- *                  only carries additionalContext, which does NOT block)
  *
  * Emitting nothing means "no opinion" and the tool call proceeds.
  */
@@ -50,35 +44,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (gate === "report-required") {
-    const reportsDir = process.env.BENCH_REPORTS_DIR;
-    if (!reportsDir) return;
-
-    // The turn marker is written by the daemon before each turn; env cannot
-    // carry it because env is fixed when the process spawns.
-    let turn = 0;
-    try {
-      turn = Number(await readFile(join(reportsDir, ".turn"), "utf8"));
-    } catch {
-      return;
-    }
-    if (!Number.isInteger(turn) || turn < 1) return;
-
-    // Fail safe: anything other than an explicit "chat" is treated as work,
-    // so a missing or corrupt marker can never disable the gate.
-    let kind: TurnKind = "work";
-    try {
-      const raw = (await readFile(join(reportsDir, ".turn-kind"), "utf8")).trim();
-      if (raw === "chat") kind = "chat";
-    } catch {
-      kind = "work";
-    }
-
-    const { block, reason } = await evaluateStop({ reportsDir, turn, kind });
-    if (!block) return;
-
-    process.stdout.write(JSON.stringify({ decision: "block", reason }));
-  }
 }
 
 main().catch(() => {

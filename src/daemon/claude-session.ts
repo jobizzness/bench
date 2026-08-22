@@ -4,7 +4,6 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { LineDecoder, userMessageLine, isResultEvent, activityLine, replyText } from "./stream-codec.js";
 import { buildSettings } from "./gates/settings.js";
-import type { TurnKind } from "../shared/types.js";
 
 export interface SessionOptions {
   id: string;
@@ -28,7 +27,6 @@ export class ClaudeSession extends EventEmitter {
   private child: ChildProcessWithoutNullStreams | null = null;
   private decoder = new LineDecoder();
   private turnCount = 0;
-  private currentKind: TurnKind = "work";
 
   constructor(private readonly opts: SessionOptions) {
     super();
@@ -37,10 +35,6 @@ export class ClaudeSession extends EventEmitter {
 
   get turn(): number {
     return this.turnCount;
-  }
-
-  get turnKind(): TurnKind {
-    return this.currentKind;
   }
 
   /** ISO time the running turn began, or null when idle. */
@@ -52,13 +46,15 @@ export class ClaudeSession extends EventEmitter {
     return this.tokens;
   }
 
-  /** Turns whose text is already on stdin but which have not begun yet. */
-  private queued: Array<{ text: string; kind: TurnKind }> = [];
+  /** Prompts waiting for the running turn to end. */
+  private queued: string[] = [];
   private running = false;
   private startedAt: number | null = null;
   private tokens = 0;
 
-  start(task: string): void {
+  /** Spawn the process and wait. A specialist with nothing to do costs
+   * nothing: `claude -p` blocks on stdin until a prompt arrives. */
+  open(): void {
     if (this.child) throw new Error("session already started");
 
     const bin = this.opts.claudeBin ?? "claude";
@@ -74,6 +70,10 @@ export class ClaudeSession extends EventEmitter {
       "--name", this.opts.label,
       "--model", this.opts.model,
       "--permission-mode", "acceptEdits",
+      // The reports directory lives with the project, not inside the
+      // worktree, so it outlives a worktree that gets removed. Without this
+      // it is simply outside the workspace and every write to it is refused.
+      "--add-dir", this.opts.reportsDir,
       "--settings", settings,
       "--plugin-dir", this.opts.pluginDir,
     ];
@@ -98,21 +98,16 @@ export class ClaudeSession extends EventEmitter {
       this.emit("exit", code);
     });
 
-    this.running = true;
-    this.dispatch(task, "work");
-  }
-
-  answer(text: string): void {
-    this.enqueue(text, "work");
   }
 
   /**
-   * A question, not a work request. Exempt from the report gate. Note that
-   * this does not interrupt: if a turn is running, the message queues and
-   * is answered once that turn ends.
+   * The developer's prompt. There is one kind of turn: whether it warrants a
+   * report, a rendered reply or a plain sentence is the agent's call, not
+   * something the UI can know in advance. Note that this does not interrupt -
+   * a prompt sent mid-turn is answered once the running turn ends.
    */
-  message(text: string): void {
-    this.enqueue(text, "chat");
+  send(text: string): void {
+    this.enqueue(text);
   }
 
   /**
@@ -124,27 +119,27 @@ export class ClaudeSession extends EventEmitter {
    * framing - turn number and report directory - true when the agent reads
    * it.
    */
-  private enqueue(text: string, kind: TurnKind): void {
+  private enqueue(text: string): void {
     if (!this.child) throw new Error("session not started");
 
     if (this.running) {
       // A turn is in flight. Hold the text; `consume` dispatches it when the
       // running turn ends.
-      this.queued.push({ text, kind });
+      this.queued.push(text);
       return;
     }
 
-    // Idle: this message becomes the running turn immediately.
+    // Idle: this prompt becomes the running turn immediately.
     this.running = true;
-    this.dispatch(text, kind);
+    this.dispatch(text);
   }
 
   /** Begin a turn and hand it to the CLI. Only ever called for a turn that
    * starts now, so the framing matches the markers the gate reads. */
-  private dispatch(text: string, kind: TurnKind): void {
+  private dispatch(text: string): void {
     const turn = this.turnCount + 1;
-    this.beginTurn(turn, kind);
-    this.child!.stdin.write(userMessageLine(this.framed(text, turn, kind)));
+    this.beginTurn(turn);
+    this.child!.stdin.write(userMessageLine(this.framed(text, turn)));
   }
 
   stop(): void {
@@ -156,27 +151,23 @@ export class ClaudeSession extends EventEmitter {
    * and a session runs many turns. The gate reads it from this file, which
    * is rewritten before every turn.
    */
-  private beginTurn(turn: number, kind: TurnKind): void {
+  private beginTurn(turn: number): void {
     this.turnCount = turn;
-    this.currentKind = kind;
     this.startedAt = Date.now();
     this.tokens = 0;
     mkdirSync(this.opts.reportsDir, { recursive: true });
     writeFileSync(join(this.opts.reportsDir, ".turn"), String(turn));
-    writeFileSync(join(this.opts.reportsDir, ".turn-kind"), kind);
   }
 
-  private framed(text: string, turn: number, kind: TurnKind): string {
-    if (kind === "chat") {
-      const dir = join(this.opts.reportsDir, String(turn));
-      return `[bench] Turn ${turn}. This is a question, not a work request - ` +
-        `no report is required. Use the bench-reply skill: write your answer as ` +
-        `${join(dir, "reply.html")} and keep your spoken response to a single ` +
-        `summary line. Answer in plain prose only if the answer is genuinely ` +
-        `one short sentence with no structure.\n\n${text}`;
-    }
-    const reportDir = join(this.opts.reportsDir, String(turn));
-    return `[bench] Turn ${turn}. Write this turn's report into ${reportDir}\n\n${text}`;
+  private framed(text: string, turn: number): string {
+    const dir = join(this.opts.reportsDir, String(turn));
+    return `[bench] Turn ${turn}. This turn's artifact directory is ${dir}\n` +
+      `Write a report there - bench-report skill, report.html and decision.json - ` +
+      `when a decision needs the developer, when work is finished and they need ` +
+      `to understand what it means, when a spec needs approving before you build, ` +
+      `or when you are stuck. Otherwise just reply: use the bench-reply skill ` +
+      `where the answer has structure worth rendering, plain prose where it does ` +
+      `not. Which of those this turn is, is your call.\n\n${text}`;
   }
 
   private consume(chunk: string): void {
@@ -197,19 +188,18 @@ export class ClaudeSession extends EventEmitter {
         // reply before turn-end, so a listener appending to the thread sees
         // the reply before the roster flips to awaiting-decision.
         const reply = replyText(event);
-        const endedKind = this.currentKind;
 
         // The turn that just finished releases the markers to the next
         // queued turn, which only now becomes the running one.
         this.running = false;
         this.startedAt = null;
         const next = this.queued.shift();
-        if (next) {
+        if (next !== undefined) {
           this.running = true;
-          this.dispatch(next.text, next.kind);
+          this.dispatch(next);
         }
 
-        if (reply) this.emit("reply", reply, endedKind);
+        if (reply) this.emit("reply", reply);
         this.emit("turn-end", event);
       }
     }
