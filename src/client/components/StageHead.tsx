@@ -1,4 +1,4 @@
-import { useBenchState } from "./useBenchState.js";
+import { useBenchState } from "./context.js";
 
 export function StageHead() {
   const { rows, selectedId } = useBenchState();

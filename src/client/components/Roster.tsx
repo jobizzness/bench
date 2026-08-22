@@ -1,8 +1,7 @@
 import { useState } from "react";
 import type { RosterRow } from "../../shared/types.js";
-import { bridge } from "../bench.js";
+import { useBenchActions, useBenchState } from "./context.js";
 import { isWaiting } from "../waiting.js";
-import { useBenchState } from "./useBenchState.js";
 
 function projectName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
@@ -15,12 +14,14 @@ function detailOf(row: RosterRow): string {
 }
 
 function Row({ row, selected }: { row: RosterRow; selected: boolean }) {
+  const { select, closeSpecialist } = useBenchActions();
+
   return (
     <li
       className="row"
       data-status={row.status}
       aria-selected={selected}
-      onClick={() => bridge()?.select(row.id)}
+      onClick={() => select(row.id)}
     >
       <div className="label">{row.label}</div>
       <div className="detail">{detailOf(row)}</div>
@@ -32,7 +33,7 @@ function Row({ row, selected }: { row: RosterRow; selected: boolean }) {
         onClick={(event) => {
           // The row underneath selects a specialist; closing one must not.
           event.stopPropagation();
-          bridge()?.closeSpecialist(row);
+          closeSpecialist(row);
         }}
       >
         ×

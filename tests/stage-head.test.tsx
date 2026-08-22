@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { StageHead } from "../src/client/components/StageHead.js";
 import type { RosterRow } from "../src/shared/types.js";
-import { STATE_EVENT } from "../src/client/bench.js";
+import { BenchProvider } from "../src/client/components/context.js";
 
 const row = (over: Partial<RosterRow> = {}): RosterRow => ({
   id: "s1", label: "auth", project: "/p", status: "awaiting_decision",
@@ -15,14 +15,21 @@ const row = (over: Partial<RosterRow> = {}): RosterRow => ({
 });
 
 let root: Root | null = null;
-afterEach(() => { act(() => root?.unmount()); root = null; delete (window as any).bench; });
+afterEach(() => { act(() => root?.unmount()); root = null; });
+
+const actions = { select() {}, closeSpecialist() {} };
 
 function render(rows: RosterRow[], selectedId: string | null): HTMLElement {
-  (window as any).bench = { state: { rows, selectedId }, select() {}, closeSpecialist() {} };
   const host = document.createElement("div");
   document.body.appendChild(host);
-  act(() => { root = createRoot(host); root.render(<StageHead />); });
-  act(() => { document.dispatchEvent(new CustomEvent(STATE_EVENT)); });
+  act(() => {
+    root = createRoot(host);
+    root.render(
+      <BenchProvider state={{ rows, selectedId }} actions={actions}>
+        <StageHead />
+      </BenchProvider>,
+    );
+  });
   return host;
 }
 

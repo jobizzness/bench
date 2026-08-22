@@ -1,6 +1,6 @@
 import type { RosterRow } from "../../shared/types.js";
 import { ago, elapsedSince, formatTokens, hashOf } from "../format.js";
-import { useBenchState } from "./useBenchState.js";
+import { useBenchState } from "./context.js";
 import { useTick } from "./useTick.js";
 
 // Deliberately unhurried words. A specialist is reading and thinking, not

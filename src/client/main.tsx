@@ -1,25 +1,9 @@
-import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { Progress } from "./components/Progress.js";
-import { Roster } from "./components/Roster.js";
-import { StageHead } from "./components/StageHead.js";
-import { Working } from "./components/Working.js";
-
-// The vanilla cockpit still owns everything that has not been ported. It runs
-// first so its state and actions exist before an island asks for them.
-import "./app.js";
+import { App } from "./components/App.js";
 
 /**
- * Islands, not a rewrite in one go. Each screen moves into React on its own,
- * the vanilla renderer keeps the rest working, and the last island to land
- * collapses these roots into a single tree.
+ * One tree. The port ran as islands beside the vanilla renderer while it was
+ * half done; the last screen to land collapsed them into this.
  */
-function mount(id: string, node: ReactNode): void {
-  const host = document.getElementById(id);
-  if (host) createRoot(host).render(node);
-}
-
-mount("roster-list", <Roster />);
-mount("stage-head-root", <StageHead />);
-mount("working-root", <Working />);
-mount("progress-root", <Progress />);
+const host = document.getElementById("root");
+if (host) createRoot(host).render(<App />);

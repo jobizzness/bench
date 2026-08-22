@@ -2,7 +2,7 @@ import type { PlanStep } from "../../daemon/plan.js";
 import { ago } from "../format.js";
 import { progressVisible } from "../progress.js";
 import { isWaiting } from "../waiting.js";
-import { useBenchState } from "./useBenchState.js";
+import { useBenchState } from "./context.js";
 import { useSessionPlan } from "./useSessionPlan.js";
 import { useTick } from "./useTick.js";
 
