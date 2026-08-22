@@ -51,6 +51,23 @@ describe("buildSettings", () => {
     expect(settings.hooks.Stop).toBeUndefined();
   });
 
+  it("lets a specialist build and test what it wrote", () => {
+    // Without this a specialist can write code and never run it, so the
+    // Verified list its report asks for can never be filled in.
+    const settings = buildSettings({ hookCommand: "node /opt/bench/hook.js" }) as any;
+    const allow: string[] = settings.permissions.allow;
+
+    expect(allow).toContain("Bash(pnpm:*)");
+    expect(allow).toContain("Bash(npm:*)");
+    expect(allow).toContain("Bash(pytest:*)");
+    expect(allow).toContain("Bash(git:*)");
+  });
+
+  it("does not let a specialist publish its branch", () => {
+    const settings = buildSettings({ hookCommand: "node /opt/bench/hook.js" }) as any;
+    expect(settings.permissions.deny).toContain("Bash(git push:*)");
+  });
+
   it("serialises to JSON, since it is passed to --settings as a string", () => {
     const settings = buildSettings({ hookCommand: "node /opt/bench/hook.js" });
     expect(() => JSON.parse(JSON.stringify(settings))).not.toThrow();

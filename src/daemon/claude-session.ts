@@ -70,6 +70,10 @@ export class ClaudeSession extends EventEmitter {
       "--name", this.opts.label,
       "--model", this.opts.model,
       "--permission-mode", "acceptEdits",
+      // The reports directory lives with the project, not inside the
+      // worktree, so it outlives a worktree that gets removed. Without this
+      // it is simply outside the workspace and every write to it is refused.
+      "--add-dir", this.opts.reportsDir,
       "--settings", settings,
       "--plugin-dir", this.opts.pluginDir,
     ];

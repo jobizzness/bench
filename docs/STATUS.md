@@ -97,6 +97,29 @@ write denial. The last one has already bitten: a specialist editing
 
 Worth recording, because none were caught by tests.
 
+- **Specialists could write code and never run it.** `--permission-mode
+  acceptEdits` auto-accepts edits and nothing else, and a `-p` session is
+  non-interactive, so every `pnpm build`, `pnpm test` and `npx tsc` was
+  refused outright with no prompt to answer. A specialist could not compile
+  or test a single line it wrote — while the report it is asked to produce
+  is built around a Verified list. `buildSettings` now allows the common
+  toolchain, and denies `git push`: publishing a branch is not a build step.
+  Hooks are evaluated regardless of permissions, so the attribution gate
+  still denies an AI-attributed commit the allowlist would otherwise permit
+  — verified against the real CLI.
+- **Reports were written where the specialist was not allowed to write.**
+  The reports directory lives with the project so it outlives the worktree,
+  which put it outside the session's workspace: every `report.html` was
+  refused with *"Claude requested permissions to write to … but you haven't
+  granted it yet"*, and specialists quietly fell back to `/tmp`. The roster
+  showed no report waiting while a finished 13KB report sat on disk. Fixed
+  by passing `--add-dir` for the reports directory.
+
+  Worth its own line: **the test suite could not have caught this.** Every
+  test builds its fixtures with `mkdtemp(tmpdir())`, and writes under `/tmp`
+  are permitted where writes elsewhere are not — so the end-to-end test
+  passed against a path that could never fail. It now runs outside `/tmp`,
+  where the refusal actually reproduces.
 - **Creating a specialist demanded a task before it existed.** The New
   Session dialog asked what the specialist was for, so the first prompt was
   buried in a form rather than typed at it — and `create()` never wrote that
