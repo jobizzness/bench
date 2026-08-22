@@ -15,6 +15,9 @@ export interface RosterRow {
   status: SessionStatus;
   detail: string;
   latestReportSeq: number | null;
+  /** The report the developer has already answered. A decision is only
+   * waiting when the latest report is newer than this. */
+  answeredReportSeq: number | null;
   /** When the running turn began, so elapsed can tick client-side. */
   startedAt: string | null;
   /** Rough token estimate for the running turn, from the CLI's own counter. */

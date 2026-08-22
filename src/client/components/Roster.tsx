@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { RosterRow } from "../../shared/types.js";
 import { bridge } from "../bench.js";
+import { isWaiting } from "../waiting.js";
 import { useBenchState } from "./useBenchState.js";
 
 function projectName(path: string): string {
@@ -61,9 +62,8 @@ export function Roster() {
       {[...groups.entries()].map(([project, all]) => {
         // Specialists waiting on you come first: several can need you at
         // once, so ordering is what makes the next one findable.
-        const sorted = [...all].sort((a, b) =>
-          Number(b.status === "awaiting_decision") - Number(a.status === "awaiting_decision"));
-        const waiting = sorted.filter((r) => r.status === "awaiting_decision").length;
+        const sorted = [...all].sort((a, b) => Number(isWaiting(b)) - Number(isWaiting(a)));
+        const waiting = sorted.filter(isWaiting).length;
 
         return (
           <details
