@@ -111,8 +111,12 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
 
     // The shell bootstraps without a token; everything with data behind it
     // requires one, so nothing else on the machine can drive the agents.
-    if (path === "/" || path === "/app.js" || path === "/styles.css") {
-      const file = path === "/" ? "index.html" : path.slice(1);
+    // A session has a URL, so the shell answers there as well as at the root.
+    // The client reads the id back out of the path; the daemon does not need
+    // to know it, and never turns it into a filesystem path.
+    const isShell = path === "/" || /^\/s\/[A-Za-z0-9-]+\/?$/.test(path);
+    if (isShell || path === "/app.js" || path === "/styles.css") {
+      const file = isShell ? "index.html" : path.slice(1);
       const type = file.endsWith(".js") ? "text/javascript"
         : file.endsWith(".css") ? "text/css" : "text/html";
       try {

@@ -4,6 +4,7 @@ import { progressVisible } from "./progress.js";
 import { isWaiting } from "./waiting.js";
 import { shouldReconnect } from "./reconnect.js";
 import { renderMarkdown } from "./markdown.js";
+import { sessionFromPath, pathForSession } from "./route.js";
 
 /**
  * Every element here is in index.html. A missing one is a bug in the markup,
@@ -893,8 +894,13 @@ async function refreshThread() {
   state.entries = res.ok ? (await res.json()).entries : [];
 }
 
-async function select(id: string) {
+async function select(id: string, push = true) {
   state.selectedId = id;
+  // A specialist is a place. Keep a tab per specialist, reload into it, and
+  // let the back button mean what it looks like it means.
+  if (push && sessionFromPath(location.pathname) !== id) {
+    history.pushState({ id }, "", pathForSession(id, location.search));
+  }
   await refreshThread();
   await loadDecision(selectedRow());
   renderRoster(); renderHead(); renderThread(); renderComposer(); renderWorking();
@@ -1117,6 +1123,13 @@ function connect() {
     renderRoster();
     renderHead();
 
+    // The URL names a specialist before the roster exists to select it from.
+    const wanted = sessionFromPath(location.pathname);
+    if (wanted && !state.selectedId && state.rows.some((r) => r.id === wanted)) {
+      await select(wanted, false);
+      return;
+    }
+
     if (!state.selectedId) return;
     await refreshThread();
     await loadDecision(selectedRow());
@@ -1132,6 +1145,11 @@ function connect() {
     setTimeout(connect, 1000);
   };
 }
+
+window.addEventListener("popstate", () => {
+  const id = sessionFromPath(location.pathname);
+  if (id) void select(id, false);
+});
 
 renderComposer();
 connect();

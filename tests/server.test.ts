@@ -389,6 +389,31 @@ describe("POST /api/sessions/:id/close", () => {
   });
 });
 
+describe("a session URL", () => {
+  it("serves the cockpit so a specialist can be bookmarked", async () => {
+    const res = await fetch(`${base}/s/89c0812e-ff63-4918-a200-59c393d72fdd`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+  });
+
+  it("serves it with a trailing slash too", async () => {
+    expect((await fetch(`${base}/s/abc/`)).status).toBe(200);
+  });
+
+  it("does not turn a session path into a file path", async () => {
+    // The id reaches the shell as text and is read back by the client. It
+    // must never be able to name a file: anything that is not an id falls
+    // through to the token check rather than being served.
+    const res = await fetch(`${base}/s/..%2f..%2fpackage.json`);
+    expect(res.status).not.toBe(200);
+    expect(await res.text()).not.toContain("devDependencies");
+  });
+
+  it("still 404s an unknown path", async () => {
+    expect((await fetch(`${base}/nope`, auth)).status).toBe(404);
+  });
+});
+
 describe("GET /api/projects", () => {
   it("lists git repos under the configured root", async () => {
     const res = await fetch(`${base}/api/projects`, auth);
