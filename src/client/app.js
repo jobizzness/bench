@@ -1,3 +1,7 @@
+// The extension is explicit because the importer is still JavaScript: the
+// bundler rewrites .js to .ts, the test runner does not. It goes away with
+// this file.
+import { progressVisible } from "./progress.ts";
 const token = new URLSearchParams(location.search).get("token") ?? "";
 const authHeaders = { "x-bench-token": token };
 
@@ -11,7 +15,6 @@ const state = {
   /** Index into the currently visible question list, for the number keys. */
   focus: 0,
 };
-const collapsed = new Set();
 
 const el = {
   list: document.getElementById("roster-list"),
@@ -49,44 +52,6 @@ const api = (path, init) =>
   fetch(path, { ...init, headers: { ...authHeaders, ...(init?.headers ?? {}) } });
 const selectedRow = () => state.rows.find((r) => r.id === state.selectedId) ?? null;
 
-function rosterRow(row) {
-  const li = document.createElement("li");
-  li.className = "row";
-  li.dataset.status = row.status;
-  li.setAttribute("aria-selected", String(row.id === state.selectedId));
-  li.onclick = () => select(row.id);
-
-  const label = document.createElement("div");
-  label.className = "label";
-  label.textContent = row.label;
-
-  const detail = document.createElement("div");
-  detail.className = "detail";
-  detail.textContent = row.status === "awaiting_decision"
-    ? row.detail
-    : `${row.status.replace(/_/g, " ")} · ${row.detail}`;
-
-  const close = document.createElement("button");
-  close.className = "close";
-  close.type = "button";
-  close.textContent = "\u00d7";
-  close.title = "Close this specialist";
-  close.setAttribute("aria-label", `Close ${row.label}`);
-  close.onclick = (event) => {
-    // The row underneath selects a specialist; closing one must not.
-    event.stopPropagation();
-    closeSpecialist(row);
-  };
-
-  li.append(label, detail, close);
-  return li;
-}
-
-/**
- * Closing is permanent - the record is what a restart reads - and it takes
- * the worktree with it. The daemon refuses when that would destroy work, and
- * says what, so the second question can be asked with the number in it.
- */
 async function closeSpecialist(row) {
   if (!confirm(`Close ${row.label}?\n\nIts worktree and branch are removed. The thread and any reports are kept.`)) return;
 
@@ -128,50 +93,22 @@ async function closeSpecialist(row) {
  * Grouped by project, never flat. Working across many repos at once, a flat
  * list gives no way to tell which specialist belongs to which codebase.
  */
+/**
+ * The roster is a React island now. This stays as the notification point:
+ * everything that changes state already calls it, so it is where the island
+ * is told to re-read.
+ */
 function renderRoster() {
-  const groups = new Map();
-  for (const row of state.rows) {
-    if (!groups.has(row.project)) groups.set(row.project, []);
-    groups.get(row.project).push(row);
-  }
-
-  el.list.replaceChildren(...[...groups.entries()].map(([project, allRows]) => {
-    // Specialists waiting on you come first: several can need you at once,
-    // so ordering is what makes the next one findable.
-    const rows = [...allRows].sort((a, b) =>
-      Number(b.status === "awaiting_decision") - Number(a.status === "awaiting_decision"));
-    const group = document.createElement("details");
-    group.className = "group";
-    group.open = !collapsed.has(project);
-    group.ontoggle = () => {
-      if (group.open) collapsed.delete(project);
-      else collapsed.add(project);
-    };
-
-    const summary = document.createElement("summary");
-    summary.title = project;
-
-    const name = document.createElement("span");
-    name.textContent = project.split("/").filter(Boolean).pop() ?? project;
-    summary.append(name);
-
-    const waiting = rows.filter((r) => r.status === "awaiting_decision").length;
-    const count = document.createElement("span");
-    count.className = "count";
-    count.dataset.waiting = String(waiting > 0);
-    count.textContent = waiting > 0 ? `${waiting} waiting` : String(rows.length);
-    summary.append(count);
-
-    const list = document.createElement("ul");
-    list.style.listStyle = "none";
-    list.style.margin = "0";
-    list.style.padding = "0";
-    list.append(...rows.map(rosterRow));
-
-    group.append(summary, list);
-    return group;
-  }));
+  document.dispatchEvent(new CustomEvent("bench:state"));
 }
+
+// What the island may reach back into while the port is in flight.
+// Transitional, and deleted with the last vanilla screen.
+window.bench = {
+  state,
+  select: (id) => select(id),
+  closeSpecialist: (row) => closeSpecialist(row),
+};
 
 const artifact = {
   root: document.getElementById("artifact-dialog"),
@@ -800,7 +737,12 @@ function renderProgress() {
   const steps = state.plan;
   const trail = row?.activity ?? [];
 
-  if (!row || (!steps?.length && trail.length === 0)) {
+  if (!progressVisible({
+    hasRow: Boolean(row),
+    steps,
+    trailLength: trail.length,
+    decisionShowing: Boolean(state.decision),
+  })) {
     el.progress.hidden = true;
     return;
   }

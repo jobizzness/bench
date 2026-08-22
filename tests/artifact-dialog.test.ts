@@ -25,7 +25,9 @@ const ENTRIES = [
 let socket: any;
 const $ = <T extends Element>(s: string) => document.querySelector<T>(s)!;
 const $$ = (s: string) => [...document.querySelectorAll(s)];
-const settle = () => new Promise((r) => setTimeout(r, 0));
+// A tick was enough while every screen rendered synchronously. React
+// islands mount and flush across scheduler turns, so waits are given room.
+const settle = () => new Promise((r) => setTimeout(r, 10));
 
 const dialog = () => $<HTMLDialogElement>("#artifact-dialog");
 const cards = () => $$("#thread .card") as HTMLElement[];
@@ -54,7 +56,9 @@ beforeAll(async () => {
     return { ok: true, json: async () => ({}) };
   };
 
-  await import("../src/client/app.js");
+  // main mounts the React islands as well as running the vanilla cockpit.
+  await import("../src/client/main.tsx");
+  await settle();
   socket.onmessage({ data: JSON.stringify({ type: "roster", rows: [ROW] }) });
   await settle();
   $<HTMLElement>("#roster-list .row").click();
