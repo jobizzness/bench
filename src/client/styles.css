@@ -818,6 +818,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
   overflow-y: auto;
 }
 
+/* Two capped, variable-height panels now stack above the composer, and each
+   was sized without knowing about the other: 40vh of progress plus 52vh of
+   intake leaves the thread nothing at all. Each keeps its own ceiling alone
+   and they both yield when they are on screen together, so neither feature
+   is retuned for a case it does not hit. */
+#stage:has(#progress:not([hidden])) #intake { max-height: min(34vh, 380px); }
+#stage:has(#progress:not([hidden])) #progress { max-height: 24vh; }
+
 #plan,
 #trail {
   list-style: none;
