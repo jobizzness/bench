@@ -74,6 +74,13 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
+/** Dies the way the real CLI does when asked to resume a session that is
+ * not there: one line on stderr, exit 1, nothing on stdout. */
+const DYING_CLI = `#!/usr/bin/env node
+process.stderr.write("No conversation found with session ID: sess-1\\n");
+process.exit(1);
+`;
+
 async function makeFakeCli(source: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "bench-fakecli-"));
   const path = join(dir, "fake-claude.mjs");
@@ -268,6 +275,21 @@ describe("ClaudeSession", () => {
     expect(result.result).toContain("--session-id sess-1");
     expect(result.result).not.toContain("--resume");
     session.stop();
+  });
+
+  it("hands the exit code and the child's last words to whoever is listening", async () => {
+    // Without this the daemon can only say "process exited", and the one line
+    // that explains why - which the CLI does print - is thrown away.
+    const session = await makeSession(DYING_CLI);
+    const exited = new Promise<{ code: number | null; stderr: string }>((resolve) => {
+      session.on("exit", (code, stderr) => resolve({ code, stderr }));
+    });
+
+    session.open();
+    const { code, stderr } = await exited;
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("No conversation found with session ID: sess-1");
   });
 
   it("resumes an existing session instead of starting a new one", async () => {

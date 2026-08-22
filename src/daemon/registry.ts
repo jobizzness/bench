@@ -27,6 +27,8 @@ interface Entry {
   branch: string;
   /** False when the specialist works in the project checkout itself. */
   isolated: boolean;
+  /** Whether the CLI has a conversation to resume. See SessionRecord. */
+  resumable: boolean;
   model: string;
   port: number;
 }
@@ -60,6 +62,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // Absent on every record written before the toggle existed, and all
         // of those had a worktree.
         isolated: rec.isolated ?? true,
+        // Absent on records written before this was tracked. False is the
+        // safe reading: resuming nothing kills the process, while starting a
+        // conversation that already existed only costs its memory of it.
+        resumable: rec.resumable ?? false,
         model: rec.model,
         port: rec.port,
         row: {
@@ -160,10 +166,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       }
       this.update(id, "working", line);
     });
-    session.on("exit", () => {
+    session.on("exit", (code: number | null, stderr: string) => {
       const entry = this.entries.get(id);
       if (entry) entry.alive = false;
-      this.update(id, "crashed", "process exited");
+      // The CLI's own words first: it refuses with a plain sentence, and that
+      // sentence is the difference between a developer who knows what to do
+      // and one looking at "process exited".
+      const said = (stderr ?? "").split("\n").filter((l) => l.trim() !== "").pop();
+      this.update(id, "crashed", said ?? (code === null ? "process exited" : `process exited (${code})`));
     });
 
     session.on("reply", async (text: string) => {
@@ -204,6 +214,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         });
       }
 
+      // A turn has ended, so the CLI has written a conversation and the next
+      // process can pick it up.
+      if (!entry.resumable) {
+        entry.resumable = true;
+        void this.store.markResumable(id);
+      }
+
       syncProgress();
       const outcome = resolveTurnOutcome({
         isError: result?.is_error === true,
@@ -238,6 +255,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       worktree: "",
       branch: "",
       isolated,
+      resumable: false,
       model: input.model,
       port: 0,
       row: {
@@ -319,7 +337,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         worktree: entry.worktree,
         model: entry.model,
         port: entry.port,
-        resume: true,
+        // Only ever resume a conversation that exists. Asking the CLI to
+        // resume one that does not prints "No conversation found with session
+        // ID" and exits before the prompt is ever read.
+        resume: entry.resumable,
       });
     }
 

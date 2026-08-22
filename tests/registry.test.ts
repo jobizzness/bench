@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -183,6 +183,71 @@ async function setupReal(label = "auth") {
   await registry.restore();
   return { home, project, worktree, branch, id, reportsDir, store, registry };
 }
+
+describe("reviving a specialist after a restart", () => {
+  it("does not resume a specialist that has never had a turn", async () => {
+    // Created, then the daemon restarted before anyone prompted it. The CLI
+    // never wrote a conversation, so `--resume` finds nothing and the process
+    // dies on the spot: "No conversation found with session ID".
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    const store = new SessionStore(home);
+    await store.put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    const attach = vi.spyOn(registry as any, "attach").mockImplementation(() => {
+      (registry as any).entries.get(id).session = { send() {}, stop() {}, on() {} };
+    });
+    registry.send(id, "off you go");
+
+    expect(attach).toHaveBeenCalledWith(id, expect.objectContaining({ resume: false }));
+  });
+
+  it("says why the process died rather than only that it did", async () => {
+    // The CLI explains itself on stderr before exiting. Reporting a bare
+    // "process exited" throws away the one line that would have told the
+    // developer what to do about it.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    const store = new SessionStore(home);
+    await store.put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    const session = (registry as any).attach(id, {
+      label: "auth", worktree, model: "opus", port: 3101, resume: false,
+    });
+    session.stop();
+    session.emit("exit", 1, "No conversation found with session ID: " + id);
+
+    const row = registry.list().find((r) => r.id === id)!;
+    expect(row.status).toBe("crashed");
+    expect(row.detail).toContain("No conversation found");
+  });
+
+  it("resumes one that has, so it remembers what it was doing", async () => {
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    const store = new SessionStore(home);
+    await store.put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z", resumable: true,
+    });
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    const attach = vi.spyOn(registry as any, "attach").mockImplementation(() => {
+      (registry as any).entries.get(id).session = { send() {}, stop() {}, on() {} };
+    });
+    registry.send(id, "carry on");
+
+    expect(attach).toHaveBeenCalledWith(id, expect.objectContaining({ resume: true }));
+  });
+});
 
 /** A specialist created with the worktree toggle off works in the checkout. */
 async function setupInPlace() {
