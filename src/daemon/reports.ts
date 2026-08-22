@@ -64,3 +64,25 @@ export async function latestReportSeq(reportsDir: string): Promise<number | null
   }
   return null;
 }
+
+/**
+ * The highest turn this session has already used, report or not.
+ *
+ * A revived specialist has to keep counting from where it stopped. Starting
+ * at one again silently overwrote the reports of every earlier turn, and
+ * pointed the roster at the stale highest-numbered directory instead of the
+ * new work.
+ */
+export async function latestTurn(reportsDir: string): Promise<number> {
+  let entries: string[];
+  try {
+    entries = await readdir(reportsDir);
+  } catch {
+    return 0;
+  }
+
+  const turns = entries
+    .map((name) => Number(name))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  return turns.length === 0 ? 0 : Math.max(...turns);
+}

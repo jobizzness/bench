@@ -8,7 +8,7 @@ import { createWorktree, currentBranch, excludeBenchDir, inspectWorktree, remove
 import { bootstrapWorktree, BootstrapError } from "./bootstrap.js";
 import { ClaudeSession } from "./claude-session.js";
 import { existsSync } from "node:fs";
-import { latestReportSeq, findReport } from "./reports.js";
+import { latestReportSeq, findReport, latestTurn } from "./reports.js";
 import { SessionStore } from "./store.js";
 import { appendActivity } from "./activity.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
@@ -29,6 +29,8 @@ interface Entry {
   isolated: boolean;
   /** Whether the CLI has a conversation to resume. See SessionRecord. */
   resumable: boolean;
+  /** Turns already taken, read from disk when the roster is restored. */
+  turnsTaken: number;
   model: string;
   port: number;
 }
@@ -59,6 +61,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         session: null,
         alive: false,
         worktree: rec.worktree,
+        turnsTaken: await latestTurn(rec.reportsDir),
         // Records written before branches carried the session id named the
         // branch after the label.
         branch: rec.branch ?? `worktree-${rec.label}`,
@@ -128,6 +131,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     model: string;
     port: number;
     resume?: boolean;
+    startTurn?: number;
   }): ClaudeSession {
     const entry = this.entries.get(id)!;
     const reportsDir = entry.reportsDir;
@@ -143,6 +147,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       port: opts.port,
       resume: opts.resume,
       claudeBin: this.config.claudeBin,
+      startTurn: opts.startTurn,
     });
 
     const syncProgress = () => {
@@ -262,6 +267,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       branch: "",
       isolated,
       resumable: false,
+      turnsTaken: 0,
       model: input.model,
       port: 0,
       row: {
@@ -347,6 +353,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // resume one that does not prints "No conversation found with session
         // ID" and exits before the prompt is ever read.
         resume: entry.resumable,
+        // Pick up the numbering where it stopped, or this turn writes over
+        // the last one's report.
+        startTurn: entry.turnsTaken,
       });
     }
 
