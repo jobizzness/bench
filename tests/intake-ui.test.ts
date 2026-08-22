@@ -126,6 +126,21 @@ beforeAll(async () => {
   await settle();
 });
 
+describe("the progress panel beside an intake", () => {
+  it("gets out of the way while a decision is waiting", async () => {
+    // A decision means the turn ended, so a checklist above it is stale by
+    // definition - and it sits directly above the question being asked.
+    socket.onmessage({ data: JSON.stringify({ type: "roster", rows: [{
+      ...ROW,
+      activity: [{ at: new Date().toISOString(), text: "Edit src/client/app.js" }],
+    }] }) });
+    // The panel is repainted on the cockpit's own interval, not on the event.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect($<HTMLElement>("#progress").hidden).toBe(true);
+  });
+});
+
 describe("the intake panel", () => {
   it("shows every question the specialist could not fold away, at once", () => {
     expect($("#intake").hasAttribute("hidden")).toBe(false);

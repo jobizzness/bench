@@ -1,3 +1,7 @@
+// The extension is explicit because the importer is still JavaScript: the
+// bundler rewrites .js to .ts, the test runner does not. It goes away with
+// this file.
+import { progressVisible } from "./progress.ts";
 const token = new URLSearchParams(location.search).get("token") ?? "";
 const authHeaders = { "x-bench-token": token };
 
@@ -733,7 +737,12 @@ function renderProgress() {
   const steps = state.plan;
   const trail = row?.activity ?? [];
 
-  if (!row || (!steps?.length && trail.length === 0)) {
+  if (!progressVisible({
+    hasRow: Boolean(row),
+    steps,
+    trailLength: trail.length,
+    decisionShowing: Boolean(state.decision),
+  })) {
     el.progress.hidden = true;
     return;
   }
