@@ -8,26 +8,50 @@ import { createWorktree, excludeBenchDir, inspectWorktree, removeWorktree } from
 
 const exec = promisify(execFile);
 
-describe("createWorktree", () => {
-  it("creates a worktree under .claude/worktrees on its own branch", async () => {
-    const repo = await makeScratchRepo();
-    const { worktree, branch } = await createWorktree(repo, "auth-refresh");
+const ID_A = "67d92140-3dd1-4311-aed8-c079ba03eba6";
+const ID_B = "3c73392c-8661-457d-a87f-ef4bc91fc7a2";
 
-    expect(worktree).toBe(join(repo, ".claude", "worktrees", "auth-refresh"));
-    expect(branch).toBe("worktree-auth-refresh");
+describe("createWorktree", () => {
+  it("names the worktree and branch after the session, not the label", async () => {
+    // The label is what the developer calls it. Identity is the session id,
+    // so two specialists can share a label and a stale branch can never take
+    // a name hostage.
+    const repo = await makeScratchRepo();
+    const { worktree, branch } = await createWorktree(repo, "auth-refresh", ID_A);
+
+    expect(worktree).toBe(join(repo, ".claude", "worktrees", "auth-refresh-67d92140"));
+    expect(branch).toBe("bench/auth-refresh-67d92140");
 
     const { stdout } = await exec("git", ["worktree", "list"], { cwd: repo });
     expect(stdout).toContain(worktree);
   });
 
+  it("lets two specialists share a label in one repo", async () => {
+    const repo = await makeScratchRepo();
+    const first = await createWorktree(repo, "general", ID_A);
+    const second = await createWorktree(repo, "general", ID_B);
+
+    expect(second.worktree).not.toBe(first.worktree);
+    expect(second.branch).not.toBe(first.branch);
+
+    const { stdout } = await exec("git", ["worktree", "list"], { cwd: repo });
+    expect(stdout).toContain(first.worktree);
+    expect(stdout).toContain(second.worktree);
+  });
+
+  it("rejects a session id that could escape the worktrees directory", async () => {
+    const repo = await makeScratchRepo();
+    await expect(createWorktree(repo, "ok", "../../etc")).rejects.toThrow(/invalid session/i);
+  });
+
   it("rejects a label that would escape the worktrees directory", async () => {
     const repo = await makeScratchRepo();
-    await expect(createWorktree(repo, "../../etc")).rejects.toThrow(/invalid label/i);
+    await expect(createWorktree(repo, "../../etc", ID_A)).rejects.toThrow(/invalid label/i);
   });
 
   it("never returns a Windows or UNC path", async () => {
     const repo = await makeScratchRepo();
-    const { worktree } = await createWorktree(repo, "plain");
+    const { worktree } = await createWorktree(repo, "plain", ID_A);
     expect(worktree.startsWith("/")).toBe(true);
     expect(worktree).not.toContain("\\");
   });
@@ -50,7 +74,7 @@ describe("excludeBenchDir", () => {
     // Bench's worktrees as gitlinks.
     const repo = await makeScratchRepo();
     await excludeBenchDir(repo);
-    await createWorktree(repo, "somework");
+    await createWorktree(repo, "somework", ID_A);
 
     const { stdout } = await exec("git", ["status", "--porcelain"], { cwd: repo });
     expect(stdout).not.toContain(".claude/worktrees");
@@ -78,7 +102,7 @@ describe("excludeBenchDir", () => {
 describe("inspectWorktree", () => {
   it("calls a freshly created worktree clean", async () => {
     const repo = await makeScratchRepo();
-    const { worktree, branch } = await createWorktree(repo, "fresh");
+    const { worktree, branch } = await createWorktree(repo, "fresh", ID_A);
 
     const state = await inspectWorktree(repo, worktree, branch);
     expect(state.clean).toBe(true);
@@ -88,7 +112,7 @@ describe("inspectWorktree", () => {
 
   it("counts uncommitted changes to a tracked file", async () => {
     const repo = await makeScratchRepo();
-    const { worktree, branch } = await createWorktree(repo, "dirty");
+    const { worktree, branch } = await createWorktree(repo, "dirty", ID_A);
     await writeFile(join(worktree, "README.md"), "changed by a specialist");
 
     const state = await inspectWorktree(repo, worktree, branch);
@@ -98,7 +122,7 @@ describe("inspectWorktree", () => {
 
   it("counts an untracked file, since that is work too", async () => {
     const repo = await makeScratchRepo();
-    const { worktree, branch } = await createWorktree(repo, "untracked");
+    const { worktree, branch } = await createWorktree(repo, "untracked", ID_A);
     await writeFile(join(worktree, "notes.md"), "a spec nobody committed");
 
     const state = await inspectWorktree(repo, worktree, branch);
@@ -108,7 +132,7 @@ describe("inspectWorktree", () => {
 
   it("counts commits that exist nowhere else", async () => {
     const repo = await makeScratchRepo();
-    const { worktree, branch } = await createWorktree(repo, "committed");
+    const { worktree, branch } = await createWorktree(repo, "committed", ID_A);
     await writeFile(join(worktree, "feature.txt"), "done");
     await exec("git", ["add", "-A"], { cwd: worktree });
     await exec("git", ["commit", "-qm", "add feature"], { cwd: worktree });
@@ -121,7 +145,7 @@ describe("inspectWorktree", () => {
 
   it("calls a merged branch clean, since nothing would be lost", async () => {
     const repo = await makeScratchRepo();
-    const { worktree, branch } = await createWorktree(repo, "merged");
+    const { worktree, branch } = await createWorktree(repo, "merged", ID_A);
     await writeFile(join(worktree, "feature.txt"), "done");
     await exec("git", ["add", "-A"], { cwd: worktree });
     await exec("git", ["commit", "-qm", "add feature"], { cwd: worktree });
@@ -138,7 +162,7 @@ describe("inspectWorktree and bootstrap leftovers", () => {
     // lockfile are Bench's own doing. Counting them would make every
     // specialist look like it had unsaved work and close would never run.
     const repo = await makeScratchRepo();
-    const { worktree, branch } = await createWorktree(repo, "installed");
+    const { worktree, branch } = await createWorktree(repo, "installed", ID_A);
     await mkdir(join(worktree, "node_modules"), { recursive: true });
     await writeFile(join(worktree, "node_modules", "x.js"), "//");
     await writeFile(join(worktree, "pnpm-lock.yaml"), "lockfileVersion: 9");
@@ -151,7 +175,7 @@ describe("inspectWorktree and bootstrap leftovers", () => {
 
   it("still counts real work beside those leftovers", async () => {
     const repo = await makeScratchRepo();
-    const { worktree, branch } = await createWorktree(repo, "mixed");
+    const { worktree, branch } = await createWorktree(repo, "mixed", ID_A);
     await mkdir(join(worktree, "node_modules"), { recursive: true });
     await writeFile(join(worktree, "node_modules", "x.js"), "//");
     await writeFile(join(worktree, "notes.md"), "a spec nobody committed");
@@ -165,7 +189,7 @@ describe("inspectWorktree and bootstrap leftovers", () => {
 describe("removeWorktree", () => {
   it("removes the worktree and its branch", async () => {
     const repo = await makeScratchRepo();
-    const { worktree, branch } = await createWorktree(repo, "gone");
+    const { worktree, branch } = await createWorktree(repo, "gone", ID_A);
 
     await removeWorktree(repo, worktree, branch);
 
@@ -178,7 +202,7 @@ describe("removeWorktree", () => {
 
   it("does not throw when the worktree is already gone", async () => {
     const repo = await makeScratchRepo();
-    const { worktree, branch } = await createWorktree(repo, "twice");
+    const { worktree, branch } = await createWorktree(repo, "twice", ID_A);
 
     await removeWorktree(repo, worktree, branch);
     await expect(removeWorktree(repo, worktree, branch)).resolves.toBeUndefined();

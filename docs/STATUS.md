@@ -1,6 +1,6 @@
 # Bench — where it stands
 
-Last updated 2026-08-22. 147 tests passing, 2 end-to-end suites run
+Last updated 2026-08-22. 150 tests passing, 2 end-to-end suites run
 separately against the real CLI.
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
@@ -121,6 +121,14 @@ write denial. The last one has already bitten: a specialist editing
 
 Worth recording, because none were caught by tests.
 
+- **A specialist's label was being used as its identity.** The worktree and
+  branch were named `worktree-<label>`, so two specialists could never share
+  a label in one repo, and a branch left behind by a specialist Bench no
+  longer knew about held that name forever — provisioning failed with raw
+  git stderr in the roster and no way forward but renaming. The session id
+  now names both, with the label kept in front so `git branch` still reads
+  well: `bench/general-698353db`. The branch is recorded rather than derived,
+  because guessing it is how the wrong branch gets deleted.
 - **Every worktree looked like it had unsaved work.** Bench installs into
   each worktree it creates, so `node_modules/` and a generated lockfile sit
   there untracked. The first close refused on a specialist that had done

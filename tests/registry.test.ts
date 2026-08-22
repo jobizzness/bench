@@ -36,7 +36,7 @@ describe("SessionRegistry.restore", () => {
   it("brings the roster back after the daemon has restarted", async () => {
     const { home, project, worktree, id, reportsDir, config } = await setup();
     await new SessionStore(home).put({
-      id, label: "auth", project, worktree, reportsDir, model: "opus",
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir, model: "opus",
       port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
     });
 
@@ -53,7 +53,7 @@ describe("SessionRegistry.restore", () => {
   it("spawns nothing until the specialist is prompted", async () => {
     const { home, project, worktree, id, reportsDir, config } = await setup();
     await new SessionStore(home).put({
-      id, label: "auth", project, worktree, reportsDir, model: "opus",
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir, model: "opus",
       port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
     });
 
@@ -69,7 +69,7 @@ describe("SessionRegistry.restore", () => {
     await mkdir(join(reportsDir, "1"), { recursive: true });
     await writeFile(join(reportsDir, "1", "report.html"), "<h1>done</h1>");
     await new SessionStore(home).put({
-      id, label: "auth", project, worktree, reportsDir, model: "opus",
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir, model: "opus",
       port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
     });
 
@@ -82,8 +82,8 @@ describe("SessionRegistry.restore", () => {
   it("says so when the worktree has been removed", async () => {
     const { home, project, id, reportsDir, config } = await setup();
     await new SessionStore(home).put({
-      id, label: "auth", project, worktree: join(project, "gone"), reportsDir,
-      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+      id, label: "auth", project, worktree: join(project, "gone"), branch: "bench/auth-abcd1234",
+      reportsDir, model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
     });
 
     const registry = new SessionRegistry(config as any);
@@ -97,8 +97,8 @@ describe("SessionRegistry.restore", () => {
   it("does not try to revive a specialist whose worktree is gone", async () => {
     const { home, project, id, reportsDir, config } = await setup();
     await new SessionStore(home).put({
-      id, label: "auth", project, worktree: join(project, "gone"), reportsDir,
-      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+      id, label: "auth", project, worktree: join(project, "gone"), branch: "bench/auth-abcd1234",
+      reportsDir, model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
     });
 
     const registry = new SessionRegistry(config as any);
@@ -114,7 +114,7 @@ describe("SessionRegistry.restore", () => {
     // has no process yet on purpose, and must not be mistaken for one.
     const { home, project, worktree, id, reportsDir, config } = await setup();
     await new SessionStore(home).put({
-      id, label: "auth", project, worktree, reportsDir, model: "opus",
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir, model: "opus",
       port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
     });
 
@@ -128,8 +128,8 @@ describe("SessionRegistry.restore", () => {
   it("is not revivable once the worktree has gone", async () => {
     const { home, project, id, reportsDir, config } = await setup();
     await new SessionStore(home).put({
-      id, label: "auth", project, worktree: join(project, "gone"), reportsDir,
-      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+      id, label: "auth", project, worktree: join(project, "gone"), branch: "bench/auth-abcd1234",
+      reportsDir, model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
     });
 
     const registry = new SessionRegistry(config as any);
@@ -157,8 +157,8 @@ async function setupReal(label = "auth") {
   await exec("git", ["add", "-A"], { cwd: project });
   await exec("git", ["commit", "-qm", "init"], { cwd: project });
 
-  const worktree = join(project, ".claude", "worktrees", label);
-  const branch = `worktree-${label}`;
+  const worktree = join(project, ".claude", "worktrees", `${label}-abcd1234`);
+  const branch = `bench/${label}-abcd1234`;
   await mkdir(join(project, ".claude", "worktrees"), { recursive: true });
   await exec("git", ["worktree", "add", "-q", "-b", branch, worktree], { cwd: project });
 
@@ -175,7 +175,7 @@ async function setupReal(label = "auth") {
 
   const store = new SessionStore(home);
   await store.put({
-    id, label, project, worktree, reportsDir, model: "opus",
+    id, label, project, worktree, branch, reportsDir, model: "opus",
     port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
   });
 
@@ -254,5 +254,18 @@ describe("SessionRegistry.close", () => {
     const { registry } = await setupReal();
     const result = await registry.close("nope");
     expect(result.closed).toBe(false);
+  });
+});
+
+describe("branch identity", () => {
+  it("deletes the branch that was recorded, not one guessed from the label", async () => {
+    // Two specialists can share a label now, so a branch name derived from
+    // the label could belong to somebody else.
+    const { project, branch, id, registry } = await setupReal("shared");
+
+    await registry.close(id);
+
+    const { stdout } = await exec("git", ["branch", "--list", branch], { cwd: project });
+    expect(stdout.trim()).toBe("");
   });
 });

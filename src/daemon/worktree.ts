@@ -7,16 +7,32 @@ const exec = promisify(execFile);
 
 const LABEL_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
+const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The label is what the developer calls a specialist; it is not its identity.
+ * Naming the branch after the label meant two specialists could never share
+ * one, and a branch left behind by a specialist Bench no longer knew about
+ * held that name forever - provisioning failed with a raw git error and no
+ * way forward but renaming. The session id is the identity, so the label is
+ * free to repeat and a stale branch collides with nothing.
+ */
 export async function createWorktree(
   repo: string,
   label: string,
+  sessionId: string,
 ): Promise<{ worktree: string; branch: string }> {
   if (!LABEL_PATTERN.test(label)) {
     throw new Error(`invalid label: ${label}`);
   }
+  if (!SESSION_ID_PATTERN.test(sessionId)) {
+    throw new Error(`invalid session id: ${sessionId}`);
+  }
 
-  const worktree = join(repo, ".claude", "worktrees", label);
-  const branch = `worktree-${label}`;
+  // The label leads so `git branch` stays readable; the id makes it unique.
+  const name = `${label}-${sessionId.slice(0, 8)}`;
+  const worktree = join(repo, ".claude", "worktrees", name);
+  const branch = `bench/${name}`;
 
   await mkdir(join(repo, ".claude", "worktrees"), { recursive: true });
   await exec("git", ["worktree", "add", "-b", branch, worktree], { cwd: repo });

@@ -22,6 +22,7 @@ interface Entry {
   alive: boolean;
   /** Enough to bring the specialist back after the daemon has restarted. */
   worktree: string;
+  branch: string;
   model: string;
   port: number;
 }
@@ -49,6 +50,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         session: null,
         alive: false,
         worktree: rec.worktree,
+        // Records written before branches carried the session id named the
+        // branch after the label.
+        branch: rec.branch ?? `worktree-${rec.label}`,
         model: rec.model,
         port: rec.port,
         row: {
@@ -205,6 +209,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       session: null,
       alive: false,
       worktree: "",
+      branch: "",
       model: input.model,
       port: 0,
       row: {
@@ -222,7 +227,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
     try {
       await excludeBenchDir(input.project);
-      const { worktree } = await createWorktree(input.project, input.label);
+      const { worktree, branch } = await createWorktree(input.project, input.label, id);
       await mkdir(reportsDir, { recursive: true });
 
       const port = 3100 + this.entries.size;
@@ -235,6 +240,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
       const entry = this.entries.get(id)!;
       entry.worktree = worktree;
+      entry.branch = branch;
       entry.port = port;
       this.attach(id, {
         label: input.label,
@@ -245,7 +251,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       // The process waits. A specialist is given work by prompting it, not
       // by being created.
       await this.store.put({
-        id, label: input.label, project: input.project, worktree, reportsDir,
+        id, label: input.label, project: input.project, worktree, branch, reportsDir,
         model: input.model, port, createdAt: new Date().toISOString(),
       });
       this.update(id, "awaiting_decision", "ready");
@@ -309,7 +315,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     const entry = this.entries.get(id);
     if (!entry) return { closed: false, changes: 0, unmergedCommits: 0 };
 
-    const branch = `worktree-${entry.row.label}`;
+    const branch = entry.branch;
     const state = entry.worktree === ""
       ? { clean: true, changes: 0, unmergedCommits: 0 }
       : await inspectWorktree(entry.row.project, entry.worktree, branch);

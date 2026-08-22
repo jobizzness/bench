@@ -11,6 +11,9 @@ export interface SessionRecord {
   label: string;
   project: string;
   worktree: string;
+  /** Recorded rather than derived: the branch name is not recoverable from
+   * the label, and guessing it is how the wrong branch gets deleted. */
+  branch: string;
   reportsDir: string;
   model: string;
   port: number;
