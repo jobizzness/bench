@@ -92,7 +92,7 @@ export function Roster() {
                 {waiting > 0 ? `${waiting} waiting` : String(sorted.length)}
               </span>
             </summary>
-            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            <ul className="group-rows">
               {sorted.map((row) => (
                 <Row key={row.id} row={row} selected={row.id === selectedId} />
               ))}

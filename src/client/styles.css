@@ -145,10 +145,20 @@ button, input, textarea, select { font: inherit; color: inherit; }
   padding: 2px 6px;
 }
 
+/* Specialists are indented under the project they belong to, so the roster
+   reads as a tree rather than as headings dropped into a flat list. The
+   labels line up with the project name; the rails fall in the gutter, under
+   the caret, where they make a spine down the group. */
+.group-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 18px;
+}
+
 /* Rows. Status lives in the rail, not in a third line of text. */
 .row {
   position: relative;
-  padding: 10px 18px 11px 18px;
+  padding: 10px 18px 11px 12px;
   cursor: pointer;
   border-bottom: 1px solid var(--line);
   transition: background 120ms var(--ease);

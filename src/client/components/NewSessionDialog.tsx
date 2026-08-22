@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
+import { useBenchActions } from "./context.js";
 
 interface Project { name: string; path: string }
 
@@ -30,6 +31,7 @@ const WORKTREE_NOTE = {
  * lives and what it costs.
  */
 export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { select } = useBenchActions();
   const ref = useRef<HTMLDialogElement>(null);
   const projectRef = useRef<HTMLInputElement>(null);
 
@@ -86,6 +88,11 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
         setError((await res.json()).error ?? "Could not create the specialist.");
         return;
       }
+      // You made it to give it a job, so it is the one you want in front of
+      // you. Leaving the old specialist on the stage meant finding the new
+      // one in the roster yourself before you could say a word to it.
+      const { id } = await res.json();
+      if (id) select(String(id));
       onClose();
     } finally {
       setBusy(false);

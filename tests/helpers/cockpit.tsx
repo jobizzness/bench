@@ -24,6 +24,8 @@ export interface Fixtures {
   projects?: Array<{ name: string; path: string }>;
   /** null is a specialist that has written no checklist at all. */
   plan?: PlanStep[] | null;
+  /** The id the daemon hands back from POST /api/sessions. */
+  createdId?: string;
 }
 
 export interface Cockpit {
@@ -86,7 +88,9 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
   (globalThis as any).fetch = async (url: string, init?: RequestInit) => {
     if (init?.method === "POST") {
       sent.push({ url, body: JSON.parse(String(init.body)) });
-      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      // Creating a specialist answers with its id, and the cockpit acts on it.
+      const created = url.endsWith("/api/sessions") ? { id: fixtures.createdId ?? "s-new" } : {};
+      return { ok: true, status: 200, json: async () => ({ ok: true, ...created }) };
     }
     if (url.includes("/thread")) {
       return { ok: true, status: 200, json: async () => ({ entries: fixtures.entries ?? [] }) };
