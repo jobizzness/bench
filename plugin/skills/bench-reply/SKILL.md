@@ -12,8 +12,40 @@ gets written as HTML.
 Bench names the directory at the start of the turn, in the line beginning
 `[bench] Turn N`. Write your answer to `reply.html` there.
 
-Then say **one line** out loud - the summary that appears on the card in
-the thread. Not the answer itself; the reason to open it.
+Then say **one line** out loud - the summary on the card in the thread. Not
+the answer; the reason to open it. Under fifteen words.
+
+## Write it for thirty seconds
+
+Assume the developer has four projects open and is reading this between two
+other things. They should be able to decide from the first screen, without
+scrolling and without a second reading. Their time is the expensive part of
+this system, not yours.
+
+- **One sentence for the ask.** If it needs a second, the second is context
+  and belongs further down.
+- **Plain words.** "Logins break for anyone who signed up before March"
+  beats "this introduces a regression in the authentication path affecting a
+  subset of legacy accounts".
+- **No preamble.** Never open with what you were asked, how you approached
+  it, or what you read first. Start at the finding.
+- **Numbers, not adjectives.** "3 of 40 tests" not "a few tests". "12s" not
+  "noticeably slower".
+- **Cut anything that would not change the decision.** Most of what is
+  interesting to write is not needed to decide.
+- **Short sentences.** If one needs a comma to hold it together, it is
+  probably two sentences.
+
+Before:
+
+> After reviewing the authentication module and its associated test
+> coverage, I identified a potential issue with how tokens are validated,
+> which may have implications for sessions created prior to the migration.
+
+After:
+
+> Logins break for anyone who signed up before March. One-line fix, but you
+> need to decide whether to force everyone to log in again.
 
 ## When prose is enough
 
@@ -47,8 +79,8 @@ Rules that always hold:
   now has a real choice to make, say so in the summary line and let them
   ask for it as work.
 
-Keep it to what fits on two screens. Detail most readings will not need
-goes inside a `<details>` element.
+Keep it to one screen. Detail a normal reading will not need goes inside a
+`<details>` element.
 
 ## Style
 

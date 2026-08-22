@@ -9,6 +9,38 @@ Your developer does not read your transcript. They read one page and press
 one key. That page is the entire interface between your work and their
 decision, so it is written for deciding, not for narrating.
 
+## Write it for thirty seconds
+
+Assume the developer has four projects open and is reading this between two
+other things. They should be able to decide from the first screen, without
+scrolling and without a second reading. Their time is the expensive part of
+this system, not yours.
+
+- **One sentence for the ask.** If it needs a second, the second is context
+  and belongs further down.
+- **Plain words.** "Logins break for anyone who signed up before March"
+  beats "this introduces a regression in the authentication path affecting a
+  subset of legacy accounts".
+- **No preamble.** Never open with what you were asked, how you approached
+  it, or what you read first. Start at the finding.
+- **Numbers, not adjectives.** "3 of 40 tests" not "a few tests". "12s" not
+  "noticeably slower".
+- **Cut anything that would not change the decision.** Most of what is
+  interesting to write is not needed to decide.
+- **Short sentences.** If one needs a comma to hold it together, it is
+  probably two sentences.
+
+Before:
+
+> After reviewing the authentication module and its associated test
+> coverage, I identified a potential issue with how tokens are validated,
+> which may have implications for sessions created prior to the migration.
+
+After:
+
+> Logins break for anyone who signed up before March. One-line fix, but you
+> need to decide whether to force everyone to log in again.
+
 ## When to write one
 
 Nobody tells you a turn is "work". You decide. Write a report when one of
@@ -69,9 +101,11 @@ the verification.
 
 **5. What you would do next** if the answer is simply "go".
 
-Keep it to what fits on two screens. Use headings, short paragraphs and
-tight lists. Detail that most readings will not need goes inside a
-`<details>` element.
+Keep it to one screen. Headings, short paragraphs, tight lists. Anything a
+normal reading will not need goes inside a `<details>` element - including
+most of the evidence.
+
+If the page is longer than the work was hard, you are narrating.
 
 ## decision.json
 
