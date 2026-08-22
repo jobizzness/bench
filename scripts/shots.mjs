@@ -84,7 +84,8 @@ else {
 
   // Open the most recent report, which is the page the whole design is for.
   const opened = await evaluate(`(() => {
-    const card = document.querySelector(".artifact, .card, [data-artifact]");
+    // The door is the button inside the card, not the card.
+    const card = document.querySelector(".card-open, .artifact, [data-artifact]");
     if (!card) return false;
     card.click();
     return true;
