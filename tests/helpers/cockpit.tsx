@@ -1,6 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/client/components/App.js";
+import type { PlanStep } from "../../src/daemon/plan.js";
 import type { Decision, RosterRow, ThreadEntry } from "../../src/shared/types.js";
 import { waitFor } from "./wait-for.js";
 
@@ -21,6 +22,8 @@ export interface Fixtures {
   entries?: ThreadEntry[];
   decision?: Decision | null;
   projects?: Array<{ name: string; path: string }>;
+  /** null is a specialist that has written no checklist at all. */
+  plan?: PlanStep[] | null;
 }
 
 export interface Cockpit {
@@ -99,7 +102,10 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       return { ok: true, status: 200, json: async () => ({ projects: fixtures.projects ?? [] }) };
     }
     if (url.includes("/plan")) {
-      return { ok: true, status: 200, json: async () => ({ steps: [] }) };
+      const plan = fixtures.plan;
+      return plan === null || plan === undefined
+        ? { ok: false, status: 404, json: async () => ({}) }
+        : { ok: true, status: 200, json: async () => ({ steps: plan }) };
     }
     return { ok: true, status: 200, json: async () => ({}) };
   };

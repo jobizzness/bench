@@ -811,68 +811,136 @@ button, input, textarea, select { font: inherit; color: inherit; }
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* Where the specialist has got to: its own checklist, and the trail of what
-   it actually did. Kept between the thread and the composer so it reads as
-   status rather than conversation. */
+/* ── Where a specialist has got to ──────────────────────────────────── */
+
+/* The checklist gets the top of the stage. It is the answer to the question
+   the cockpit exists to ask, and it was being rendered as a footnote: a
+   cramped strip in small grey type, wedged between the thread and the
+   composer, with the trail eating what room it had.
+
+   It sits above the thread rather than below it because it should not move
+   while a turn runs - the thread scrolls underneath, and the answer to
+   "where has this got to" stays where you last looked for it. */
 #progress {
-  border-top: 1px solid var(--rule, rgba(255, 255, 255, 0.08));
-  padding: 0.6rem 1rem;
-  display: grid;
-  gap: 0.5rem;
-  max-height: 40vh;
-  overflow-y: auto;
+  flex: none;
+  padding: 20px 32px 15px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent);
 }
 
-/* Two capped, variable-height panels now stack above the composer, and each
-   was sized without knowing about the other: 40vh of progress plus 52vh of
-   intake leaves the thread nothing at all. Each keeps its own ceiling alone
-   and they both yield when they are on screen together, so neither feature
-   is retuned for a case it does not hit. */
-#stage:has(#progress:not([hidden])) #intake { max-height: min(34vh, 380px); }
-#stage:has(#progress:not([hidden])) #progress { max-height: 24vh; }
-
-#plan,
-#trail {
+#plan {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 0.15rem;
+  /* A plan can be fifty steps by schema. Almost none are, but the panel
+     cannot be allowed to push the thread off the screen if one is. */
+  max-height: 32vh;
+  overflow-y: auto;
 }
 
 .step {
   display: grid;
-  grid-template-columns: 1.1rem 1fr;
+  grid-template-columns: 16px 1fr;
   align-items: baseline;
-  gap: 0.4rem;
-  font-size: 0.86rem;
-  opacity: 0.75;
+  gap: 11px;
+  padding: 3px 0;
+  font-size: 14.5px;
+  line-height: 1.5;
+  letter-spacing: -0.005em;
+  color: var(--muted);
 }
 
-.step[data-state="done"] { opacity: 0.45; }
-.step[data-state="done"] span:last-child { text-decoration: line-through; }
-.step[data-state="doing"] { opacity: 1; font-weight: 600; }
+.step .mark {
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--faint);
+}
 
-.step .mark { text-align: center; }
+/* Done is legible but spent: struck through in a line dim enough that the
+   text stays readable underneath it. */
+.step[data-state="done"] { color: var(--faint); }
+/* A tick dark enough to disappear stops the list reading as a checklist
+   at all, which is most of what makes it legible at a glance. */
+.step[data-state="done"] .mark { color: var(--wants); opacity: 0.55; }
+.step[data-state="done"] .what {
+  text-decoration: line-through;
+  text-decoration-color: var(--line-firm);
+}
+
+/* The one it is on now is the only line anyone is really reading. */
+.step[data-state="doing"] { color: var(--text); font-weight: 500; }
+.step[data-state="doing"] .mark { color: var(--wants); }
+
+#progress[data-live="true"] .step[data-state="doing"] .mark {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+/* ── The trail, folded ──────────────────────────────────────────────── */
+
+/* Ten lines of `Bash cat package.json` is noise. What it is running now and
+   how long ago is not, so that much stays on the summary and the rest is
+   one click away. */
+/* The rule between them only earns its place when there is a checklist
+   above it to divide from. A specialist that has written no plan otherwise
+   gets a line drawn under nothing. */
+#plan + #trail-fold {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+
+#trail-fold > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+  font: 400 12px/1.5 var(--mono);
+  color: var(--faint);
+  transition: color 120ms var(--ease);
+}
+#trail-fold > summary::-webkit-details-marker { display: none; }
+#trail-fold > summary:hover { color: var(--muted); }
+
+#trail-fold > summary::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: 3.5px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 140ms var(--ease);
+  flex: none;
+}
+#trail-fold[open] > summary::before { transform: rotate(90deg); }
+
+#trail-fold .now {
+  color: var(--muted);
+  min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#trail-fold[open] .now { color: var(--text); }
+#trail-fold .when { flex: none; }
+#trail-fold .more { flex: none; margin-left: auto; opacity: 0.75; }
+
+#trail {
+  list-style: none;
+  margin: 9px 0 0;
+  padding: 0 0 0 14px;
+  max-height: 26vh;
+  overflow-y: auto;
+}
 
 .trail-item {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
-  font-size: 0.78rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  opacity: 0.5;
-  white-space: nowrap;
+  gap: 16px;
+  padding: 2px 0;
+  font: 400 11.5px/1.6 var(--mono);
+  color: var(--faint);
 }
-
-.trail-item:first-child { opacity: 0.85; }
-
-.trail-item span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.trail-item .when { flex: none; }
+.trail-item span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trail-item .when { flex: none; opacity: 0.7; }
 
 /* A stale link cannot be recovered from by the page, so it says so instead of
    leaving an empty cockpit that looks like lost work. */

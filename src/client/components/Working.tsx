@@ -1,5 +1,5 @@
 import type { RosterRow } from "../../shared/types.js";
-import { ago, elapsedSince, formatTokens, hashOf } from "../format.js";
+import { elapsedSince, formatTokens, hashOf } from "../format.js";
 import { useBenchState } from "./context.js";
 import { useTick } from "./useTick.js";
 
@@ -20,12 +20,9 @@ function meta(row: RosterRow): string {
   const tokens = formatTokens(row.tokens);
   if (tokens) parts.push(`↓ ${tokens}`);
 
-  if (row.detail && row.status === "working") parts.push(row.detail);
-
-  // Elapsed time alone cannot tell a long turn from a wedged one.
-  const last = row.activity.at(-1);
-  if (last && row.status === "working") parts.push(ago(last.at));
-
+  // What it is running, and when it last ran anything, used to be repeated
+  // here. The trail's summary line says both a few inches up the page now,
+  // and saying it twice made neither copy worth reading.
   return parts.join("  ·  ");
 }
 

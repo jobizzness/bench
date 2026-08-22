@@ -1,44 +1,16 @@
-import type { PlanStep } from "../../daemon/plan.js";
-import { ago } from "../format.js";
 import { progressVisible } from "../progress.js";
 import { isWaiting } from "../waiting.js";
+import { Plan } from "./Plan.js";
+import { Trail } from "./Trail.js";
 import { useBenchState } from "./context.js";
 import { useSessionPlan } from "./useSessionPlan.js";
 import { useTick } from "./useTick.js";
 
-const MARK: Record<PlanStep["state"], string> = { done: "✓", doing: "▸", todo: "·" };
-
-function Plan({ steps }: { steps: PlanStep[] }) {
-  return (
-    <ol id="plan">
-      {steps.map((step, index) => (
-        <li className="step" data-state={step.state} key={`${index}-${step.text}`}>
-          <span className="mark">{MARK[step.state]}</span>
-          <span>{step.text}</span>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function Trail({ items }: { items: Array<{ at: string; text: string }> }) {
-  return (
-    <ul id="trail">
-      {/* Newest first: what it is doing now is what you came to look at. */}
-      {[...items].reverse().map((item) => (
-        <li className="trail-item" key={`${item.at}-${item.text}`}>
-          <span>{item.text}</span>
-          <span className="when">{ago(item.at)}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 /**
- * Two views of a running turn. The plan is what the specialist says it is
- * doing and can go stale; the trail is derived from its tool calls and
- * cannot. Showing both is what makes either trustworthy.
+ * Two views of a running turn, at the top of the stage rather than crammed
+ * under it. The plan is what the specialist says it is doing and can go
+ * stale; the trail is derived from its tool calls and cannot. Showing both is
+ * what makes either trustworthy — but only one of them is worth the room.
  */
 export function Progress() {
   const { rows, selectedId } = useBenchState();
@@ -57,9 +29,9 @@ export function Progress() {
   if (!visible) return null;
 
   return (
-    <div id="progress">
-      {steps && steps.length > 0 ? <Plan steps={steps} /> : <ol id="plan" />}
+    <section id="progress" data-live={live}>
+      {steps && <Plan steps={steps} />}
       <Trail items={trail} />
-    </div>
+    </section>
   );
 }

@@ -124,6 +124,9 @@ export function App() {
 
         <section id="stage">
           <StageHead />
+          {/* Where it has got to comes before what was said about it: the
+              checklist is the answer to the question you opened this for. */}
+          <Progress />
           <Thread
             entries={entries}
             sessionId={selectedId}
@@ -131,7 +134,6 @@ export function App() {
             onOpen={setArtifact}
           />
           <Working />
-          <Progress />
 
           <footer id="composer">
             {decision && (
