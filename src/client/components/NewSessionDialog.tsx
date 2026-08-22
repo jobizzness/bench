@@ -102,7 +102,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const labelIsBad = label !== "" && !LABEL_PATTERN.test(label);
 
   return (
-    <dialog id="new-dialog" ref={ref} onClose={onClose}>
+    <dialog id="new-dialog" className="sheet" ref={ref} onClose={onClose}>
       <form id="new-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <h2>New specialist</h2>
 

@@ -14,6 +14,7 @@ import { appendActivity } from "./activity.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
 import { appendEntry, readThread } from "./thread.js";
 import { answeredReportSeq } from "./answered.js";
+import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
 import type { RosterRow, SessionStatus } from "../shared/types.js";
 
 interface Entry {
@@ -38,10 +39,26 @@ interface Entry {
 export class SessionRegistry extends EventEmitter implements SessionRegistryLike {
   private entries = new Map<string, Entry>();
   private readonly store: SessionStore;
+  /**
+   * Held in memory as well as on disk because the framing is built
+   * synchronously, at the instant a turn starts. Saving updates both, so a
+   * rule written now is in the next turn of every specialist, including the
+   * ones already running.
+   */
+  private settings: Settings = NO_SETTINGS;
 
   constructor(private readonly config: ReturnType<typeof loadConfig>) {
     super();
     this.store = new SessionStore(config.home);
+  }
+
+  getSettings(): Settings {
+    return this.settings;
+  }
+
+  async saveSettings(input: unknown): Promise<Settings> {
+    this.settings = await writeSettings(this.config.home, input);
+    return this.settings;
   }
 
   /**
@@ -50,6 +67,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * what an old one already wrote.
    */
   async restore(): Promise<void> {
+    this.settings = await readSettings(this.config.home);
+
     for (const rec of await this.store.all()) {
       const worktreeGone = !existsSync(rec.worktree);
       // Read once and used twice: what has already been answered, and whether
@@ -148,6 +167,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       resume: opts.resume,
       claudeBin: this.config.claudeBin,
       startTurn: opts.startTurn,
+      rules: () => houseRules(this.settings),
     });
 
     const syncProgress = () => {

@@ -24,6 +24,12 @@ export interface SessionOptions {
   /** Pick up a session the CLI already has a transcript for, rather than
    * starting a new one. Used when a specialist outlives the daemon. */
   resume?: boolean;
+  /**
+   * The developer's house rules, read fresh for every turn rather than
+   * captured at spawn - a rule saved now has to reach the specialist already
+   * running, and the framing is the only thing said again each turn.
+   */
+  rules?: () => string;
 }
 
 /**
@@ -180,6 +186,11 @@ export class ClaudeSession extends EventEmitter {
 
   private framed(text: string, turn: number): string {
     const dir = join(this.opts.reportsDir, String(turn));
+    const rules = this.opts.rules?.() ?? "";
+    // House rules sit between the mechanics and the ask: standing instructions
+    // first, then what is wanted now, so the nearest thing to the prompt is
+    // the prompt.
+    const standing = rules === "" ? "" : `${rules}\n\n`;
     return `[bench] Turn ${turn}. This turn's artifact directory is ${dir}\n` +
       `Write a report there - bench-report skill, report.html and decision.json - ` +
       `when a decision needs the developer, when work is finished and they need ` +
@@ -190,7 +201,7 @@ export class ClaudeSession extends EventEmitter {
       `If this turn takes more than a couple of steps, keep a checklist at ` +
       `${join(dir, "plan.json")} - {"steps":[{"text":"...","state":"todo|doing|done"}]} - ` +
       `and update it as you go. It is the only way the developer can see where ` +
-      `you have got to while you work.\n\n${text}`;
+      `you have got to while you work.\n\n${standing}${text}`;
   }
 
   private consume(chunk: string): void {

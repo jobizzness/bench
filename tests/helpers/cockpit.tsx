@@ -26,6 +26,8 @@ export interface Fixtures {
   plan?: PlanStep[] | null;
   /** The id the daemon hands back from POST /api/sessions. */
   createdId?: string;
+  /** House rules already on the daemon when the page opens. */
+  settings?: { codingStyle: string; workflowRules: string };
 }
 
 export interface Cockpit {
@@ -108,6 +110,10 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
     }
     if (url.includes("/projects")) {
       return { ok: true, status: 200, json: async () => ({ projects: fixtures.projects ?? [] }) };
+    }
+    if (url.includes("/settings")) {
+      const settings = fixtures.settings ?? { codingStyle: "", workflowRules: "" };
+      return { ok: true, status: 200, json: async () => ({ settings }) };
     }
     if (url.includes("/plan")) {
       const plan = fixtures.plan;

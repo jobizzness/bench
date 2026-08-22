@@ -9,10 +9,13 @@ import { readPlan } from "./plan.js";
 import { artifactPage } from "./artifact-page.js";
 import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
+import { houseRules, type Settings } from "./settings.js";
 import type { IntakeAnswer, RosterRow } from "../shared/types.js";
 
 export interface SessionRegistryLike {
   list(): RosterRow[];
+  getSettings(): Settings;
+  saveSettings(input: unknown): Promise<Settings>;
   get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null;
   send(id: string, text: string): void;
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
@@ -135,6 +138,26 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
     const token = req.headers["x-bench-token"] ?? url.searchParams.get("token");
     if (token !== config.token) {
       json(res, 401, { error: "unauthorized" });
+      return;
+    }
+
+    // The rules travel with what a specialist is actually told, so the page
+    // can show that back rather than describing it.
+    if (path === "/api/settings" && req.method === "GET") {
+      const settings = registry.getSettings();
+      json(res, 200, { settings, framing: houseRules(settings) });
+      return;
+    }
+
+    if (path === "/api/settings" && req.method === "POST") {
+      try {
+        const settings = await registry.saveSettings(await readBody(req));
+        json(res, 200, { settings, framing: houseRules(settings) });
+      } catch {
+        // Either a field over its cap, or a body that is not a whole set of
+        // settings - and half a set would erase the half it left out.
+        json(res, 400, { error: "settings must arrive whole, and short enough to send every turn" });
+      }
       return;
     }
 

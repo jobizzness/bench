@@ -91,7 +91,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
   text-transform: uppercase;
 }
 
-#new-session {
+.header-actions { display: flex; align-items: center; gap: 7px; }
+
+#new-session, #open-settings {
   background: transparent;
   border: 1px solid var(--line-firm);
   border-radius: 5px;
@@ -103,7 +105,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
   cursor: pointer;
   transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
 }
-#new-session:hover { color: var(--text); border-color: var(--wants-dim); background: var(--hover); }
+#new-session:hover, #open-settings:hover {
+  color: var(--text); border-color: var(--wants-dim); background: var(--hover);
+}
+/* The rules are the quieter of the two: you set them once and leave them. */
+#open-settings { border-color: var(--line); color: var(--faint); }
 
 #roster-list { list-style: none; margin: 0; padding: 0; }
 
@@ -686,20 +692,29 @@ button, input, textarea, select { font: inherit; color: inherit; }
   color: var(--muted);
 }
 
-/* ── New specialist dialog ──────────────────────────────────────────── */
+/* ── Sheets: the new specialist dialog and the house rules ──────────── */
 
-#new-dialog {
+.sheet {
   border: 1px solid var(--line-firm);
   border-radius: 12px;
   background: var(--panel);
   color: var(--text);
   padding: 0;
   width: min(540px, 92vw);
+  /* Two text areas and a preview outgrow a laptop screen, and a Save button
+     below the fold of a modal is a Save button that does not exist. */
+  max-height: 88vh;
 }
-#new-dialog::backdrop { background: rgba(4, 8, 6, 0.72); }
+.sheet::backdrop { background: rgba(4, 8, 6, 0.72); }
 
-#new-form { padding: 26px 28px 22px; display: flex; flex-direction: column; }
-#new-form h2 {
+.sheet form {
+  padding: 26px 28px 22px;
+  display: flex;
+  flex-direction: column;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.sheet form h2 {
   margin: 0 0 20px;
   font: 600 13px/1 var(--mono);
   letter-spacing: 0.18em;
@@ -707,7 +722,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   color: var(--muted);
 }
 
-#new-form label {
+.sheet form label {
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.14em;
@@ -716,9 +731,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
   margin-bottom: 7px;
 }
 
-#new-form input,
-#new-form textarea,
-#new-form select {
+.sheet form input,
+.sheet form textarea,
+.sheet form select {
+  /* The form scrolls, so a field must keep the height it asked for rather
+     than being squeezed until its own text is clipped. */
+  flex: none;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -728,18 +746,18 @@ button, input, textarea, select { font: inherit; color: inherit; }
   resize: vertical;
   transition: border-color 120ms var(--ease);
 }
-#new-form input::placeholder, #new-form textarea::placeholder { color: var(--faint); }
-#new-form input:focus,
-#new-form textarea:focus,
-#new-form select:focus { outline: none; border-color: var(--wants-dim); }
-#new-form input[aria-invalid="true"] { border-color: var(--broken); }
+.sheet form input::placeholder, .sheet form textarea::placeholder { color: var(--faint); }
+.sheet form input:focus,
+.sheet form textarea:focus,
+.sheet form select:focus { outline: none; border-color: var(--wants-dim); }
+.sheet form input[aria-invalid="true"] { border-color: var(--broken); }
 
 .field-note { margin: 3px 0 18px; font-size: 12px; color: var(--faint); line-height: 1.5; }
 
-#new-form .check { display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
-#new-form .check input { width: auto; margin: 0; accent-color: var(--wants); }
-#new-form .check label { margin: 0; text-transform: none; letter-spacing: 0; }
-#new-form textarea, #new-form select { margin-bottom: 18px; }
+.sheet form .check { display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
+.sheet form .check input { width: auto; margin: 0; accent-color: var(--wants); }
+.sheet form .check label { margin: 0; text-transform: none; letter-spacing: 0; }
+.sheet form textarea, .sheet form select { margin-bottom: 18px; }
 
 .error {
   margin: 0 0 16px;
@@ -747,8 +765,20 @@ button, input, textarea, select { font: inherit; color: inherit; }
   color: var(--broken);
 }
 
-#new-form .actions { display: flex; justify-content: flex-end; gap: 9px; }
-#new-form .actions button {
+/* Pinned to the bottom of the scrolling form: with the preview open the sheet
+   is taller than the screen, and Save below the fold is Save that is not
+   there. */
+.sheet form .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  position: sticky;
+  bottom: -22px;
+  padding: 12px 0 22px;
+  margin-bottom: -22px;
+  background: var(--panel);
+}
+.sheet form .actions button {
   border: 1px solid var(--line-firm);
   border-radius: 8px;
   padding: 9px 18px;
@@ -757,13 +787,62 @@ button, input, textarea, select { font: inherit; color: inherit; }
   font: 500 13px/1 var(--sans);
   transition: background 120ms var(--ease), border-color 120ms var(--ease);
 }
-#new-form .actions button:hover { background: var(--hover); }
-#f-create {
+.sheet form .actions button:hover { background: var(--hover); }
+#f-create, #s-save {
   border-color: var(--wants-dim);
   color: var(--wants);
   border-bottom-width: 2px;
 }
-#f-create:hover { border-color: var(--wants); }
+#f-create:hover, #s-save:hover { border-color: var(--wants); }
+
+/* ── House rules ────────────────────────────────────────────────────── */
+
+/* What the specialist is actually told, in its own words rather than a
+   description of them. It is the only thing on the page that is not editable,
+   so it reads as output: sunk, monospace, no border to type into. */
+#s-preview {
+  margin: 2px 0 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+#s-preview > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  transition: color 120ms var(--ease);
+}
+#s-preview > summary::-webkit-details-marker { display: none; }
+#s-preview > summary:hover { color: var(--muted); }
+#s-preview > summary::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: 3.5px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 140ms var(--ease);
+  flex: none;
+}
+#s-preview[open] > summary::before { transform: rotate(90deg); }
+
+#s-framing {
+  margin: 11px 0 0;
+  padding: 12px 13px;
+  max-height: 150px;
+  overflow-y: auto;
+  background: var(--sunk);
+  border-radius: 8px;
+  font: 400 12px/1.6 var(--mono);
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* An artifact is a page, not a paragraph. Nothing caps an entry now, so it
    already has the room. */

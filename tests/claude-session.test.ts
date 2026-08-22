@@ -137,6 +137,28 @@ describe("ClaudeSession", () => {
     session.stop();
   });
 
+  it("carries the developer's house rules into every turn", async () => {
+    // Read per turn, not captured at spawn: a rule saved while a specialist
+    // is running has to reach it without a restart.
+    let rules = "";
+    const session = await makeSession(FAKE_CLI, { rules: () => rules });
+    session.open();
+
+    session.send("first");
+    const [before] = await once(session, "turn-end");
+    expect(before.result).not.toContain("House rules");
+
+    rules = "[bench] House rules. Comments say why.";
+    session.send("second");
+    const [after] = await once(session, "turn-end");
+
+    expect(after.result).toContain("Comments say why");
+    // Standing instructions first, the ask last - the nearest thing to the
+    // prompt should be the prompt.
+    expect(after.result.indexOf("House rules")).toBeLessThan(after.result.indexOf("second"));
+    session.stop();
+  });
+
   it("increments the turn counter across turns", async () => {
     const session = await makeSession();
     session.open();
