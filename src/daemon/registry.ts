@@ -137,6 +137,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       model: opts.model,
       port: opts.port,
       resume: opts.resume,
+      claudeBin: this.config.claudeBin,
     });
 
     const syncProgress = () => {

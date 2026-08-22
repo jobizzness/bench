@@ -100,11 +100,11 @@ export class ClaudeSession extends EventEmitter {
     this.child.stdout.on("data", (chunk: string) => this.consume(chunk));
     this.child.stderr.setEncoding("utf8");
     this.child.stderr.on("data", (chunk: string) => {
-      // Kept as well as forwarded. When the CLI refuses to start it says why
+      // Kept rather than forwarded. When the CLI refuses to start it says why
       // on stderr and exits, and that line is the whole explanation - without
       // holding on to it the daemon can only report that a process exited.
+      // It used to be emitted instead, which nothing listened to.
       this.lastStderr = (this.lastStderr + chunk).slice(-STDERR_KEPT);
-      this.emit("stderr", chunk);
     });
     // `close` rather than `exit`: exit can fire before the last stderr chunk
     // has been read, which is exactly the chunk worth having.

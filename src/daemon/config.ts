@@ -10,6 +10,12 @@ export interface BenchConfig {
   pluginDir: string;
   hookCommand: string;
   projectsRoot: string;
+  /**
+   * The CLI to spawn. Only ever set by tests, which cannot let a unit test of
+   * the supervisor launch a real agent - and on a machine without the CLI
+   * installed, that spawn fails as an unhandled error rather than a test.
+   */
+  claudeBin?: string;
 }
 
 export function loadConfig(): BenchConfig {
