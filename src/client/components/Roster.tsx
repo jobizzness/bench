@@ -20,6 +20,11 @@ function Row({ row, selected }: { row: RosterRow; selected: boolean }) {
     <li
       className="row"
       data-status={row.status}
+      // Status is not the same question as "does this want me". A specialist
+      // that answered and wrote no report is awaiting_decision too, and the
+      // roster was colouring it green while its own group count said nothing
+      // was waiting.
+      data-waiting={isWaiting(row)}
       aria-selected={selected}
       onClick={() => select(row.id)}
     >

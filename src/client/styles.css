@@ -171,7 +171,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   background: var(--busy);
   animation: breathe 2.4s ease-in-out infinite;
 }
-.row[data-status="awaiting_decision"]::before { background: var(--wants); }
+.row[data-waiting="true"]::before { background: var(--wants); }
 .row[data-status="crashed"]::before,
 .row[data-status="provisioning_failed"]::before { background: var(--broken); }
 
@@ -190,7 +190,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   letter-spacing: -0.01em;
   margin-bottom: 2px;
 }
-.row[data-status="awaiting_decision"] .label { color: var(--wants); font-weight: 600; }
+.row[data-waiting="true"] .label { color: var(--wants); font-weight: 600; }
 .row[data-status="crashed"] .label,
 .row[data-status="provisioning_failed"] .label { color: var(--broken); }
 
