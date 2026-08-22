@@ -1,7 +1,16 @@
 const token = new URLSearchParams(location.search).get("token") ?? "";
 const authHeaders = { "x-bench-token": token };
 
-const state = { rows: [], selectedId: null, entries: [], decision: null, choice: null };
+const state = {
+  rows: [], selectedId: null, entries: [], decision: null, choice: null,
+  /** `sessionId:reportSeq` of the decision on the table, so a roster tick
+      does not reload it out from under a half-given answer. */
+  decisionSeq: null,
+  /** questionId -> { ids: Set<string>, text: string, touched: boolean } */
+  answers: new Map(),
+  /** Index into the currently visible question list, for the number keys. */
+  focus: 0,
+};
 const collapsed = new Set();
 
 const el = {
@@ -11,11 +20,20 @@ const el = {
   headStatus: document.getElementById("stage-status"),
   thread: document.getElementById("thread"),
   decision: document.getElementById("decision"),
+  kind: document.getElementById("decision-kind"),
   title: document.getElementById("decision-title"),
   summary: document.getElementById("decision-summary"),
   options: document.getElementById("decision-options"),
+  intake: document.getElementById("intake"),
+  brief: document.getElementById("intake-brief"),
+  questions: document.getElementById("intake-questions"),
+  assumed: document.getElementById("intake-assumed"),
+  assumedCount: document.getElementById("intake-assumed-count"),
+  assumedPreview: document.getElementById("intake-assumed-preview"),
+  assumedQuestions: document.getElementById("intake-assumed-questions"),
   form: document.getElementById("composer-form"),
   text: document.getElementById("composer-text"),
+  send: document.getElementById("composer-send"),
   hint: document.getElementById("composer-hint"),
   newSession: document.getElementById("new-session"),
   working: document.getElementById("working"),
@@ -152,34 +170,74 @@ function renderRoster() {
   }));
 }
 
-/** Reports and replies are both rendered pages; only the file differs. */
-function artifactCard({ label, title, seq, file, open }) {
-  const card = document.createElement("details");
-  card.className = "card";
-  card.open = Boolean(open);
+const artifact = {
+  root: document.getElementById("artifact-dialog"),
+  kind: document.getElementById("artifact-kind"),
+  title: document.getElementById("artifact-title"),
+  tab: document.getElementById("artifact-tab"),
+  frame: document.getElementById("artifact-frame"),
+  close: document.getElementById("artifact-close"),
+};
 
-  const summary = document.createElement("summary");
+const artifactUrl = (seq, file) =>
+  `/r/${state.selectedId}/${seq}/${file}?token=${encodeURIComponent(token)}`;
+
+/**
+ * A report is a page, so it opens as one. Unfolding it in place put a
+ * document inside a 108ch column with the thread still scrolling underneath
+ * it, which is the wrong shape for the one thing you are meant to read.
+ */
+function openArtifact({ label, title, seq, file }) {
+  artifact.kind.textContent = label;
+  artifact.title.textContent = title;
+  artifact.tab.href = artifactUrl(seq, file);
+  artifact.frame.src = artifactUrl(seq, file);
+  artifact.root.showModal();
+}
+
+// Esc, the close button and the backdrop all land here, so the frame is torn
+// down in one place - a hidden iframe left loaded keeps rendering.
+artifact.root.addEventListener("close", () => artifact.frame.removeAttribute("src"));
+artifact.close.onclick = () => artifact.root.close();
+artifact.root.onclick = (event) => { if (event.target === artifact.root) artifact.root.close(); };
+
+/**
+ * Reports and replies are both rendered pages; only the file differs. Both
+ * open in the dialog. A reply also previews in the thread, because a reply is
+ * the answer to something you asked and reading it should not cost a click.
+ */
+function artifactCard({ label, title, seq, file, preview }) {
+  const card = document.createElement("article");
+  card.className = "card";
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "card-open";
+  open.onclick = () => openArtifact({ label, title, seq, file });
+
   const kind = document.createElement("span");
   kind.className = "kind";
   kind.textContent = label;
+
   const heading = document.createElement("span");
   heading.className = "title";
   heading.textContent = title;
-  summary.append(kind, heading);
 
-  const frame = document.createElement("iframe");
-  frame.setAttribute("sandbox", "allow-same-origin");
-  frame.title = title;
+  const cue = document.createElement("span");
+  cue.className = "cue";
+  cue.textContent = "open";
 
-  const load = () => {
-    if (!frame.src) {
-      frame.src = `/r/${state.selectedId}/${seq}/${file}?token=${encodeURIComponent(token)}`;
-    }
-  };
-  card.ontoggle = () => { if (card.open) load(); };
-  if (card.open) load();
+  open.append(kind, heading, cue);
+  card.append(open);
 
-  card.append(summary, frame);
+  if (preview) {
+    const frame = document.createElement("iframe");
+    frame.setAttribute("sandbox", "allow-same-origin");
+    frame.title = title;
+    frame.src = artifactUrl(seq, file);
+    card.append(frame);
+  }
+
   return card;
 }
 
@@ -236,10 +294,10 @@ function renderThread() {
         label: "report", title: entry.body, seq: entry.reportSeq, file: "report.html",
       }));
     } else if (entry.kind === "reply" && entry.replySeq) {
-      // The specialist answered with a page. Open it - it is the answer.
+      // The specialist answered with a page. Preview it - it is the answer.
       wrap.classList.add("wide");
       wrap.append(artifactCard({
-        label: "answer", title: entry.body, seq: entry.replySeq, file: "reply.html", open: true,
+        label: "answer", title: entry.body, seq: entry.replySeq, file: "reply.html", preview: true,
       }));
     } else {
       const bubble = document.createElement("div");
@@ -266,12 +324,314 @@ function pinToBottom() {
   }
 }
 
+/* ── Intake ─────────────────────────────────────────────────────────── */
+
+/**
+ * Asking one question, waiting, then asking the next never shows the shape
+ * of what is unclear, and makes every question block equally. An intake
+ * inverts that: the specialist answers its own questions first, shows all of
+ * them at once, and only the ones it genuinely could not guess stand between
+ * the developer and "go". The floor is one keypress; the ceiling is
+ * overriding the two that matter.
+ */
+
+const isIntake = () => Boolean(state.decision && state.decision.questions.length);
+
+function answerFor(question) {
+  let answer = state.answers.get(question.id);
+  if (!answer) {
+    // Seeded from the specialist's own picks, so an untouched intake is
+    // already a complete set of answers rather than an empty form.
+    answer = {
+      ids: new Set(question.options.filter((o) => o.default).map((o) => o.id)),
+      text: "",
+      touched: false,
+    };
+    state.answers.set(question.id, answer);
+  }
+  return answer;
+}
+
+const labelsFor = (question) =>
+  question.options.filter((o) => answerFor(question).ids.has(o.id)).map((o) => o.label);
+
+/** Free text alone counts: a question can be answered off the menu. */
+function isAnswered(question) {
+  const answer = answerFor(question);
+  return answer.ids.size > 0 || answer.text.trim() !== "";
+}
+
+/**
+ * Split on what the specialist could guess, not on what the developer has
+ * done since - so a question never jumps between the two lists mid-read.
+ */
+function splitQuestions() {
+  const open = [];
+  const assumed = [];
+  const guessed = (q) => q.options.some((o) => o.default);
+
+  for (const question of state.decision.questions) {
+    (question.stakes === "low" && guessed(question) ? assumed : open).push(question);
+  }
+
+  // A question the specialist could not guess is the only kind that blocks
+  // sending, so it leads - the panel scrolls, and the first screen must not
+  // hide the one thing standing in the way. The sort is on what the
+  // specialist did, not on what you have answered since, so the order holds
+  // still while you work down it.
+  open.sort((a, b) => Number(guessed(a)) - Number(guessed(b)));
+  return { open, assumed };
+}
+
+function pickOption(question, optionId) {
+  const answer = answerFor(question);
+  if (question.select === "many") {
+    if (answer.ids.has(optionId)) answer.ids.delete(optionId);
+    else answer.ids.add(optionId);
+  } else {
+    answer.ids = new Set([optionId]);
+  }
+  answer.touched = true;
+  renderIntake();
+}
+
+const STATE_CHIP = {
+  open: "needs you",
+  changed: "your call",
+  assumed: "assumed",
+};
+
+function questionState(question) {
+  const answer = answerFor(question);
+  if (answer.touched) return "changed";
+  return isAnswered(question) ? "assumed" : "open";
+}
+
+function questionCard(question, index) {
+  const card = document.createElement("section");
+  card.className = "question";
+  card.dataset.state = questionState(question);
+  if (index !== null) card.dataset.focused = String(index === state.focus);
+
+  const head = document.createElement("div");
+  head.className = "q-head";
+
+  if (index !== null) {
+    const ordinal = document.createElement("span");
+    ordinal.className = "q-ordinal";
+    ordinal.textContent = String(index + 1);
+    head.append(ordinal);
+  }
+
+  const ask = document.createElement("span");
+  ask.className = "q-ask";
+  ask.textContent = question.ask;
+  head.append(ask);
+
+  const chip = document.createElement("span");
+  chip.className = "q-chip";
+  chip.textContent = STATE_CHIP[questionState(question)];
+  head.append(chip);
+  card.append(head);
+
+  if (question.why) {
+    const why = document.createElement("p");
+    why.className = "q-why";
+    why.textContent = question.why;
+    card.append(why);
+  }
+
+  const options = document.createElement("div");
+  options.className = "q-options";
+  options.append(...question.options.map((option, position) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "option";
+    button.setAttribute("aria-pressed", String(answerFor(question).ids.has(option.id)));
+    button.onclick = () => {
+      if (index !== null) state.focus = index;
+      pickOption(question, option.id);
+    };
+
+    // Keycaps only where a key would work: the folded questions are mouse
+    // territory, and a number on them would be a promise the app breaks.
+    if (index !== null && index === state.focus && position < 9) {
+      const key = document.createElement("span");
+      key.className = "key";
+      key.textContent = String(position + 1);
+      button.append(key);
+    }
+
+    const body = document.createElement("span");
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = option.label;
+    body.append(label);
+
+    // The specialist's own pick, named as such. An answer you did not give
+    // should never look like one you did.
+    if (option.default) {
+      const mine = document.createElement("span");
+      mine.className = "mine";
+      mine.textContent = "mine";
+      body.append(mine);
+    }
+
+    if (option.hint) {
+      const hint = document.createElement("span");
+      hint.className = "hint";
+      hint.textContent = option.hint;
+      body.append(hint);
+    }
+
+    button.append(body);
+    return button;
+  }));
+  card.append(options);
+
+  if (question.allowFreeText) {
+    const free = document.createElement("input");
+    free.type = "text";
+    free.className = "q-text";
+    free.autocomplete = "off";
+    free.placeholder = "or say it your own way";
+    free.value = answerFor(question).text;
+    free.setAttribute("aria-label", `Answer in your own words: ${question.ask}`);
+    // Only the brief and the send bar redraw here. Rebuilding the card
+    // would take the caret with it on every keystroke.
+    free.oninput = () => {
+      const answer = answerFor(question);
+      answer.text = free.value;
+      answer.touched = answer.text.trim() !== "" || answer.ids.size > 0;
+      card.dataset.state = questionState(question);
+      chip.textContent = STATE_CHIP[questionState(question)];
+      renderBrief();
+      renderSendBar();
+    };
+    card.append(free);
+  }
+
+  return card;
+}
+
+/**
+ * The specialist writes one sentence with `{questionId}` holes in it. Filling
+ * them live is the part no one-question-at-a-time flow can do: it needs every
+ * answer at once, and it is what turns picking a label into reading a
+ * consequence.
+ */
+function renderBrief() {
+  const brief = state.decision?.brief;
+  if (!brief) { el.brief.hidden = true; return; }
+  el.brief.hidden = false;
+
+  const byId = new Map(state.decision.questions.map((q) => [q.id, q]));
+  const nodes = [];
+  const pattern = /\{([A-Za-z0-9_-]+)\}/g;
+  let last = 0;
+  let match;
+
+  while ((match = pattern.exec(brief)) !== null) {
+    if (match.index > last) nodes.push(document.createTextNode(brief.slice(last, match.index)));
+    const question = byId.get(match[1]);
+    const slot = document.createElement("span");
+    slot.className = "slot";
+
+    if (!question) {
+      // A hole naming no question is the specialist's mistake; showing it
+      // raw beats quietly dropping half the sentence.
+      slot.dataset.state = "missing";
+      slot.textContent = match[0];
+    } else {
+      const spoken = labelsFor(question).join(" and ") || answerFor(question).text.trim();
+      slot.dataset.state = questionState(question);
+      // A slot with no answer is a blank to fill, not an em dash: "resets
+      // ____ to the audit trail" reads as a sentence, "resets — to the
+      // audit trail" reads as a bug.
+      // Figure spaces: HTML collapses a run of ordinary ones to nothing,
+      // leaving no width for the underline to draw.
+      slot.textContent = spoken || "     ";
+      slot.title = question.ask;
+      slot.setAttribute("aria-label", spoken || `${question.ask} — unanswered`);
+    }
+
+    nodes.push(slot);
+    last = match.index + match[0].length;
+  }
+  if (last < brief.length) nodes.push(document.createTextNode(brief.slice(last)));
+  el.brief.replaceChildren(...nodes);
+}
+
+function renderIntake() {
+  const { open, assumed } = splitQuestions();
+  state.focus = Math.min(state.focus, Math.max(0, open.length - 1));
+
+  el.questions.replaceChildren(...open.map((q, i) => questionCard(q, i)));
+
+  el.assumed.hidden = assumed.length === 0;
+  if (assumed.length) {
+    el.assumedCount.textContent = `${assumed.length} more I've already assumed`;
+    el.assumedPreview.textContent = assumed
+      .map((q) => labelsFor(q).join(" and ") || answerFor(q).text.trim() || "—")
+      .join(" · ");
+    el.assumedQuestions.replaceChildren(...assumed.map((q) => questionCard(q, null)));
+  }
+
+  renderBrief();
+  renderSendBar();
+}
+
+/**
+ * The button says what pressing it will do, in the developer's terms. With
+ * nothing overridden it reads as one keypress; with something unanswerable
+ * outstanding it refuses and says how many.
+ */
+function renderSendBar() {
+  const questions = state.decision.questions;
+  const pending = questions.filter((q) => !isAnswered(q));
+  const changed = questions.filter((q) => answerFor(q).touched);
+
+  el.send.hidden = false;
+  el.send.disabled = pending.length > 0;
+  el.send.dataset.pending = String(pending.length > 0);
+  el.send.textContent = pending.length > 0
+    ? `${pending.length} still ${pending.length === 1 ? "needs" : "need"} you`
+    : changed.length > 0
+      ? `Send ${questions.length} answers · ${changed.length} yours`
+      : `Go with all ${questions.length} assumptions`;
+
+  const kbd = (t) => { const k = document.createElement("kbd"); k.textContent = t; return k; };
+  el.hint.replaceChildren(
+    kbd("1"), document.createTextNode("–"), kbd("9"), document.createTextNode(" pick  "),
+    kbd("↑"), kbd("↓"), document.createTextNode(" move  "),
+    kbd("↵"), document.createTextNode(" send  "),
+    kbd("/"), document.createTextNode(" type instead"),
+  );
+}
+
+function intakePayload() {
+  return state.decision.questions.map((question) => {
+    const answer = answerFor(question);
+    return {
+      questionId: question.id,
+      ask: question.ask,
+      labels: labelsFor(question),
+      text: answer.text.trim(),
+      defaulted: !answer.touched,
+    };
+  });
+}
+
+/* ── Composer ───────────────────────────────────────────────────────── */
+
 function renderComposer() {
   const row = selectedRow();
   el.text.disabled = !row;
 
   if (!state.decision) {
     el.decision.hidden = true;
+    el.send.hidden = true;
+    el.kind.hidden = true;
     // A specialist that has never been prompted is waiting to be told what
     // it is for. That question used to be asked before it existed.
     el.text.placeholder = row && state.entries.length === 0
@@ -285,8 +645,24 @@ function renderComposer() {
   }
 
   el.decision.hidden = false;
+  el.decision.dataset.kind = state.decision.kind;
   el.title.textContent = state.decision.title;
   el.summary.textContent = state.decision.summary;
+
+  if (isIntake()) {
+    el.kind.hidden = false;
+    el.kind.textContent = "before I build";
+    el.intake.hidden = false;
+    el.options.hidden = true;
+    el.text.placeholder = "Anything else it should know";
+    renderIntake();
+    return;
+  }
+
+  el.kind.hidden = true;
+  el.intake.hidden = true;
+  el.options.hidden = false;
+  el.send.hidden = true;
   el.text.placeholder = "Or type an answer";
   el.hint.replaceChildren();
   if (state.decision.options.length) {
@@ -404,11 +780,22 @@ function renderHead() {
 async function loadDecision(row) {
   if (!row || row.status !== "awaiting_decision" || row.latestReportSeq === null) {
     state.decision = null;
+    state.decisionSeq = null;
     return;
   }
+
+  // The roster pushes on every tick. Reloading unconditionally threw away
+  // whatever had been chosen since the last one - survivable when that was a
+  // single option, not when it is half an intake.
+  const key = `${row.id}:${row.latestReportSeq}`;
+  if (state.decisionSeq === key && state.decision) return;
+
   const res = await api(`/api/sessions/${row.id}/report/${row.latestReportSeq}`);
   state.decision = res.ok ? (await res.json()).decision : null;
+  state.decisionSeq = state.decision ? key : null;
   state.choice = null;
+  state.answers = new Map();
+  state.focus = 0;
 }
 
 async function refreshThread() {
@@ -429,7 +816,19 @@ async function submit() {
   if (!row) return;
   const text = el.text.value.trim();
 
-  if (state.decision) {
+  if (isIntake()) {
+    // Every question carries an answer or the send bar is disabled, so
+    // there is nothing to guard here beyond the button's own state.
+    if (state.decision.questions.some((q) => !isAnswered(q))) return;
+    await api(`/api/sessions/${row.id}/answer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ answers: intakePayload(), text }),
+    });
+    state.decision = null;
+    state.decisionSeq = null;
+    state.answers = new Map();
+  } else if (state.decision) {
     if (!state.choice && text === "") return;
     await api(`/api/sessions/${row.id}/answer`, {
       method: "POST",
@@ -437,6 +836,7 @@ async function submit() {
       body: JSON.stringify({ optionId: state.choice, text }),
     });
     state.decision = null;
+    state.decisionSeq = null;
     state.choice = null;
   } else {
     if (text === "") return;
@@ -459,9 +859,54 @@ async function submit() {
 
 el.form.onsubmit = (event) => { event.preventDefault(); submit(); };
 
+function scrollFocusedIntoView() {
+  el.questions.querySelector('[data-focused="true"]')
+    ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+}
+
 document.addEventListener("keydown", (event) => {
-  if (event.target === el.text) return;
+  // Every question can own a text field now, so the guard is "am I typing",
+  // not "am I in the composer".
+  const target = event.target;
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
   if (!state.decision) return;
+
+  if (isIntake()) {
+    const { open } = splitQuestions();
+    if (open.length === 0) return;
+    const focused = open[Math.min(state.focus, open.length - 1)];
+
+    const index = Number(event.key) - 1;
+    if (Number.isInteger(index) && index >= 0 && index < focused.options.length) {
+      event.preventDefault();
+      pickOption(focused, focused.options[index].id);
+      return;
+    }
+
+    const step = event.key === "ArrowDown" || event.key === "j" ? 1
+      : event.key === "ArrowUp" || event.key === "k" ? -1 : 0;
+    if (step !== 0) {
+      event.preventDefault();
+      state.focus = Math.max(0, Math.min(state.focus + step, open.length - 1));
+      renderIntake();
+      scrollFocusedIntoView();
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      // Refusing silently would look broken. Jump to what is actually
+      // blocking instead, and let the chip explain itself.
+      const stuck = open.findIndex((q) => !isAnswered(q));
+      if (stuck === -1) { submit(); return; }
+      state.focus = stuck;
+      renderIntake();
+      scrollFocusedIntoView();
+      return;
+    }
+    if (event.key === "/") { event.preventDefault(); el.text.focus(); }
+    return;
+  }
 
   const index = Number(event.key) - 1;
   const options = state.decision.options;

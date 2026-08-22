@@ -23,6 +23,10 @@ these is true, and not otherwise:
   something and want a yes before you build it.
 - **You are stuck.** You cannot make progress and need help. Say so
   plainly; a report that admits this is worth more than one that pretends.
+- **You have just been told what to build and it is ambiguous.** Read the
+  code first, then write an *intake* — see below. This is the common case:
+  most tasks arrive underspecified, and the cheapest moment to find out is
+  before the first edit.
 
 Everything else - answering a question, reporting a small step, thinking out
 loud - is just your reply. Do not manufacture a decision to have something
@@ -86,7 +90,9 @@ tight lists. Detail that most readings will not need goes inside a
 
 - `kind` - `spec_approval` when you need a plan approved before building,
   `question` when you are blocked mid-work, `completion` when work is done
-  and needs review.
+  and needs review, `intake` when you have several questions at once and are
+  about to start. An `intake` uses `questions` instead of `options`; the
+  shape below is for the other three.
 - `title` - a short noun phrase naming the decision.
 - `summary` - one sentence. It is what the developer sees in the roster
   before opening the page.
@@ -95,6 +101,89 @@ tight lists. Detail that most readings will not need goes inside a
   empty when there is nothing to choose between and you only need a reply.
 - `allowFreeText` - keep `true` unless a free-text answer would be
   meaningless.
+
+## The intake — asking before you build
+
+When a task arrives underspecified, do not ask one question, wait, and then
+ask the next. Read the code, work out *every* question the task actually
+raises, answer as many of them as you honestly can, and put the whole set on
+one page. `kind` is `"intake"` and the questions go in `questions`.
+
+The rule that makes this work: **answer your own questions first.** Mark your
+pick with `"default": true`. Anything the developer does not touch comes back
+as your answer, labelled as unreviewed — so a question you can guess costs
+them nothing, and the only ones that block are the ones you left with no
+default. Leave a default off when you genuinely cannot guess, and only then.
+An intake where nothing is defaulted is an interrogation, and you have simply
+moved your job onto the person who asked.
+
+```json
+{
+  "kind": "intake",
+  "title": "Password reset — before I build",
+  "summary": "Six questions, four I've answered. Two want you.",
+  "brief": "Reset links expire after {expiry}, are single-use, and cover {flows}. Requests are {ratelimit}.",
+  "questions": [
+    {
+      "id": "expiry",
+      "ask": "How long should a reset token live?",
+      "why": "Sets the email copy and whether the cleanup job needs a schedule.",
+      "stakes": "high",
+      "select": "one",
+      "options": [
+        { "id": "15m", "label": "15 minutes", "hint": "Matches the login OTP." },
+        { "id": "1h", "label": "1 hour", "hint": "Kinder on slow mail; wider window to steal a link." }
+      ],
+      "allowFreeText": true
+    },
+    {
+      "id": "flows",
+      "ask": "Which entry points get it?",
+      "stakes": "high",
+      "select": "many",
+      "options": [
+        { "id": "web", "label": "Web sign-in", "default": true },
+        { "id": "mobile", "label": "Mobile app", "hint": "Needs a deep link I'd have to add." }
+      ]
+    },
+    {
+      "id": "ratelimit",
+      "ask": "Rate limit the request endpoint?",
+      "stakes": "low",
+      "options": [
+        { "id": "reuse", "label": "reuse the existing limiter", "default": true },
+        { "id": "none", "label": "not rate limited" }
+      ]
+    }
+  ]
+}
+```
+
+- `ask` — the question in one line, in the application's terms.
+- `why` — what swings on the answer. Not a restatement of the question.
+- `stakes` — `high` shows the question open; `low` folds it into a single
+  summary line the developer can expand. Anything you left undefaulted stays
+  open whatever you put here. Be honest: an intake where everything is `high`
+  is as unreadable as one long list, which is the thing this replaces.
+- `select` — `one` or `many`. Use `many` where "both" is a real answer;
+  forcing it through one-of-N is how a wrong answer gets recorded.
+- `brief` — one sentence saying what you will build, with `{questionId}`
+  holes. Bench fills them live as the developer flips answers, so they read
+  the consequence instead of the label. Reference the questions that change
+  the shape of the work; you do not need all of them. **Every option label
+  you reference has to read as a fragment of that sentence**, because it is
+  dropped in verbatim: `"resets {audit} to the audit trail"` with a label of
+  *"Yes, log every reset"* produces *"resets Yes, log every reset to the
+  audit trail"*. Name the option *"go to"* — or leave that question out of
+  the brief. Read the sentence back with each label in it before you write
+  the file.
+- `report.html` still comes first and still matters: it is where you show
+  what you read, what you found, and why these are the questions.
+
+The developer's reply tells you which of your answers they actually looked
+at. Treat an unreviewed default as your own assumption, not as their
+instruction — if one of them turns out to be load-bearing later, that is
+worth a second report, not a silent decision.
 
 ## Rules
 

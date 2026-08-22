@@ -31,6 +31,11 @@
 
 * { box-sizing: border-box; }
 
+/* The UA rule for [hidden] is display:none at the weakest weight, so any
+   `#id { display: flex }` below silently outranks it and the element stays
+   on screen. Everything here toggles visibility through the attribute. */
+[hidden] { display: none !important; }
+
 html, body { height: 100%; }
 
 body {
@@ -255,7 +260,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
   color: var(--muted);
 }
 
-/* Artifact cards: reports and answers. */
+/* Artifact cards: reports and answers. The card is a door, not a drawer -
+   clicking it opens the page in a dialog. */
 .card {
   background: var(--raised);
   border: 1px solid var(--line);
@@ -264,13 +270,19 @@ button, input, textarea, select { font: inherit; color: inherit; }
   transition: border-color 140ms var(--ease);
 }
 .card:hover { border-color: var(--line-firm); }
-.card > summary {
+
+.card-open {
   display: flex; align-items: baseline; gap: 12px;
-  padding: 13px 16px;
+  width: 100%;
+  padding: 14px 16px;
+  background: transparent;
+  border: 0;
+  text-align: left;
   cursor: pointer;
-  list-style: none;
+  transition: background 120ms var(--ease);
 }
-.card > summary::-webkit-details-marker { display: none; }
+.card-open:hover { background: var(--hover); }
+
 .card .kind {
   font-family: var(--mono); font-size: 10px;
   letter-spacing: 0.14em; text-transform: uppercase;
@@ -278,9 +290,84 @@ button, input, textarea, select { font: inherit; color: inherit; }
   flex: none;
 }
 .card .title { font-weight: 500; letter-spacing: -0.01em; }
+
+/* The affordance stays quiet until the card is pointed at: every card has
+   one, so shouting it on all of them is noise. */
+.card .cue {
+  margin-left: auto;
+  flex: none;
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  opacity: 0;
+  transition: opacity 120ms var(--ease), color 120ms var(--ease);
+}
+.card-open:hover .cue, .card-open:focus-visible .cue { opacity: 1; color: var(--wants); }
+
 .card iframe {
-  display: block; width: 100%; height: 62vh; border: 0;
+  display: block; width: 100%; height: 52vh; border: 0;
   border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+/* ── The artifact dialog ────────────────────────────────────────────── */
+
+#artifact-dialog {
+  width: min(1100px, 94vw);
+  height: 92vh;
+  max-width: none; max-height: none;
+  padding: 0;
+  border: 1px solid var(--line-firm);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  overflow: hidden;
+}
+#artifact-dialog::backdrop { background: rgba(4, 8, 6, 0.76); }
+#artifact-dialog[open] { display: flex; flex-direction: column; }
+
+#artifact-dialog header {
+  display: flex; align-items: baseline; gap: 12px;
+  flex: none;
+  padding: 15px 16px 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+#artifact-kind {
+  flex: none;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--wants);
+}
+#artifact-title {
+  min-width: 0;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+#artifact-tab, #artifact-close {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  border-radius: 5px;
+  line-height: 1;
+  text-decoration: none;
+  transition: color 120ms var(--ease), background 120ms var(--ease);
+}
+#artifact-tab { margin-left: auto; font-size: 13px; padding: 5px 7px; }
+#artifact-close { font-size: 18px; padding: 2px 8px 4px; }
+#artifact-tab:hover, #artifact-close:hover { color: var(--text); background: var(--hover); }
+
+/* min-height:0 again: without it the frame sizes to its content and pushes
+   the bottom of the dialog past the viewport. */
+#artifact-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
   background: var(--bg);
 }
 
@@ -337,8 +424,212 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .option .label { font-size: 13px; font-weight: 500; }
 .option .hint { display: block; color: var(--faint); font-size: 12px; margin-top: 3px; line-height: 1.45; }
 
+/* ── Intake: every open question at once ────────────────────────────── */
+
+#decision[data-kind="intake"] #decision-head {
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+#decision-kind { flex: none; color: var(--wants); opacity: 0.75; }
+
+/* Capped and scrollable: an intake is a document, but it must never push
+   the send bar off the bottom of the screen. */
+#intake {
+  max-height: min(52vh, 560px);
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-bottom: 14px;
+
+  /* Scroll shadows. A clipped question needs to look clipped, or the panel
+     reads as the whole intake and the rest is never found. The cover pairs
+     scroll with the content and the shadow pairs with the box, so each
+     shadow appears only while there is something in that direction. */
+  background:
+    linear-gradient(var(--panel) 30%, rgba(15, 23, 20, 0)) top / 100% 24px no-repeat,
+    linear-gradient(rgba(15, 23, 20, 0), var(--panel) 70%) bottom / 100% 24px no-repeat,
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.5), transparent) top / 100% 11px no-repeat,
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.5), transparent) bottom / 100% 11px no-repeat;
+  background-attachment: local, local, scroll, scroll;
+}
+
+/* The brief. One sentence whose holes fill in as you answer, so a choice is
+   read as a consequence rather than a label. */
+#intake-brief {
+  margin: 0 0 18px;
+  padding: 13px 16px;
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--wants-dim);
+  border-radius: 3px 8px 8px 3px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+#intake-brief .slot {
+  color: var(--text);
+  border-bottom: 1px solid var(--line-firm);
+  padding-bottom: 1px;
+  transition: color 160ms var(--ease), border-color 160ms var(--ease);
+}
+#intake-brief .slot[data-state="changed"] { color: var(--wants); border-color: var(--wants); }
+#intake-brief .slot[data-state="open"] { color: var(--busy); border-color: var(--busy); }
+#intake-brief .slot[data-state="missing"] { color: var(--broken); font-family: var(--mono); font-size: 12px; }
+
+.question {
+  position: relative;
+  padding: 14px 0 16px 16px;
+  border-top: 1px solid var(--line);
+}
+.question:first-child { border-top: 0; padding-top: 4px; }
+
+/* The rail carries the question's state, matching the roster's grammar. */
+.question::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 16px; bottom: 16px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--line-firm);
+  transition: background 140ms var(--ease), top 140ms var(--ease), bottom 140ms var(--ease);
+}
+.question[data-state="open"]::before { background: var(--busy); }
+.question[data-state="changed"]::before { background: var(--wants); }
+.question[data-focused="true"]::before { top: 8px; bottom: 8px; width: 3px; }
+
+.q-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 3px; }
+
+.q-ordinal {
+  flex: none;
+  font: 500 10px/1 var(--mono);
+  color: var(--faint);
+  letter-spacing: 0.06em;
+}
+.question[data-focused="true"] .q-ordinal { color: var(--wants); }
+
+.q-ask { font-size: 14px; font-weight: 500; letter-spacing: -0.01em; }
+
+.q-chip {
+  margin-left: auto;
+  flex: none;
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 3px 6px;
+}
+.question[data-state="open"] .q-chip { color: var(--busy); border-color: var(--busy-dim); }
+.question[data-state="changed"] .q-chip { color: var(--wants); border-color: var(--wants-dim); }
+
+.q-why { margin: 0 0 10px; font-size: 12.5px; line-height: 1.5; color: var(--faint); }
+
+.q-options { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* The specialist's own pick, named. An answer you did not give must never
+   look like one you did. */
+.option .mine {
+  display: inline-block;
+  margin-left: 7px;
+  vertical-align: 1px;
+  font: 500 9px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border: 1px solid var(--line-firm);
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+.option[aria-pressed="true"] .mine { color: var(--wants); border-color: var(--wants-dim); }
+
+.q-text {
+  display: block;
+  width: min(100%, 46ch);
+  margin-top: 9px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dashed var(--line-firm);
+  border-radius: 0;
+  padding: 5px 2px;
+  font-size: 13px;
+  transition: border-color 120ms var(--ease);
+}
+.q-text::placeholder { color: var(--faint); }
+.q-text:focus { outline: none; border-bottom-style: solid; border-bottom-color: var(--wants); }
+
+/* Everything the specialist could guess and nobody needs to see, in one
+   line. Folded, because a settled question is not a question. */
+#intake-assumed {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+#intake-assumed > summary {
+  display: flex; align-items: baseline; gap: 10px;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+  transition: color 120ms var(--ease);
+}
+#intake-assumed > summary::-webkit-details-marker { display: none; }
+#intake-assumed > summary:hover { color: var(--muted); }
+#intake-assumed > summary::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: 3.5px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 140ms var(--ease);
+  flex: none;
+}
+#intake-assumed[open] > summary::before { transform: rotate(90deg); }
+
+#intake-assumed-count { flex: none; letter-spacing: 0.06em; }
+#intake-assumed-preview {
+  min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--faint);
+  opacity: 0.75;
+}
+#intake-assumed-questions { padding-top: 8px; }
+
+/* ── Composer ───────────────────────────────────────────────────────── */
+
+#composer-form { display: flex; align-items: stretch; gap: 10px; }
+
+/* The button says what pressing it does. With nothing overridden it reads
+   "Go with all 6 assumptions" - the whole point is that this is one key. */
+#composer-send {
+  flex: none;
+  border: 1px solid var(--wants-dim);
+  border-bottom-width: 2px;
+  border-radius: 8px;
+  padding: 0 18px;
+  background: linear-gradient(180deg, var(--raised), var(--panel));
+  color: var(--wants);
+  font: 500 13px/1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 120ms var(--ease), background 120ms var(--ease), color 120ms var(--ease);
+}
+#composer-send:hover:not(:disabled) {
+  border-color: var(--wants);
+  background: linear-gradient(180deg, var(--raised), var(--wants-dim));
+}
+#composer-send[data-pending="true"] {
+  color: var(--busy);
+  border-color: var(--busy-dim);
+  cursor: not-allowed;
+}
+
 #composer-text {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;

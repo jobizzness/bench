@@ -20,6 +20,7 @@ function fallbackDecision(): Decision {
     title: "Report has no readable decision",
     summary: "The agent did not write a valid decision.json. Reply in free text.",
     options: [],
+    questions: [],
     allowFreeText: true,
   };
 }

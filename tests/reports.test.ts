@@ -81,6 +81,86 @@ describe("findReport", () => {
   });
 });
 
+const intakeDecision = {
+  kind: "intake",
+  title: "Password reset — before I build",
+  summary: "Three questions, two answered.",
+  brief: "Links expire after {expiry} and cover {flows}.",
+  questions: [
+    {
+      id: "expiry",
+      ask: "How long should a reset token live?",
+      why: "Sets the email copy.",
+      options: [
+        { id: "15m", label: "15 minutes" },
+        { id: "1h", label: "1 hour", default: true },
+      ],
+    },
+    {
+      id: "flows",
+      ask: "Which entry points?",
+      stakes: "low",
+      select: "many",
+      options: [{ id: "web", label: "Web", default: true }],
+    },
+  ],
+};
+
+describe("intake decisions", () => {
+  it("parses questions, defaults and the brief", async () => {
+    const dir = await makeReportsDir();
+    await writeReport(dir, 1, intakeDecision);
+
+    const report = await findReport(dir, 1);
+    expect(report?.malformed).toBe(false);
+    expect(report?.decision.kind).toBe("intake");
+    expect(report?.decision.brief).toBe("Links expire after {expiry} and cover {flows}.");
+    expect(report?.decision.questions).toHaveLength(2);
+    expect(report?.decision.questions[0].options[1].default).toBe(true);
+    expect(report?.decision.questions[1].select).toBe("many");
+  });
+
+  it("fills in the defaults a specialist left out", async () => {
+    const dir = await makeReportsDir();
+    await writeReport(dir, 1, intakeDecision);
+
+    const [first, second] = (await findReport(dir, 1))!.decision.questions;
+    // Omitted stakes must read as "show it", never as "fold it away".
+    expect(first.stakes).toBe("high");
+    expect(first.select).toBe("one");
+    expect(first.allowFreeText).toBe(true);
+    expect(second.stakes).toBe("low");
+  });
+
+  it("degrades an intake that carries no questions", async () => {
+    const dir = await makeReportsDir();
+    await writeReport(dir, 1, { ...intakeDecision, questions: [] });
+
+    const report = await findReport(dir, 1);
+    expect(report?.malformed).toBe(true);
+    expect(report?.decision.allowFreeText).toBe(true);
+  });
+
+  it("degrades a question with no options to choose from", async () => {
+    const dir = await makeReportsDir();
+    await writeReport(dir, 1, {
+      ...intakeDecision,
+      questions: [{ id: "q", ask: "Well?", options: [] }],
+    });
+
+    expect((await findReport(dir, 1))?.malformed).toBe(true);
+  });
+
+  it("leaves an ordinary decision with an empty question list", async () => {
+    const dir = await makeReportsDir();
+    await writeReport(dir, 1, goodDecision);
+
+    const report = await findReport(dir, 1);
+    expect(report?.malformed).toBe(false);
+    expect(report?.decision.questions).toEqual([]);
+  });
+});
+
 describe("latestReportSeq", () => {
   it("returns the highest sequence present", async () => {
     const dir = await makeReportsDir();

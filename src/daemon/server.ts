@@ -7,7 +7,7 @@ import type { BenchConfig } from "./config.js";
 import { findReport } from "./reports.js";
 import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
-import type { RosterRow } from "../shared/types.js";
+import type { IntakeAnswer, RosterRow } from "../shared/types.js";
 
 export interface SessionRegistryLike {
   list(): RosterRow[];
@@ -46,6 +46,59 @@ export function formatAnswer(optionId: string | undefined, text: string | undefi
   if (optionId) parts.push(`[bench] decision: chose "${optionId}"`);
   if (text && text.trim() !== "") parts.push(text.trim());
   return parts.join("\n") || "[bench] decision: acknowledged";
+}
+
+function line(answer: IntakeAnswer): string {
+  const chosen = answer.labels.join(", ");
+  const said = answer.text?.trim() ?? "";
+  // A question can be answered entirely off the menu, in which case the
+  // words are the answer rather than a note against one.
+  if (chosen === "") return `- ${answer.ask} → ${said === "" ? "—" : `"${said}"`}`;
+  return `- ${answer.ask} → ${chosen}${said === "" ? "" : `  — "${said}"`}`;
+}
+
+/**
+ * An intake comes back as two lists, because the difference matters to the
+ * agent: an answer the developer actually chose is evidence, and a default
+ * they never looked at is still only the agent's own guess. Collapsing both
+ * into "chose x" is what makes an agent over-trust its own assumptions.
+ */
+export function formatIntake(answers: IntakeAnswer[], text?: string): string {
+  const chosen = answers.filter((a) => !a.defaulted);
+  const assumed = answers.filter((a) => a.defaulted);
+
+  const parts = ["[bench] intake answers"];
+  if (chosen.length) parts.push(["", "Decided by your developer:", ...chosen.map(line)].join("\n"));
+  if (assumed.length) {
+    parts.push([
+      "",
+      "Left to your defaults — they were not reviewed, so treat them as your own assumptions:",
+      ...assumed.map(line),
+    ].join("\n"));
+  }
+  if (text && text.trim() !== "") parts.push(["", text.trim()].join("\n"));
+  return parts.join("\n");
+}
+
+/** Rejects anything that is not a well-formed intake answer from the client. */
+function readIntakeAnswers(value: unknown): IntakeAnswer[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+
+  const answers: IntakeAnswer[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") return null;
+    const a = raw as Record<string, unknown>;
+    if (typeof a.questionId !== "string" || typeof a.ask !== "string") return null;
+    if (!Array.isArray(a.labels) || a.labels.some((l) => typeof l !== "string")) return null;
+    answers.push({
+      questionId: a.questionId,
+      ask: a.ask,
+      labels: a.labels as string[],
+      text: typeof a.text === "string" ? a.text : undefined,
+      defaulted: a.defaulted === true,
+    });
+  }
+  return answers;
 }
 
 export function createServer(opts: { config: BenchConfig; registry: SessionRegistryLike }) {
@@ -181,7 +234,16 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
     if (answer && req.method === "POST") {
       if (!registry.get(answer[1])) { json(res, 404, { error: "no such session" }); return; }
       const body = await readBody(req);
-      registry.send(answer[1], formatAnswer(body.optionId, body.text));
+
+      // An intake answers many questions at once; the single-option shape is
+      // still what a plain spec_approval or completion sends back.
+      if (body.answers !== undefined) {
+        const answers = readIntakeAnswers(body.answers);
+        if (!answers) { json(res, 400, { error: "answers is malformed" }); return; }
+        registry.send(answer[1], formatIntake(answers, body.text));
+      } else {
+        registry.send(answer[1], formatAnswer(body.optionId, body.text));
+      }
       json(res, 200, { ok: true });
       return;
     }

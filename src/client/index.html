@@ -26,19 +26,45 @@
     <footer id="composer">
       <div id="decision" hidden>
         <div id="decision-head">
+          <span id="decision-kind" class="eyebrow" hidden></span>
           <strong id="decision-title"></strong>
           <span id="decision-summary"></span>
         </div>
+
+        <div id="intake" hidden>
+          <p id="intake-brief" hidden></p>
+          <div id="intake-questions"></div>
+          <details id="intake-assumed" hidden>
+            <summary>
+              <span id="intake-assumed-count"></span>
+              <span id="intake-assumed-preview"></span>
+            </summary>
+            <div id="intake-assumed-questions"></div>
+          </details>
+        </div>
+
         <div id="decision-options"></div>
       </div>
       <form id="composer-form">
         <input id="composer-text" type="text" autocomplete="off"
                placeholder="Message this specialist" disabled />
+        <button id="composer-send" type="submit" hidden></button>
       </form>
       <p id="composer-hint"></p>
     </footer>
   </section>
 </main>
+<dialog id="artifact-dialog">
+  <header>
+    <span id="artifact-kind"></span>
+    <span id="artifact-title"></span>
+    <a id="artifact-tab" target="_blank" rel="noreferrer"
+       title="Open in a real tab">&#8599;</a>
+    <button type="button" id="artifact-close" aria-label="Close" autofocus>&#215;</button>
+  </header>
+  <iframe id="artifact-frame" sandbox="allow-same-origin" title="Artifact"></iframe>
+</dialog>
+
 <dialog id="new-dialog">
   <form id="new-form" method="dialog">
     <h2>New specialist</h2>

@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
-import { createServer } from "../src/daemon/server.js";
-import type { RosterRow } from "../src/shared/types.js";
+import { createServer, formatIntake } from "../src/daemon/server.js";
+import type { IntakeAnswer, RosterRow } from "../src/shared/types.js";
 
 const TOKEN = "test-token-abc";
 
@@ -159,6 +159,74 @@ describe("POST /api/sessions/:id/answer", () => {
       body: JSON.stringify({ text: "hi" }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it("forwards an intake as two lists, separating chosen from assumed", async () => {
+    registry.sent.length = 0;
+    const res = await fetch(`${base}/api/sessions/s1/answer`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        answers: [
+          { questionId: "expiry", ask: "How long?", labels: ["1 hour"], defaulted: false },
+          { questionId: "rate", ask: "Rate limit?", labels: ["reuse"], defaulted: true },
+        ],
+        text: "keep the copy terse",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const sent = registry.sent[0].text;
+    expect(sent).toContain("Decided by your developer:");
+    expect(sent).toContain("- How long? → 1 hour");
+    expect(sent).toContain("not reviewed");
+    expect(sent).toContain("- Rate limit? → reuse");
+    expect(sent).toContain("keep the copy terse");
+    // The whole point is that the agent can tell the two apart.
+    expect(sent.indexOf("How long?")).toBeLessThan(sent.indexOf("Rate limit?"));
+  });
+
+  it("400s on a malformed answers array rather than sending nonsense", async () => {
+    registry.sent.length = 0;
+    const res = await fetch(`${base}/api/sessions/s1/answer`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ answers: [{ questionId: "expiry" }] }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(registry.sent).toHaveLength(0);
+  });
+});
+
+describe("formatIntake", () => {
+  const answer = (over: Partial<IntakeAnswer> = {}): IntakeAnswer =>
+    ({ questionId: "q", ask: "Which?", labels: ["A"], defaulted: false, ...over });
+
+  it("omits the developer's list when everything ran on defaults", () => {
+    const out = formatIntake([answer({ defaulted: true })]);
+    expect(out).not.toContain("Decided by your developer");
+    expect(out).toContain("your defaults");
+  });
+
+  it("omits the defaults list when the developer answered everything", () => {
+    const out = formatIntake([answer()]);
+    expect(out).toContain("Decided by your developer");
+    expect(out).not.toContain("your defaults");
+  });
+
+  it("joins a multi-select into one line", () => {
+    expect(formatIntake([answer({ labels: ["Web", "Mobile"] })])).toContain("→ Web, Mobile");
+  });
+
+  it("treats free text as the answer when nothing was picked", () => {
+    const out = formatIntake([answer({ labels: [], text: "neither — use the old flow" })]);
+    expect(out).toContain('→ "neither — use the old flow"');
+  });
+
+  it("keeps free text alongside a pick", () => {
+    const out = formatIntake([answer({ text: "but only for staff" })]);
+    expect(out).toContain('→ A  — "but only for staff"');
   });
 });
 
