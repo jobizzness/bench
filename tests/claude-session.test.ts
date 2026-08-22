@@ -306,6 +306,23 @@ describe("ClaudeSession", () => {
     session.stop();
   });
 
+  it("carries on numbering from the turns it already took", async () => {
+    // A revived specialist that starts at one again writes over its own
+    // earlier reports, and leaves the roster pointing at a stale directory.
+    const session = await makeSession(FAKE_CLI, { startTurn: 3 });
+    const opts = (session as any).opts;
+
+    const ended = once(session, "turn-end");
+    session.open();
+    session.send("carry on");
+    const [result] = await ended;
+
+    expect(result.result).toContain("Turn 4");
+    expect(session.turn).toBe(4);
+    expect(await readFile(join(opts.reportsDir, ".turn"), "utf8")).toBe("4");
+    session.stop();
+  });
+
   it("refuses to send before it has been opened", async () => {
     const session = await makeSession();
     expect(() => session.send("hi")).toThrow(/not started/i);

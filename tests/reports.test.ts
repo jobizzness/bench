@@ -181,3 +181,29 @@ describe("latestReportSeq", () => {
     expect(await latestReportSeq(dir)).toBeNull();
   });
 });
+
+describe("latestTurn", () => {
+  it("is nothing before any turn has run", async () => {
+    const { latestTurn } = await import("../src/daemon/reports.js");
+    expect(await latestTurn(await mkdtemp(join(tmpdir(), "bench-turn-")))).toBe(0);
+  });
+
+  it("counts a turn directory even when it holds no report", async () => {
+    // A turn that wrote only a plan still used its number.
+    const { latestTurn } = await import("../src/daemon/reports.js");
+    const dir = await mkdtemp(join(tmpdir(), "bench-turn-"));
+    await mkdir(join(dir, "1"), { recursive: true });
+    await mkdir(join(dir, "2"), { recursive: true });
+    await writeFile(join(dir, "2", "plan.json"), "{}");
+    expect(await latestTurn(dir)).toBe(2);
+  });
+
+  it("ignores the marker files beside them", async () => {
+    const { latestTurn } = await import("../src/daemon/reports.js");
+    const dir = await mkdtemp(join(tmpdir(), "bench-turn-"));
+    await mkdir(join(dir, "7"), { recursive: true });
+    await writeFile(join(dir, ".turn"), "7");
+    await writeFile(join(dir, "thread.jsonl"), "");
+    expect(await latestTurn(dir)).toBe(7);
+  });
+});

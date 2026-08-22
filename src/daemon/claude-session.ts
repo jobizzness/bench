@@ -18,6 +18,9 @@ export interface SessionOptions {
   model: string;
   port: number;
   claudeBin?: string;
+  /** Turns this specialist has already taken. A revived one keeps counting
+   * from where it stopped; starting again at one overwrites its own past. */
+  startTurn?: number;
   /** Pick up a session the CLI already has a transcript for, rather than
    * starting a new one. Used when a specialist outlives the daemon. */
   resume?: boolean;
@@ -32,11 +35,12 @@ export class ClaudeSession extends EventEmitter {
   readonly id: string;
   private child: ChildProcessWithoutNullStreams | null = null;
   private decoder = new LineDecoder();
-  private turnCount = 0;
+  private turnCount: number;
 
   constructor(private readonly opts: SessionOptions) {
     super();
     this.id = opts.id;
+    this.turnCount = opts.startTurn ?? 0;
   }
 
   get turn(): number {

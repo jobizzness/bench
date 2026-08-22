@@ -540,3 +540,37 @@ describe("what a restored specialist may resume", () => {
     expect((registry as any).entries.get(id).resumable).toBe(true);
   });
 });
+
+describe("a revived specialist's turn numbering", () => {
+  it("carries on from the turns already on disk", async () => {
+    // Starting again at one overwrote every earlier report, and left the
+    // roster pointing at a stale higher-numbered directory.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    for (const turn of [1, 2, 3]) {
+      await mkdir(join(reportsDir, String(turn)), { recursive: true });
+      await writeFile(join(reportsDir, String(turn), "report.html"), `<h1>turn ${turn}</h1>`);
+    }
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    } as any);
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect((registry as any).entries.get(id).turnsTaken).toBe(3);
+  });
+
+  it("starts at nothing for a specialist that has taken no turns", async () => {
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    } as any);
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect((registry as any).entries.get(id).turnsTaken).toBe(0);
+  });
+});
