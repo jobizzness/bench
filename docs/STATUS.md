@@ -1,6 +1,6 @@
 # Bench — where it stands
 
-Last updated 2026-08-22. 172 tests passing, 2 end-to-end suites run
+Last updated 2026-08-22. 243 tests passing, 2 end-to-end suites run
 separately against the real CLI.
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
@@ -182,6 +182,20 @@ Worth recording, because none were caught by tests.
   that had wedged rendered identically — the only way to tell them apart was
   reading the process tree and diffing the CLI transcript by hand. It now
   says what the tool is doing, and each entry is stamped.
+- **Every restart silently logged you out.** The cockpit token was minted
+  fresh on each boot, so any open tab or bookmark stopped working — and
+  nothing said so: the page still served, the websocket was refused with
+  1008, and the client treated that like a dropped connection and retried
+  forever. The result was an empty roster that read as "all my specialists
+  are gone" while they sat safely in the index. The token now persists in
+  `~/.bench/token`, and a refused socket says the link is stale instead of
+  retrying in silence.
+- **Two jsdom suites went from green to two thirds skipped between runs.**
+  Moving the roster into React made their `beforeAll` depend on a fixed 10ms
+  delay for a mount that flushes across scheduler turns, and a `beforeAll`
+  that throws skips its whole suite rather than failing it — so the run
+  stayed green-looking while covering less and less. They wait on the
+  condition now.
 - **A specialist's label was being used as its identity.** The worktree and
   branch were named `worktree-<label>`, so two specialists could never share
   a label in one repo, and a branch left behind by a specialist Bench no

@@ -51,8 +51,10 @@ pnpm build
 pnpm start
 ```
 
-It prints a localhost URL with a token. Open it. The daemon binds to
-`127.0.0.1` only and every API route requires the token.
+It prints a localhost URL with a token. Open it, and bookmark it — the token
+is kept in `~/.bench/token` (mode `0600`) so the link keeps working across
+restarts. Delete that file to rotate it. The daemon binds to `127.0.0.1` only
+and every API route requires the token.
 
 By default it looks for git repositories under `/var/www`. Point it elsewhere:
 
@@ -64,7 +66,8 @@ BENCH_PROJECTS_ROOT=~/code pnpm start
 |---|---|---|
 | `BENCH_PROJECTS_ROOT` | `/var/www` | Where to look for projects |
 | `BENCH_PORT` | `7420` | Cockpit port |
-| `BENCH_HOME` | `~/.bench` | Where the specialist index is kept |
+| `BENCH_HOME` | `~/.bench` | Where the specialist index and token are kept |
+| `BENCH_TOKEN` | generated | Override the cockpit token |
 
 Nothing hot-reloads yet: `pnpm build` before `pnpm start`, and run it from the
 repository root.

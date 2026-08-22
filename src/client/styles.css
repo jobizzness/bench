@@ -868,3 +868,20 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 
 .trail-item .when { flex: none; }
+
+/* A stale link cannot be recovered from by the page, so it says so instead of
+   leaving an empty cockpit that looks like lost work. */
+#stale {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 10;
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.7rem 1rem;
+  background: #3a2a12;
+  color: #f4e2c4;
+  border-bottom: 1px solid #6b4d1f;
+  font-size: 0.85rem;
+}
+
+#stale strong { font-weight: 600; }

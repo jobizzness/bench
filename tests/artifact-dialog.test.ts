@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { readFile } from "node:fs/promises";
+import { waitFor } from "./helpers/wait-for.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -61,8 +62,11 @@ beforeAll(async () => {
   await settle();
   socket.onmessage({ data: JSON.stringify({ type: "roster", rows: [ROW] }) });
   await settle();
-  $<HTMLElement>("#roster-list .row").click();
-  await settle();
+  (await waitFor(() => document.querySelector<HTMLElement>("#roster-list .row"),
+    "the roster row")).click();
+  // The thread, the decision and its panel all land across separate turns.
+  await waitFor(() => document.querySelector("#composer-send") ?? document.querySelector("#decision-options button"),
+    "the composer to reflect the selected specialist").catch(() => null);
   await settle();
 });
 

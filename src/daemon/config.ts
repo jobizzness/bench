@@ -1,5 +1,5 @@
-import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
+import { loadToken } from "./token.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +21,7 @@ export function loadConfig(): BenchConfig {
     home,
     port,
     projectsRoot: process.env.BENCH_PROJECTS_ROOT ?? "/var/www",
-    token: randomBytes(24).toString("hex"),
+    token: loadToken(home),
     pluginDir: join(root, "plugin"),
     hookCommand: `node ${join(root, "dist", "daemon", "hooks", "bench-hook.js")}`,
   };
