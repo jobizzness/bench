@@ -84,11 +84,35 @@ turn produced two turn ends rather than one.
 rendered page, not prose. Verified: a specialist wrote a 3127-byte
 fragment and spoke a one-line summary, unprompted beyond the skill.
 
+**The intake.** A specialist told to build something underspecified asks
+everything at once instead of one question at a time, and answers as many of
+its own questions as it honestly can. Its picks arrive pre-selected and
+marked *mine*; untouched questions come back as its answer, labelled
+unreviewed, so an assumption nobody read stays visibly an assumption. Only
+the questions it left undefaulted block sending, and those lead the list
+because the panel scrolls. It writes a one-sentence brief with
+`{questionId}` holes that the cockpit fills live as options are flipped.
+The panel itself is verified two ways: 28 tests drive the real `app.js` in
+a DOM, and it was rendered headless in Chrome and looked at — which is how
+the blocking-question-below-the-fold problem was found, and the collision
+with the progress panel after that.
+
+**Reports open as pages.** A report card is a door, not a drawer: clicking
+it opens the report in a dialog with the thread dimmed behind, rather than
+unfolding a document inside a 108ch column. Replies keep their inline
+preview — a reply is the answer to something you asked, and reading it
+should not cost a click.
+
 ## Built, not yet proven in anger
 
 - **The decision loop end to end through the browser.** Answers post back
   into the live session and the mechanics are tested, but nobody has yet
   run a real task to completion and answered it from the cockpit.
+- **A specialist has never written an intake.** The skill says how; whether
+  a real run produces sane `default` flags, honest `stakes`, and option
+  labels that read as fragments of its own brief is unproven. Model
+  compliance is the risk here, not the schema — a malformed intake already
+  degrades to free text rather than wedging the session.
 - **Concurrency.** Three specialists have run at once without incident.
   That is an observation, not a test.
 
@@ -131,6 +155,27 @@ write denial. The last one has already bitten: a specialist editing
 ## Bugs found by using it
 
 Worth recording, because none were caught by tests.
+
+- **`hidden` did not hide.** The UA rule for `[hidden]` is `display: none`
+  at the weakest possible weight, so every `#id { display: flex }` in
+  `styles.css` silently outranked it — meaning the stage header and the
+  working indicator have never actually hidden, in any build. One global
+  rule fixes all of them, and every element added since inherits the fix.
+- **A roster tick threw away whatever had been chosen.** `loadDecision`
+  refetched and reset on *every* websocket push, so the selected option was
+  discarded several times a second. Survivable while the loss was one radio
+  button; not once it is half an intake. It now reloads only when a
+  different report is on the table.
+- **Two panels each capped politely, and together left nothing.** The
+  progress panel takes up to 40vh and the intake up to 52vh; neither is
+  wrong alone, and stacked they squeezed the thread to a 45px sliver with
+  the report card clipped to a line. They now yield only when both are on
+  screen. Neither test suite could have caught it — jsdom does not lay out —
+  and it was found by rendering the merged tree in Chrome. It is also the
+  first real instance of the cross-worktree collision predicted above: two
+  sessions changed `src/client/` on separate branches, and the conflict git
+  reported was one line, while the conflict that mattered was invisible to
+  it.
 
 - **The roster said "Bash" for twelve minutes.** `activityLine` returned the
   tool's name and discarded its input, so a specialist thinking hard and one
