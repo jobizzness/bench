@@ -1,58 +1,102 @@
-// The extension is explicit because the importer is still JavaScript: the
-// bundler rewrites .js to .ts, the test runner does not. It goes away with
-// this file.
-import { progressVisible } from "./progress.ts";
+import type { Decision, IntakeQuestion, RosterRow } from "../shared/types.js";
+import type { PlanStep } from "../daemon/plan.js";
+import { progressVisible } from "./progress.js";
+
+/**
+ * Every element here is in index.html. A missing one is a bug in the markup,
+ * not a case to handle at every use site, so it fails loudly once rather than
+ * forcing a null check on all hundred references.
+ */
+function byId<T extends HTMLElement = HTMLElement>(id: string): T {
+  const node = document.getElementById(id);
+  if (!node) throw new Error(`missing element: #${id}`);
+  return node as T;
+}
+
+interface Artifact {
+  label: string;
+  title: string;
+  seq: number;
+  file: string;
+}
+
+interface ThreadEntry {
+  seq: number;
+  at: string;
+  kind: string;
+  body: string;
+  reportSeq?: number;
+  replySeq?: number;
+}
+
+interface Answer {
+  ids: Set<string>;
+  text: string;
+  touched: boolean;
+}
+
+interface CockpitState {
+  rows: RosterRow[];
+  selectedId: string | null;
+  entries: ThreadEntry[];
+  decision: Decision | null;
+  choice: string | null;
+  plan: PlanStep[] | null;
+  /** `sessionId:reportSeq` of the decision on the table, so a roster tick
+      does not reload it out from under a half-given answer. */
+  decisionSeq: string | null;
+  answers: Map<string, Answer>;
+  /** Index into the currently visible question list, for the number keys. */
+  focus: number;
+}
+
 const token = new URLSearchParams(location.search).get("token") ?? "";
 const authHeaders = { "x-bench-token": token };
 
-const state = {
+const state: CockpitState = {
   rows: [], selectedId: null, entries: [], decision: null, choice: null, plan: null,
-  /** `sessionId:reportSeq` of the decision on the table, so a roster tick
-      does not reload it out from under a half-given answer. */
   decisionSeq: null,
-  /** questionId -> { ids: Set<string>, text: string, touched: boolean } */
   answers: new Map(),
-  /** Index into the currently visible question list, for the number keys. */
   focus: 0,
 };
 
 const el = {
-  list: document.getElementById("roster-list"),
-  head: document.getElementById("stage-head"),
-  headLabel: document.getElementById("stage-label"),
-  headStatus: document.getElementById("stage-status"),
-  thread: document.getElementById("thread"),
-  progress: document.getElementById("progress"),
-  plan: document.getElementById("plan"),
-  trail: document.getElementById("trail"),
-  decision: document.getElementById("decision"),
-  kind: document.getElementById("decision-kind"),
-  title: document.getElementById("decision-title"),
-  summary: document.getElementById("decision-summary"),
-  options: document.getElementById("decision-options"),
-  intake: document.getElementById("intake"),
-  brief: document.getElementById("intake-brief"),
-  questions: document.getElementById("intake-questions"),
-  assumed: document.getElementById("intake-assumed"),
-  assumedCount: document.getElementById("intake-assumed-count"),
-  assumedPreview: document.getElementById("intake-assumed-preview"),
-  assumedQuestions: document.getElementById("intake-assumed-questions"),
-  form: document.getElementById("composer-form"),
-  text: document.getElementById("composer-text"),
-  send: document.getElementById("composer-send"),
-  hint: document.getElementById("composer-hint"),
-  newSession: document.getElementById("new-session"),
-  working: document.getElementById("working"),
-  glyph: document.getElementById("working-glyph"),
-  verb: document.getElementById("working-verb"),
-  meta: document.getElementById("working-meta"),
+  list: byId("roster-list"),
+  head: byId("stage-head"),
+  headLabel: byId("stage-label"),
+  headStatus: byId("stage-status"),
+  thread: byId("thread"),
+  progress: byId("progress"),
+  plan: byId("plan"),
+  trail: byId("trail"),
+  decision: byId("decision"),
+  kind: byId("decision-kind"),
+  title: byId("decision-title"),
+  summary: byId("decision-summary"),
+  options: byId("decision-options"),
+  intake: byId("intake"),
+  brief: byId("intake-brief"),
+  questions: byId("intake-questions"),
+  assumed: byId("intake-assumed"),
+  assumedCount: byId("intake-assumed-count"),
+  assumedPreview: byId("intake-assumed-preview"),
+  assumedQuestions: byId("intake-assumed-questions"),
+  form: byId<HTMLFormElement>("composer-form"),
+  text: byId<HTMLInputElement>("composer-text"),
+  send: byId<HTMLButtonElement>("composer-send"),
+  hint: byId("composer-hint"),
+  newSession: byId("new-session"),
+  working: byId("working"),
+  glyph: byId("working-glyph"),
+  verb: byId("working-verb"),
+  meta: byId("working-meta"),
 };
 
-const api = (path, init) =>
+const api = (path: string, init?: RequestInit) =>
   fetch(path, { ...init, headers: { ...authHeaders, ...(init?.headers ?? {}) } });
 const selectedRow = () => state.rows.find((r) => r.id === state.selectedId) ?? null;
 
-async function closeSpecialist(row) {
+async function closeSpecialist(row: RosterRow) {
   if (!confirm(`Close ${row.label}?\n\nIts worktree and branch are removed. The thread and any reports are kept.`)) return;
 
   let res = await api(`/api/sessions/${row.id}/close`, {
@@ -111,15 +155,15 @@ window.bench = {
 };
 
 const artifact = {
-  root: document.getElementById("artifact-dialog"),
-  kind: document.getElementById("artifact-kind"),
-  title: document.getElementById("artifact-title"),
-  tab: document.getElementById("artifact-tab"),
-  frame: document.getElementById("artifact-frame"),
-  close: document.getElementById("artifact-close"),
+  root: byId<HTMLDialogElement>("artifact-dialog"),
+  kind: byId("artifact-kind"),
+  title: byId("artifact-title"),
+  tab: byId<HTMLAnchorElement>("artifact-tab"),
+  frame: byId<HTMLIFrameElement>("artifact-frame"),
+  close: byId<HTMLButtonElement>("artifact-close"),
 };
 
-const artifactUrl = (seq, file) =>
+const artifactUrl = (seq: number, file: string) =>
   `/r/${state.selectedId}/${seq}/${file}?token=${encodeURIComponent(token)}`;
 
 /**
@@ -127,7 +171,7 @@ const artifactUrl = (seq, file) =>
  * document inside a 108ch column with the thread still scrolling underneath
  * it, which is the wrong shape for the one thing you are meant to read.
  */
-function openArtifact({ label, title, seq, file }) {
+function openArtifact({ label, title, seq, file }: Artifact) {
   artifact.kind.textContent = label;
   artifact.title.textContent = title;
   artifact.tab.href = artifactUrl(seq, file);
@@ -146,7 +190,7 @@ artifact.root.onclick = (event) => { if (event.target === artifact.root) artifac
  * open in the dialog. A reply also previews in the thread, because a reply is
  * the answer to something you asked and reading it should not cost a click.
  */
-function artifactCard({ label, title, seq, file, preview }) {
+function artifactCard({ label, title, seq, file, preview }: Artifact & { preview?: string }) {
   const card = document.createElement("article");
   card.className = "card";
 
@@ -181,7 +225,7 @@ function artifactCard({ label, title, seq, file, preview }) {
   return card;
 }
 
-function relativeTime(iso) {
+function relativeTime(iso: string) {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return "";
   const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
@@ -193,7 +237,7 @@ function relativeTime(iso) {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-function emptyThread(heading, body) {
+function emptyThread(heading: string, body: string) {
   const p = document.createElement("p");
   p.id = "empty";
   const b = document.createElement("b");
@@ -231,13 +275,13 @@ function renderThread() {
     if (entry.kind === "report") {
       wrap.classList.add("wide");
       wrap.append(artifactCard({
-        label: "report", title: entry.body, seq: entry.reportSeq, file: "report.html",
+        label: "report", title: entry.body, seq: entry.reportSeq!, file: "report.html",
       }));
     } else if (entry.kind === "reply" && entry.replySeq) {
       // The specialist answered with a page. Preview it - it is the answer.
       wrap.classList.add("wide");
       wrap.append(artifactCard({
-        label: "answer", title: entry.body, seq: entry.replySeq, file: "reply.html", preview: true,
+        label: "answer", title: entry.body, seq: entry.replySeq, file: "reply.html", preview: "true",
       }));
     } else {
       const bubble = document.createElement("div");
@@ -277,7 +321,7 @@ function pinToBottom() {
 
 const isIntake = () => Boolean(state.decision && state.decision.questions.length);
 
-function answerFor(question) {
+function answerFor(question: IntakeQuestion): Answer {
   let answer = state.answers.get(question.id);
   if (!answer) {
     // Seeded from the specialist's own picks, so an untouched intake is
@@ -292,11 +336,11 @@ function answerFor(question) {
   return answer;
 }
 
-const labelsFor = (question) =>
+const labelsFor = (question: IntakeQuestion) =>
   question.options.filter((o) => answerFor(question).ids.has(o.id)).map((o) => o.label);
 
 /** Free text alone counts: a question can be answered off the menu. */
-function isAnswered(question) {
+function isAnswered(question: IntakeQuestion): boolean {
   const answer = answerFor(question);
   return answer.ids.size > 0 || answer.text.trim() !== "";
 }
@@ -305,12 +349,12 @@ function isAnswered(question) {
  * Split on what the specialist could guess, not on what the developer has
  * done since - so a question never jumps between the two lists mid-read.
  */
-function splitQuestions() {
-  const open = [];
-  const assumed = [];
-  const guessed = (q) => q.options.some((o) => o.default);
+function splitQuestions(): { open: IntakeQuestion[]; assumed: IntakeQuestion[] } {
+  const open: IntakeQuestion[] = [];
+  const assumed: IntakeQuestion[] = [];
+  const guessed = (q: IntakeQuestion) => q.options.some((o) => o.default);
 
-  for (const question of state.decision.questions) {
+  for (const question of state.decision?.questions ?? []) {
     (question.stakes === "low" && guessed(question) ? assumed : open).push(question);
   }
 
@@ -323,7 +367,7 @@ function splitQuestions() {
   return { open, assumed };
 }
 
-function pickOption(question, optionId) {
+function pickOption(question: IntakeQuestion, optionId: string) {
   const answer = answerFor(question);
   if (question.select === "many") {
     if (answer.ids.has(optionId)) answer.ids.delete(optionId);
@@ -341,13 +385,13 @@ const STATE_CHIP = {
   assumed: "assumed",
 };
 
-function questionState(question) {
+function questionState(question: IntakeQuestion) {
   const answer = answerFor(question);
   if (answer.touched) return "changed";
   return isAnswered(question) ? "assumed" : "open";
 }
 
-function questionCard(question, index) {
+function questionCard(question: IntakeQuestion, index: number) {
   const card = document.createElement("section");
   card.className = "question";
   card.dataset.state = questionState(question);
@@ -465,7 +509,7 @@ function renderBrief() {
   if (!brief) { el.brief.hidden = true; return; }
   el.brief.hidden = false;
 
-  const byId = new Map(state.decision.questions.map((q) => [q.id, q]));
+  const questionById = new Map(state.decision!.questions.map((q) => [q.id, q]));
   const nodes = [];
   const pattern = /\{([A-Za-z0-9_-]+)\}/g;
   let last = 0;
@@ -473,7 +517,7 @@ function renderBrief() {
 
   while ((match = pattern.exec(brief)) !== null) {
     if (match.index > last) nodes.push(document.createTextNode(brief.slice(last, match.index)));
-    const question = byId.get(match[1]);
+    const question = questionById.get(match[1]);
     const slot = document.createElement("span");
     slot.className = "slot";
 
@@ -514,7 +558,7 @@ function renderIntake() {
     el.assumedPreview.textContent = assumed
       .map((q) => labelsFor(q).join(" and ") || answerFor(q).text.trim() || "—")
       .join(" · ");
-    el.assumedQuestions.replaceChildren(...assumed.map((q) => questionCard(q, null)));
+    el.assumedQuestions.replaceChildren(...assumed.map((q, index) => questionCard(q, index)));
   }
 
   renderBrief();
@@ -527,7 +571,7 @@ function renderIntake() {
  * outstanding it refuses and says how many.
  */
 function renderSendBar() {
-  const questions = state.decision.questions;
+  const questions = state.decision!.questions;
   const pending = questions.filter((q) => !isAnswered(q));
   const changed = questions.filter((q) => answerFor(q).touched);
 
@@ -540,7 +584,7 @@ function renderSendBar() {
       ? `Send ${questions.length} answers · ${changed.length} yours`
       : `Go with all ${questions.length} assumptions`;
 
-  const kbd = (t) => { const k = document.createElement("kbd"); k.textContent = t; return k; };
+  const kbd = (t: string) => { const k = document.createElement("kbd"); k.textContent = t; return k; };
   el.hint.replaceChildren(
     kbd("1"), document.createTextNode("–"), kbd("9"), document.createTextNode(" pick  "),
     kbd("↑"), kbd("↓"), document.createTextNode(" move  "),
@@ -550,7 +594,7 @@ function renderSendBar() {
 }
 
 function intakePayload() {
-  return state.decision.questions.map((question) => {
+  return state.decision!.questions.map((question) => {
     const answer = answerFor(question);
     return {
       questionId: question.id,
@@ -605,10 +649,10 @@ function renderComposer() {
   el.send.hidden = true;
   el.text.placeholder = "Or type an answer";
   el.hint.replaceChildren();
-  if (state.decision.options.length) {
-    const kbd = (t) => { const k = document.createElement("kbd"); k.textContent = t; return k; };
+  if (state.decision!.options.length) {
+    const kbd = (t: string) => { const k = document.createElement("kbd"); k.textContent = t; return k; };
     el.hint.append(
-      kbd("1"), document.createTextNode("–"), kbd(String(state.decision.options.length)),
+      kbd("1"), document.createTextNode("–"), kbd(String(state.decision!.options.length)),
       document.createTextNode(" to pick  "), kbd("↵"), document.createTextNode(" to confirm  "),
       kbd("/"), document.createTextNode(" to type instead"),
     );
@@ -657,13 +701,13 @@ const VERBS = [
 ];
 const GLYPHS = ["✢", "✦", "✧", "✶"];
 
-function hashOf(text) {
+function hashOf(text: string) {
   let h = 0;
   for (let i = 0; i < text.length; i += 1) h = (h * 31 + text.charCodeAt(i)) | 0;
   return Math.abs(h);
 }
 
-function elapsedSince(iso) {
+function elapsedSince(iso: string) {
   const started = Date.parse(iso);
   if (Number.isNaN(started)) return "";
   const total = Math.max(0, Math.round((Date.now() - started) / 1000));
@@ -672,7 +716,7 @@ function elapsedSince(iso) {
   return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, "0")}s` : `${seconds}s`;
 }
 
-function formatTokens(n) {
+function formatTokens(n: number) {
   if (!n) return null;
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k tokens` : `${n} tokens`;
 }
@@ -710,14 +754,14 @@ function renderWorking() {
 }
 
 /** How long ago, in the shortest form that is still honest. */
-function ago(iso) {
+function ago(iso: string) {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);
   return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
 }
 
-async function loadPlan(row) {
+async function loadPlan(row: RosterRow | null) {
   if (!row) { state.plan = null; return; }
   try {
     const res = await api(`/api/sessions/${row.id}/plan`);
@@ -803,7 +847,7 @@ function renderHead() {
   el.headStatus.textContent = `${row.status.replace(/_/g, " ")} · ${row.detail}`;
 }
 
-async function loadDecision(row) {
+async function loadDecision(row: RosterRow | null) {
   if (!row || row.status !== "awaiting_decision" || row.latestReportSeq === null) {
     state.decision = null;
     state.decisionSeq = null;
@@ -830,7 +874,7 @@ async function refreshThread() {
   state.entries = res.ok ? (await res.json()).entries : [];
 }
 
-async function select(id) {
+async function select(id: string) {
   state.selectedId = id;
   await refreshThread();
   await loadDecision(selectedRow());
@@ -847,7 +891,7 @@ async function submit() {
   if (isIntake()) {
     // Every question carries an answer or the send bar is disabled, so
     // there is nothing to guard here beyond the button's own state.
-    if (state.decision.questions.some((q) => !isAnswered(q))) return;
+    if (state.decision!.questions.some((q) => !isAnswered(q))) return;
     await api(`/api/sessions/${row.id}/answer`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -948,24 +992,24 @@ document.addEventListener("keydown", (event) => {
 });
 
 const dialog = {
-  root: document.getElementById("new-dialog"),
-  form: document.getElementById("new-form"),
-  project: document.getElementById("f-project"),
-  projectList: document.getElementById("project-list"),
-  label: document.getElementById("f-label"),
-  model: document.getElementById("f-model"),
-  error: document.getElementById("f-error"),
-  cancel: document.getElementById("f-cancel"),
-  create: document.getElementById("f-create"),
+  root: byId<HTMLDialogElement>("new-dialog"),
+  form: byId<HTMLFormElement>("new-form"),
+  project: byId<HTMLInputElement>("f-project"),
+  projectList: byId<HTMLDataListElement>("project-list"),
+  label: byId<HTMLInputElement>("f-label"),
+  model: byId<HTMLSelectElement>("f-model"),
+  error: byId("f-error"),
+  cancel: byId<HTMLButtonElement>("f-cancel"),
+  create: byId<HTMLButtonElement>("f-create"),
 };
 
 // Matches the daemon's own label rule, so a bad label is caught here with
 // an explanation instead of coming back as an opaque 400.
 const LABEL_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
-let projects = [];
+let projects: Array<{ name: string; path: string }> = [];
 
-function showError(message) {
+function showError(message: string) {
   dialog.error.textContent = message;
   dialog.error.hidden = !message;
 }
@@ -973,7 +1017,7 @@ function showError(message) {
 async function loadProjects() {
   const res = await api("/api/projects");
   projects = res.ok ? (await res.json()).projects : [];
-  dialog.projectList.replaceChildren(...projects.map((project) => {
+  dialog.projectList.replaceChildren(...projects.map((project: { name: string; path: string }) => {
     const option = document.createElement("option");
     option.value = project.name;
     option.label = project.path;
@@ -982,7 +1026,7 @@ async function loadProjects() {
 }
 
 /** Accepts either a listed repo name or a full absolute path. */
-function resolveProject(value) {
+function resolveProject(value: string) {
   const match = projects.find((p) => p.name === value || p.path === value);
   if (match) return match.path;
   return value.startsWith("/") ? value : null;
