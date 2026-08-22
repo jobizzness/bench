@@ -230,8 +230,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 #empty b { display: block; color: var(--text); font-weight: 500; margin-bottom: 4px; }
 
-.entry { max-width: 74ch; margin: 0 0 26px; }
-.entry.user { margin-left: auto; max-width: 56ch; }
+/* Entries run the full width of the thread. Three separate measure caps -
+   74ch here, 56ch for your own messages floated to the right, 108ch for a
+   report card - left a wide window mostly empty gutter, with your own
+   messages stranded in the opposite one. This is a work surface, not a
+   messaging app: who said what is carried by the label and the bubble's own
+   treatment, not by which side it sits on. */
+.entry { margin: 0 0 26px; }
 
 .entry .who {
   display: flex; align-items: baseline; gap: 8px;
@@ -242,7 +247,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
   color: var(--faint);
   margin-bottom: 7px;
 }
-.entry.user .who { justify-content: flex-end; }
 .entry .when { color: var(--faint); letter-spacing: 0.06em; }
 
 .bubble {
@@ -250,13 +254,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
   border: 1px solid var(--line);
   border-radius: 3px 10px 10px 10px;
   padding: 13px 16px;
-  white-space: pre-wrap;
   font-size: 14px;
 }
 .entry.user .bubble {
   background: transparent;
   border-color: var(--line-firm);
-  border-radius: 10px 3px 10px 10px;
+  /* The notch pointed right, which only made sense while these were
+     right-aligned. */
+  border-radius: 3px 10px 10px 10px;
   color: var(--muted);
 }
 
@@ -732,8 +737,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 #f-create:hover { border-color: var(--wants); }
 
-/* An artifact is a page, not a paragraph - give it room. */
-.entry.wide { max-width: 108ch; }
+/* An artifact is a page, not a paragraph. Nothing caps an entry now, so it
+   already has the room. */
 
 /* Working indicator. Sits on the seam between thread and composer, so it
    reads as the live edge of the conversation rather than a status bar. */

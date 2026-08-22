@@ -288,13 +288,11 @@ function renderThread() {
     }
 
     if (entry.kind === "report") {
-      wrap.classList.add("wide");
       wrap.append(artifactCard({
         label: "report", title: entry.body, seq: entry.reportSeq!, file: "report.html",
       }));
     } else if (entry.kind === "reply" && entry.replySeq) {
       // The specialist answered with a page. Preview it - it is the answer.
-      wrap.classList.add("wide");
       wrap.append(artifactCard({
         label: "answer", title: entry.body, seq: entry.replySeq, file: "reply.html", preview: "true",
       }));
