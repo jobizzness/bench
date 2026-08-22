@@ -66,7 +66,9 @@ let socket: any;
 
 const $ = <T extends Element>(selector: string) => document.querySelector<T>(selector)!;
 const $$ = (selector: string) => [...document.querySelectorAll(selector)];
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+// A tick was enough while every screen rendered synchronously. React
+// islands mount and flush across scheduler turns, so waits are given room.
+const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 /** The composer's live send button, which doubles as the state readout. */
 const send = () => $<HTMLButtonElement>("#composer-send");
@@ -113,7 +115,9 @@ beforeAll(async () => {
     return { ok: true, json: async () => ({}) };
   };
 
-  await import("../src/client/app.js");
+  // main mounts the React islands as well as running the vanilla cockpit.
+  await import("../src/client/main.tsx");
+  await settle();
 
   socket.onmessage({ data: JSON.stringify({ type: "roster", rows: [ROW] }) });
   await settle();

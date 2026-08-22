@@ -7,12 +7,13 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && rm -rf dist/client && cp -r src/client dist/client",
+    "build": "tsc -p tsconfig.json && rm -rf dist/client && mkdir -p dist/client && esbuild src/client/main.tsx --bundle --format=esm --target=es2022 --minify --define:process.env.NODE_ENV=\\\"production\\\" --outfile=dist/client/app.js && cp src/client/index.html src/client/styles.css dist/client/",
     "dev": "tsx watch src/daemon/index.ts",
     "start": "node dist/daemon/index.js",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:e2e": "BENCH_E2E=1 vitest run tests/e2e.test.ts tests/e2e-chat.test.ts"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json",
+    "test:e2e": "BENCH_E2E=1 vitest run tests/e2e.test.ts tests/e2e-chat.test.ts",
+    "dev:client": "esbuild src/client/main.tsx --bundle --format=esm --target=es2022 --outfile=dist/client/app.js --watch"
   },
   "dependencies": {
     "ws": "^8.18.0",
@@ -20,8 +21,13 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "@types/ws": "^8.5.13",
+    "esbuild": "^0.28.2",
     "jsdom": "^30.0.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
