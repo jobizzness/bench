@@ -1,6 +1,6 @@
 # Bench — where it stands
 
-Last updated 2026-08-22. 150 tests passing, 2 end-to-end suites run
+Last updated 2026-08-22. 172 tests passing, 2 end-to-end suites run
 separately against the real CLI.
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
@@ -60,6 +60,17 @@ changes or commits that exist on no other branch, and says how many, so
 forcing it is a decision rather than an accident. Verified against real
 repositories: a clean specialist closed and took its branch with it, one
 with a single uncommitted file was refused, and forcing removed it.
+
+**Seeing where a specialist has got to.** Two views of a running turn. The
+activity trail is derived from tool calls — `Bash node test.js`, `Edit
+src/daemon/registry.ts`, with repeats collapsed to `(×3)` — and is stamped,
+so a long turn reads differently from a wedged one. The plan is the
+specialist's own checklist at `plan.json` in the turn's directory, which the
+framing asks it to keep current since this CLI gives it no todo tool; the
+cockpit renders it as todo/doing/done. The trail cannot lie and the plan
+says intent, which is why both are shown. Verified live: a four-step task
+advanced its checklist through each step while the trail recorded what
+actually ran.
 
 **Prompting, including mid-turn.** A specialist is created empty and waits;
 what it is for is the first thing you type at it, not a field in a dialog.
@@ -121,6 +132,11 @@ write denial. The last one has already bitten: a specialist editing
 
 Worth recording, because none were caught by tests.
 
+- **The roster said "Bash" for twelve minutes.** `activityLine` returned the
+  tool's name and discarded its input, so a specialist thinking hard and one
+  that had wedged rendered identically — the only way to tell them apart was
+  reading the process tree and diffing the CLI transcript by hand. It now
+  says what the tool is doing, and each entry is stamped.
 - **A specialist's label was being used as its identity.** The worktree and
   branch were named `worktree-<label>`, so two specialists could never share
   a label in one repo, and a branch left behind by a specialist Bench no

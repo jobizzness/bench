@@ -10,6 +10,7 @@ import { ClaudeSession } from "./claude-session.js";
 import { existsSync } from "node:fs";
 import { latestReportSeq, findReport } from "./reports.js";
 import { SessionStore } from "./store.js";
+import { appendActivity } from "./activity.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
 import { appendEntry } from "./thread.js";
 import type { RosterRow, SessionStatus } from "../shared/types.js";
@@ -64,6 +65,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           latestReportSeq: await latestReportSeq(rec.reportsDir),
           startedAt: null,
           tokens: 0,
+          activity: [],
         },
       });
     }
@@ -139,7 +141,16 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       setTimeout(() => { progressPending = false; this.emit("roster"); }, 1000).unref?.();
     });
 
-    session.on("activity", (line: string) => { syncProgress(); this.update(id, "working", line); });
+    session.on("activity", (line: string) => {
+      syncProgress();
+      const current = this.entries.get(id);
+      if (current) {
+        // A trail, not a single line: one tool name tells you what is
+        // happening this instant, never where the turn has got to.
+        current.row.activity = appendActivity(current.row.activity, line, new Date().toISOString());
+      }
+      this.update(id, "working", line);
+    });
     session.on("exit", () => {
       const entry = this.entries.get(id);
       if (entry) entry.alive = false;
@@ -221,6 +232,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         latestReportSeq: null,
         startedAt: new Date().toISOString(),
         tokens: 0,
+        activity: [],
       },
     });
     this.emit("roster");
@@ -289,6 +301,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     }
 
     void appendEntry(entry.threadPath, { kind: "user", body: text });
+    // The trail describes the turn in flight, so it starts empty.
+    entry.row.activity = [];
     entry.session!.send(text);
     this.update(id, "working", "starting");
   }

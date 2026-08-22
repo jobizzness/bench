@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import type { BenchConfig } from "./config.js";
 import { findReport } from "./reports.js";
+import { readPlan } from "./plan.js";
 import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import type { RosterRow } from "../shared/types.js";
@@ -183,6 +184,14 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
       const body = await readBody(req);
       registry.send(answer[1], formatAnswer(body.optionId, body.text));
       json(res, 200, { ok: true });
+      return;
+    }
+
+    const plan = path.match(/^\/api\/sessions\/([^/]+)\/plan$/);
+    if (plan && req.method === "GET") {
+      const session = registry.get(plan[1]);
+      if (!session) { json(res, 404, { error: "no such session" }); return; }
+      json(res, 200, { steps: await readPlan(session.reportsDir) });
       return;
     }
 
