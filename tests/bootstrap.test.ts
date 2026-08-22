@@ -113,19 +113,18 @@ describe("bootstrapWorktree", () => {
   it("surfaces the failing step as a BootstrapError", async () => {
     const repo = await makeScratchRepo();
     await withModules(repo);
-    const { worktree } = await createWorktree(repo, "failing", ID);
-    // A worktree it cannot write into is the one failure this step still has.
-    await chmod(worktree, 0o500);
+    // A worktree that is not there. Making one read-only would be the obvious
+    // way to force this and does not work when the daemon runs as root, which
+    // it does here: root ignores the permission such a test is resting on.
+    // Something already sitting at the target is not a failure either - the
+    // step treats that as already linked.
+    const worktree = join(repo, "never", "created");
 
-    try {
-      await expect(
-        bootstrapWorktree({ repo, worktree, port: 3105 }),
-      ).rejects.toMatchObject({ step: "link" });
-      await expect(
-        bootstrapWorktree({ repo, worktree, port: 3106 }),
-      ).rejects.toBeInstanceOf(BootstrapError);
-    } finally {
-      await chmod(worktree, 0o700);
-    }
+    await expect(
+      bootstrapWorktree({ repo, worktree, port: 3105 }),
+    ).rejects.toMatchObject({ step: "link" });
+    await expect(
+      bootstrapWorktree({ repo, worktree, port: 3106 }),
+    ).rejects.toBeInstanceOf(BootstrapError);
   });
 });
