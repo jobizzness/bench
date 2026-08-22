@@ -23,6 +23,23 @@ const TOOLCHAIN = [
   // A specialist doing UI work has to be able to look at it. jsdom cannot
   // tell you what a layout does, which has already cost one bug here.
   "google-chrome", "google-chrome-stable", "chromium",
+  // Reporting is part of the work. A specialist that finds something worth
+  // filing should file it, not describe it and wait for someone to copy it
+  // across. Reading issues and pull requests is how it finds out what has
+  // already been decided.
+  "gh issue", "gh pr", "gh repo view", "gh search",
+].map((cmd) => `Bash(${cmd}:*)`);
+
+/**
+ * The line is the same one `git push` is on: a specialist proposes, the
+ * developer publishes. It can open a pull request and argue for it; merging
+ * it, cutting a release, or touching credentials is not its call - and
+ * nothing it does should be able to destroy the repository it works in.
+ */
+const GH_DENIED = [
+  "gh pr merge", "gh pr close", "gh issue delete", "gh issue close",
+  "gh repo delete", "gh repo archive", "gh repo rename",
+  "gh release", "gh secret", "gh auth", "gh workflow run", "gh api",
 ].map((cmd) => `Bash(${cmd}:*)`);
 
 /**
@@ -47,7 +64,7 @@ export function buildSettings(opts: { hookCommand: string }): object {
       // Publishing is not a build step. Putting a branch on a remote is the
       // developer's call, not part of verifying a change - and all the more so
       // for a specialist working directly in the developer's own checkout.
-      deny: ["Bash(git push:*)", ...DEPENDENCY_COMMANDS],
+      deny: ["Bash(git push:*)", ...DEPENDENCY_COMMANDS, ...GH_DENIED],
     },
     hooks: {
       PreToolUse: [

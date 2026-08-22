@@ -69,6 +69,24 @@ describe("buildSettings", () => {
     expect(allow).toContain("Bash(google-chrome:*)");
   });
 
+  it("lets a specialist file what it finds", () => {
+    // A specialist that cannot open an issue writes its finding into a
+    // report and waits for someone to copy it across by hand.
+    const allow: string[] = (buildSettings({ hookCommand: "x" }) as any).permissions.allow;
+    expect(allow).toContain("Bash(gh issue:*)");
+    expect(allow).toContain("Bash(gh pr:*)");
+  });
+
+  it("does not let a specialist merge, release or reach for credentials", () => {
+    // The same line git push is on: a specialist proposes, the developer
+    // publishes.
+    const deny: string[] = (buildSettings({ hookCommand: "x" }) as any).permissions.deny;
+    for (const rule of ["Bash(gh pr merge:*)", "Bash(gh repo delete:*)",
+                        "Bash(gh release:*)", "Bash(gh secret:*)", "Bash(gh auth:*)"]) {
+      expect(deny).toContain(rule);
+    }
+  });
+
   it("does not let a specialist publish its branch", () => {
     const settings = buildSettings({ hookCommand: "node /opt/bench/hook.js" }) as any;
     expect(settings.permissions.deny).toContain("Bash(git push:*)");
