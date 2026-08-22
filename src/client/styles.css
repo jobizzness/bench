@@ -885,3 +885,51 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 
 #stale strong { font-weight: 600; }
+
+/* Markdown inside a bubble. Tuned tight: this is spoken text, so the
+   blocks sit closer together than they would on a page, and the first and
+   last of them lose their margin so the bubble's padding is the padding. */
+.bubble > :first-child { margin-top: 0; }
+.bubble > :last-child { margin-bottom: 0; }
+.bubble p { margin: 0 0 10px; }
+.bubble h3, .bubble h4, .bubble h5, .bubble h6 {
+  margin: 16px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.bubble ul, .bubble ol { margin: 0 0 10px; padding-left: 20px; }
+.bubble li { margin: 3px 0; }
+.bubble li::marker { color: var(--faint); }
+.bubble code {
+  font-family: var(--mono);
+  font-size: 0.87em;
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.bubble pre {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+/* The <pre> carries the frame, so the <code> inside it carries none. */
+.bubble pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.bubble blockquote {
+  margin: 0 0 10px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line-firm);
+  color: var(--muted);
+}
+.bubble hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+.bubble a { color: var(--wants); text-underline-offset: 2px; }
