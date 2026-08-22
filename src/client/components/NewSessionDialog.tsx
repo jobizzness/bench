@@ -15,6 +15,16 @@ function resolveProject(projects: Project[], value: string): string | null {
 }
 
 /**
+ * Two different jobs, and the difference is worth a sentence: a worktree is
+ * private, the checkout is shared with the developer and with every other
+ * specialist pointed at it.
+ */
+const WORKTREE_NOTE = {
+  isolated: "Its own branch and files. Dependencies are linked from your checkout, never installed.",
+  shared: "Works directly in your checkout, on the branch you have open - alongside you and any other specialist there.",
+};
+
+/**
  * A specialist is created empty and waits. What it is for is the first thing
  * you type at it, not a field in here — this dialog only decides where it
  * lives and what it costs.
@@ -27,6 +37,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const [project, setProject] = useState("");
   const [label, setLabel] = useState("");
   const [model, setModel] = useState("opus");
+  const [isolated, setIsolated] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -40,6 +51,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     setProject("");
     setLabel("");
     setModel("opus");
+    setIsolated(true);
     dialog.showModal?.();
     projectRef.current?.focus();
 
@@ -65,7 +77,9 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
 
     setBusy(true);
     try {
-      const res = await postJson("/api/sessions", { project: path, label: label.trim(), model });
+      const res = await postJson("/api/sessions", {
+        project: path, label: label.trim(), model, isolated,
+      });
       // The old prompt flow discarded this response, so a rejected request
       // produced no specialist and no explanation.
       if (!res.ok) {
@@ -106,7 +120,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
           onChange={(event) => setLabel(event.target.value)}
         />
         <p className="field-note">
-          Lowercase letters, numbers and hyphens. Becomes the worktree and branch name.
+          Lowercase letters, numbers and hyphens. Names the branch and worktree.
         </p>
 
         <label htmlFor="f-model">Model</label>
@@ -114,6 +128,18 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
           <option value="opus">Opus</option>
           <option value="sonnet">Sonnet</option>
         </select>
+
+        <div className="check">
+          <input
+            type="checkbox" id="f-worktree"
+            checked={isolated}
+            onChange={(event) => setIsolated(event.target.checked)}
+          />
+          <label htmlFor="f-worktree">Start in a worktree</label>
+        </div>
+        <p className="field-note" id="f-worktree-note">
+          {isolated ? WORKTREE_NOTE.isolated : WORKTREE_NOTE.shared}
+        </p>
 
         {error && <p id="f-error" className="error">{error}</p>}
 

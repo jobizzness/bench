@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -167,6 +167,21 @@ describe("inspectWorktree and bootstrap leftovers", () => {
     await writeFile(join(worktree, "node_modules", "x.js"), "//");
     await writeFile(join(worktree, "pnpm-lock.yaml"), "lockfileVersion: 9");
     await writeFile(join(worktree, ".env"), "SECRET=1");
+
+    const state = await inspectWorktree(repo, worktree, branch);
+    expect(state.clean).toBe(true);
+    expect(state.changes).toBe(0);
+  });
+
+  it("ignores a symlinked node_modules, which git reports without a slash", async () => {
+    // Bootstrap links node_modules rather than installing one. git status
+    // prints a symlink as "?? node_modules" with no trailing slash, so a
+    // matcher that only knows "node_modules/" counts it as work and close
+    // refuses forever.
+    const repo = await makeScratchRepo();
+    await mkdir(join(repo, "node_modules"), { recursive: true });
+    const { worktree, branch } = await createWorktree(repo, "linked", ID_A);
+    await symlink(join(repo, "node_modules"), join(worktree, "node_modules"));
 
     const state = await inspectWorktree(repo, worktree, branch);
     expect(state.clean).toBe(true);

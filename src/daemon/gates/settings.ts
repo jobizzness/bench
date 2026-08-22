@@ -25,14 +25,29 @@ const TOOLCHAIN = [
   "google-chrome", "google-chrome-stable", "chromium",
 ].map((cmd) => `Bash(${cmd}:*)`);
 
+/**
+ * A worktree borrows the main checkout's node_modules by symlink rather than
+ * installing its own, so every one of these writes through that link into the
+ * developer's repo - silently upgrading packages its lockfile still pins, and
+ * leaving two specialists to fight over one tree. Denied outright: adding a
+ * dependency is the developer's call, and the specialist should say it needs
+ * one rather than reach for it.
+ */
+const DEPENDENCY_COMMANDS = [
+  "pnpm add", "pnpm install", "pnpm remove", "pnpm update", "pnpm link",
+  "npm install", "npm i", "npm uninstall", "npm ci", "npm update",
+  "yarn add", "yarn install", "yarn remove", "yarn upgrade",
+  "bun add", "bun install", "bun remove", "bun update",
+].map((cmd) => `Bash(${cmd}:*)`);
+
 export function buildSettings(opts: { hookCommand: string }): object {
   return {
     permissions: {
       allow: TOOLCHAIN,
-      // Publishing is not a build step. A specialist works on a disposable
-      // branch in its own worktree; putting that branch on a remote is the
-      // developer's call, not part of verifying a change.
-      deny: ["Bash(git push:*)"],
+      // Publishing is not a build step. Putting a branch on a remote is the
+      // developer's call, not part of verifying a change - and all the more so
+      // for a specialist working directly in the developer's own checkout.
+      deny: ["Bash(git push:*)", ...DEPENDENCY_COMMANDS],
     },
     hooks: {
       PreToolUse: [

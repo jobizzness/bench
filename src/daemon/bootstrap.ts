@@ -1,19 +1,11 @@
-import { execFile } from "node:child_process";
-import { readFile, symlink, access } from "node:fs/promises";
+import { symlink, access } from "node:fs/promises";
 import { join } from "node:path";
-
-export type RunFn = (
-  cmd: string,
-  args: string[],
-  cwd: string,
-) => Promise<{ code: number; stderr: string }>;
 
 export interface BootstrapOptions {
   repo: string;
   worktree: string;
   port: number;
   onStep?: (name: string) => void;
-  run?: RunFn;
 }
 
 export interface BootstrapResult {
@@ -34,13 +26,6 @@ export class BootstrapError extends Error {
 /** Files that never live in git but that the app needs to run. */
 const ENV_FILES = [".env", ".env.local", ".env.production"];
 
-const defaultRun: RunFn = (cmd, args, cwd) =>
-  new Promise((resolve) => {
-    execFile(cmd, args, { cwd, maxBuffer: 32 * 1024 * 1024 }, (error, _stdout, stderr) => {
-      resolve({ code: error ? 1 : 0, stderr: stderr ?? String(error ?? "") });
-    });
-  });
-
 async function exists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -50,35 +35,44 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-async function usesPrisma(repo: string): Promise<boolean> {
-  try {
-    const pkg = JSON.parse(await readFile(join(repo, "package.json"), "utf8"));
-    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-    return "prisma" in deps || "@prisma/client" in deps;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * A fresh worktree has no node_modules and no env files, so it cannot run
- * anything. This makes it runnable, and fails loudly on the step that broke
- * rather than leaving the agent to discover it at its first test run.
+ * anything. Bootstrap makes it runnable without installing: the main
+ * checkout has already resolved and linked every dependency, and a worktree
+ * is the same commit tree, so it can borrow that node_modules wholesale.
+ *
+ * Installing instead cost eight to seventeen seconds per specialist and
+ * produced a tree the main checkout already had. Copying was worse - a pnpm
+ * node_modules is thousands of files, and hardlinking them one by one took
+ * thirteen times longer than the install it replaced.
+ *
+ * The link is one-way in intent only: writes through it land in the main
+ * checkout, which is why the dependency commands that would do so are denied
+ * to specialists in gates/settings.ts. Nothing here can enforce that, so the
+ * two have to stay in step.
  */
 export async function bootstrapWorktree(opts: BootstrapOptions): Promise<BootstrapResult> {
   const { repo, worktree, port, onStep } = opts;
-  const run = opts.run ?? defaultRun;
   const steps: string[] = [];
 
   const step = async (name: string, fn: () => Promise<void>) => {
     steps.push(name);
     onStep?.(name);
-    await fn();
+    try {
+      await fn();
+    } catch (error) {
+      throw new BootstrapError(name, String(error));
+    }
   };
 
-  await step("install", async () => {
-    const { code, stderr } = await run("pnpm", ["install", "--prefer-offline"], worktree);
-    if (code !== 0) throw new BootstrapError("install", stderr);
+  await step("link", async () => {
+    const source = join(repo, "node_modules");
+    const target = join(worktree, "node_modules");
+    // A project with nothing installed has nothing to lend; the specialist
+    // is no worse off than the developer who opened the same repo.
+    if (!(await exists(source))) return;
+    if (await exists(target)) return;
+    await symlink(source, target);
   });
 
   await step("env", async () => {
@@ -91,13 +85,6 @@ export async function bootstrapWorktree(opts: BootstrapOptions): Promise<Bootstr
       await symlink(source, target);
     }
   });
-
-  if (await usesPrisma(repo)) {
-    await step("prisma", async () => {
-      const { code, stderr } = await run("pnpm", ["exec", "prisma", "generate"], worktree);
-      if (code !== 0) throw new BootstrapError("prisma", stderr);
-    });
-  }
 
   return { port, steps };
 }

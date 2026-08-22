@@ -74,6 +74,19 @@ describe("buildSettings", () => {
     expect(settings.permissions.deny).toContain("Bash(git push:*)");
   });
 
+  it("denies the dependency commands that would write through the node_modules link", () => {
+    // A worktree borrows the main checkout's node_modules by symlink, so an
+    // install run inside one rewrites the developer's own tree - measured
+    // upgrading vitest under a repo whose lockfile still pinned the old one.
+    const settings = buildSettings({ hookCommand: "node /opt/bench/hook.js" }) as any;
+    for (const cmd of [
+      "Bash(pnpm add:*)", "Bash(pnpm install:*)", "Bash(pnpm remove:*)",
+      "Bash(npm install:*)", "Bash(yarn add:*)", "Bash(bun add:*)",
+    ]) {
+      expect(settings.permissions.deny).toContain(cmd);
+    }
+  });
+
   it("serialises to JSON, since it is passed to --settings as a string", () => {
     const settings = buildSettings({ hookCommand: "node /opt/bench/hook.js" });
     expect(() => JSON.parse(JSON.stringify(settings))).not.toThrow();

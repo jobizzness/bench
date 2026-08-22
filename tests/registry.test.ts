@@ -184,6 +184,61 @@ async function setupReal(label = "auth") {
   return { home, project, worktree, branch, id, reportsDir, store, registry };
 }
 
+/** A specialist created with the worktree toggle off works in the checkout. */
+async function setupInPlace() {
+  const home = await mkdtemp(join(tmpdir(), "bench-home-"));
+  const project = await mkdtemp(join(tmpdir(), "bench-proj-"));
+  await exec("git", ["init", "-q", "-b", "main"], { cwd: project });
+  await exec("git", ["config", "user.email", "t@t.io"], { cwd: project });
+  await exec("git", ["config", "user.name", "t"], { cwd: project });
+  await writeFile(join(project, "README.md"), "x");
+  await exec("git", ["add", "-A"], { cwd: project });
+  await exec("git", ["commit", "-qm", "init"], { cwd: project });
+
+  const id = "sess-inplace";
+  const reportsDir = join(project, ".bench", "reports", id);
+  await mkdir(reportsDir, { recursive: true });
+
+  const store = new SessionStore(home);
+  await store.put({
+    id, label: "inplace", project, worktree: project, branch: "main", reportsDir,
+    model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z", isolated: false,
+  });
+
+  const registry = new SessionRegistry({
+    home, port: 7420, token: "t", pluginDir: "/nonexistent/plugin",
+    hookCommand: "node /nonexistent/hook.js", projectsRoot: project,
+  } as any);
+  await registry.restore();
+  return { home, project, id, registry };
+}
+
+describe("closing a specialist that works in the checkout itself", () => {
+  it("never removes the developer's own worktree or branch", async () => {
+    // removeWorktree would run `git worktree remove --force` and `branch -D`
+    // against the project itself. There is no worktree to reclaim here, and
+    // the branch is the developer's.
+    const { project, id, registry } = await setupInPlace();
+
+    const result = await registry.close(id);
+
+    expect(result.closed).toBe(true);
+    expect(existsSync(join(project, "README.md"))).toBe(true);
+    const branches = await exec("git", ["branch", "--list", "main"], { cwd: project });
+    expect(branches.stdout).toContain("main");
+  });
+
+  it("closes even with uncommitted work, since closing destroys nothing", async () => {
+    const { project, id, registry } = await setupInPlace();
+    await writeFile(join(project, "notes.md"), "work in progress");
+
+    const result = await registry.close(id);
+
+    expect(result.closed).toBe(true);
+    expect(existsSync(join(project, "notes.md"))).toBe(true);
+  });
+});
+
 describe("SessionRegistry.close", () => {
   it("removes the specialist so a restart cannot bring it back", async () => {
     const { home, id, registry } = await setupReal();
