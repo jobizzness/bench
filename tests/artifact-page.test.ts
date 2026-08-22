@@ -12,14 +12,14 @@ describe("artifactPage", () => {
     // A report with no styles rendered as black on the cockpit's dark
     // background, which is what "it has no styles" looked like.
     const page = artifactPage("<p>x</p>");
-    expect(page).toContain("background: #16211c");
-    expect(page).toContain("color: #e8efe9");
+    expect(page).toContain("--ground: #16211c");
+    expect(page).toContain("--text: #e8efe9");
     expect(page).toContain("color-scheme: dark");
   });
 
   it("puts the agent's own styles after the ground, so they win", () => {
     const page = artifactPage(`<div style="color:#111827">x</div>`);
-    expect(page.indexOf("background: #16211c")).toBeLessThan(page.indexOf("#111827"));
+    expect(page.indexOf("--ground: #16211c")).toBeLessThan(page.indexOf("#111827"));
   });
 
   it("keeps the fragment exactly as written", () => {
@@ -31,5 +31,17 @@ describe("artifactPage", () => {
 
   it("survives an empty report", () => {
     expect(artifactPage("")).toContain("<body></body>");
+  });
+
+  it("caps the measure, so prose does not run the width of the window", () => {
+    expect(artifactPage("<p>x</p>")).toMatch(/max-width:\s*68ch/);
+  });
+
+  it("gives the unverified list the weight, not the verified one", () => {
+    // An empty "not verified" is almost always a lie, so it is the section
+    // worth reading and the only one that gets a second colour.
+    const page = artifactPage("<p>x</p>");
+    expect(page).toContain('[data-bench="unverified"]');
+    expect(page).toContain("--unverified: #e0b155");
   });
 });

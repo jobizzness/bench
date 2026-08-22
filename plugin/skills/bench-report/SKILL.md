@@ -109,10 +109,22 @@ If the page is longer than the work was hard, you are narrating.
 
 ## Style
 
-The frame supplies the page: a dark ground, sensible defaults for headings,
-code, tables and quotes, and the padding. You are writing onto it, so a
-report with no styling at all already reads correctly. Style only where it
-earns its place.
+The frame supplies the page: the measure, the dark ground, the type, and
+the treatment for headings, code, tables, quotes and `<details>`. Write
+plain semantic HTML and it comes out designed. A report with no styling of
+its own is the normal case, not a lazy one - style only where it earns its
+place.
+
+Two sections have a treatment waiting for them. Mark them and they get it:
+
+```html
+<section data-bench="verified">   <h2>Verified</h2>     ... </section>
+<section data-bench="unverified"> <h2>Not verified</h2>  ... </section>
+```
+
+The weight goes to *Not verified*, not to Verified. An empty not-verified
+list is almost always a lie, so the frame gives that section the emphasis
+and sets what you actually checked quietly beneath it.
 
 If you do set colours, inherit the cockpit rather than fighting it. Light-mode
 values render as near-black on a dark ground, which looks like a report that

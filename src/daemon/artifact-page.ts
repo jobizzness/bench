@@ -1,37 +1,213 @@
 /**
  * The page an agent's fragment is rendered into.
  *
- * The skills ask for a fragment - no html, head or body - and nothing ever
- * supplied the rest. A fragment with no styles rendered as black on the
- * cockpit's dark ground, and one written in light-mode colours rendered as
- * near-black on it, which is what "the report has no styles" looks like.
+ * The skills ask for a fragment - no html, head or body - and the frame owns
+ * everything around it. That is deliberate: an agent writing semantic HTML
+ * gets a designed document for free, and a report is not improved by every
+ * specialist inventing its own typography.
  *
- * The frame owns the ground: background, text colour, and sensible defaults
- * for the elements a report is made of. Anything the agent sets wins, because
- * its own styles come later in the cascade.
+ * Rendered under `default-src 'none'; font-src data:`, so there are no web
+ * fonts and no scripts. The pairing is the decision: prose is set in a serif
+ * and evidence in mono, because a report is a document you read once and
+ * decide from, not a transcript - and every developer tool defaults to
+ * all-sans. Anything the agent sets itself comes later in the cascade and
+ * still wins.
  */
 const GROUND = `
-  :root { color-scheme: dark; }
-  html, body { margin: 0; background: #16211c; color: #e8efe9; }
-  body {
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    font-size: 14px;
-    line-height: 1.55;
-    padding: 20px 22px 28px;
+  :root {
+    --ground: #16211c;
+    --raised: rgba(255,255,255,0.035);
+    --line: rgba(255,255,255,0.09);
+    --firm: rgba(255,255,255,0.17);
+    --text: #e8efe9;
+    --muted: #8ba396;
+    --faint: #5f7a6c;
+    --accent: #4fd18b;
+    /* The only second hue, spent on the one section that earns it. */
+    --unverified: #e0b155;
+
+    --prose: "Iowan Old Style", Georgia, ui-serif, serif;
+    --label: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+    color-scheme: dark;
   }
-  h1, h2, h3, h4 { color: #f2f7f3; line-height: 1.25; }
-  h1 { font-size: 1.4rem; margin: 0 0 .5rem; }
-  h2 { font-size: 1.05rem; margin: 1.4rem 0 .4rem; }
-  a { color: #4fd18b; }
-  code, pre { font-family: ui-monospace, monospace; }
-  code { background: rgba(255,255,255,0.06); padding: .1em .35em; border-radius: 3px; }
-  pre { background: rgba(255,255,255,0.04); padding: 12px 14px; border-radius: 4px; overflow-x: auto; }
-  pre code { background: none; padding: 0; }
-  table { border-collapse: collapse; }
-  th, td { border-bottom: 1px solid rgba(255,255,255,0.08); padding: .45rem .6rem .45rem 0; text-align: left; }
-  blockquote { margin: 0 0 1rem; padding-left: 12px; border-left: 2px solid rgba(255,255,255,0.14); color: #8ba396; }
-  hr { border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 1.2rem 0; }
-  img { max-width: 100%; }
+
+  html { background: var(--ground); }
+  body {
+    margin: 0 auto;
+    /* A measure, not a viewport. Prose running the full width of a wide
+       window is the single biggest thing standing between a report and
+       being read. */
+    max-width: 68ch;
+    padding: 34px 26px 56px;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--prose);
+    font-size: 15px;
+    line-height: 1.62;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* ── The ask ─────────────────────────────────────────────────────── */
+
+  h1 {
+    font-size: 27px;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    margin: 0 0 18px;
+    color: #f4faf5;
+  }
+
+  /* The paragraph after the title is the ask. It carries the decision, so
+     it is set larger than the body that follows it. */
+  h1 + p {
+    font-size: 16.5px;
+    line-height: 1.58;
+    color: var(--text);
+    margin: 0 0 26px;
+  }
+
+  h2 {
+    font-family: var(--label);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 34px 0 12px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  h3 {
+    font-size: 15.5px;
+    font-weight: 600;
+    margin: 22px 0 6px;
+    color: #f0f6f1;
+  }
+
+  h4 { font-size: 14px; font-weight: 600; margin: 18px 0 4px; color: var(--text); }
+
+  p { margin: 0 0 14px; }
+  strong { font-weight: 600; color: #f4faf5; }
+  em { font-style: italic; color: var(--text); }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(79,209,139,0.35); }
+  a:hover { border-bottom-color: var(--accent); }
+
+  ul, ol { margin: 0 0 16px; padding-left: 1.35em; }
+  li { margin: 0 0 7px; }
+  li::marker { color: var(--faint); }
+
+  /* ── Evidence ────────────────────────────────────────────────────── */
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.855em;
+    background: rgba(255,255,255,0.07);
+    padding: 0.12em 0.36em;
+    border-radius: 3px;
+    color: #d7e6da;
+  }
+
+  /* Quoted from the machine rather than written by it: an inset ground and
+     a rule, so a diff reads as something produced, not something claimed. */
+  pre {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    background: rgba(0,0,0,0.28);
+    border-left: 2px solid var(--firm);
+    border-radius: 0 4px 4px 0;
+    padding: 13px 15px;
+    margin: 0 0 18px;
+    overflow-x: auto;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; color: #cfe2d4; }
+
+  blockquote {
+    margin: 0 0 18px;
+    padding: 2px 0 2px 15px;
+    border-left: 2px solid var(--line);
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0 0 20px;
+    font-size: 14px;
+  }
+  th {
+    font-family: var(--label);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+    text-align: left;
+    padding: 0 14px 7px 0;
+    border-bottom: 1px solid var(--firm);
+  }
+  td {
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: 0; }
+
+  hr { border: 0; border-top: 1px solid var(--line); margin: 26px 0; }
+  img { max-width: 100%; border-radius: 4px; }
+
+  /* Detail most readings will not need. A control, so it looks like one. */
+  details {
+    margin: 0 0 18px;
+    padding: 11px 14px;
+    background: var(--raised);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+  }
+  details[open] { padding-bottom: 4px; }
+  summary {
+    cursor: pointer;
+    font-family: var(--label);
+    font-size: 12.5px;
+    color: var(--muted);
+    list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; color: var(--faint); }
+  details[open] summary { margin-bottom: 10px; color: var(--text); }
+  details[open] summary::before { content: "▾ "; }
+  summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  /* ── What the report is honest about ─────────────────────────────── */
+
+  /* The obvious treatment gives the green tick to Verified. The valuable
+     list is the other one: an empty "not verified" is almost always a lie,
+     so it gets the weight and the only second hue on the page, and what was
+     checked is set quietly beneath it. */
+  [data-bench="verified"] { color: var(--muted); font-size: 14px; }
+  [data-bench="verified"] h2 { color: var(--faint); }
+  [data-bench="verified"] code { font-size: 0.82em; }
+
+  [data-bench="unverified"] {
+    margin: 22px 0 0;
+    padding: 2px 0 2px 16px;
+    border-left: 2px solid var(--unverified);
+  }
+  [data-bench="unverified"] h2 {
+    color: var(--unverified);
+    border-bottom-color: rgba(224,177,85,0.28);
+  }
+  [data-bench="unverified"] li::marker { color: var(--unverified); }
+
+  @media (max-width: 620px) {
+    body { padding: 24px 18px 40px; font-size: 14.5px; }
+    h1 { font-size: 23px; }
+  }
 `;
 
 export function artifactPage(fragment: string): string {
