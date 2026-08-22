@@ -56,6 +56,24 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
+/** Echoes the argv it was launched with, so a test can assert on flags. */
+const ARGS_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "fake", result: "argv:" + process.argv.slice(2).join(" "),
+    }) + "\\n");
+  }
+});
+`;
+
 async function makeFakeCli(source: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "bench-fakecli-"));
   const path = join(dir, "fake-claude.mjs");
@@ -64,7 +82,7 @@ async function makeFakeCli(source: string): Promise<string> {
   return path;
 }
 
-async function makeSession(cli: string = FAKE_CLI) {
+async function makeSession(cli: string = FAKE_CLI, over: Record<string, unknown> = {}) {
   const claudeBin = await makeFakeCli(cli);
   const worktree = await mkdtemp(join(tmpdir(), "bench-wt-"));
   const reportsDir = join(worktree, ".bench", "reports", "sess-1");
@@ -80,6 +98,7 @@ async function makeSession(cli: string = FAKE_CLI) {
     model: "opus",
     port: 3100,
     claudeBin,
+    ...over,
   });
 }
 
@@ -236,6 +255,32 @@ describe("ClaudeSession", () => {
     await twoTurns;
 
     expect(await readFile(join(opts.reportsDir, ".turn"), "utf8")).toBe("2");
+    session.stop();
+  });
+
+  it("starts a new session by id", async () => {
+    const session = await makeSession(ARGS_CLI);
+    const ended = once(session, "turn-end");
+    session.open();
+    session.send("hello");
+    const [result] = await ended;
+
+    expect(result.result).toContain("--session-id sess-1");
+    expect(result.result).not.toContain("--resume");
+    session.stop();
+  });
+
+  it("resumes an existing session instead of starting a new one", async () => {
+    // After a daemon restart the CLI transcript is still on disk, so a
+    // specialist can come back knowing what it was doing.
+    const session = await makeSession(ARGS_CLI, { resume: true });
+    const ended = once(session, "turn-end");
+    session.open();
+    session.send("hello");
+    const [result] = await ended;
+
+    expect(result.result).toContain("--resume sess-1");
+    expect(result.result).not.toContain("--session-id");
     session.stop();
   });
 

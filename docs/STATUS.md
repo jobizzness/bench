@@ -1,6 +1,6 @@
 # Bench — where it stands
 
-Last updated 2026-08-21. 115 tests passing, 2 end-to-end suites run
+Last updated 2026-08-22. 127 tests passing, 2 end-to-end suites run
 separately against the real CLI.
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
@@ -42,6 +42,15 @@ created, 1.2G of dependencies installed, `.env` symlinked to the main
 checkout rather than copied, correct branch, and the main working tree left
 clean.
 
+**Specialists outlive the daemon.** A small index at `~/.bench/sessions.json`
+records each specialist; threads and reports already live with the project
+and the worktree is on disk. On boot the roster comes back and **nothing is
+spawned** — a cold specialist costs nothing, and the developer may only want
+to read what it already wrote. The first prompt revives it with `--resume`,
+so it comes back knowing what it was doing. Verified by killing the daemon
+outright: roster and thread restored, no `claude` process running, and on
+the next prompt the specialist recalled a codeword from before the restart.
+
 **Prompting, including mid-turn.** A specialist is created empty and waits;
 what it is for is the first thing you type at it, not a field in a dialog.
 A prompt that arrives mid-turn is held by the daemon and only written to
@@ -76,6 +85,11 @@ the agent obeyed both instructions inside one turn. That half is fixed. The
 24 turns were on a flagship model and have not been reproduced on a cheap
 one, so the issue stays open with a corrected premise.
 
+**Provisioning assumes a Node project.** A repo with no `package.json`
+fails bootstrap at the install step, and the failure surfaces as
+`install:` with an empty message — the stderr is not captured. Bench is
+usable only on repos it knows how to install.
+
 ## Deliberately not built
 
 **Two-phase permission mode.** The spec has a Specialist start in
@@ -97,6 +111,12 @@ write denial. The last one has already bitten: a specialist editing
 
 Worth recording, because none were caught by tests.
 
+- **A restored specialist was refused its own first prompt.** The message
+  route rejects a session whose process is not alive, which is exactly the
+  state a specialist restored from disk is in — so reviving it was blocked
+  by the guard meant for crashed ones. Cold is not dead; the registry now
+  distinguishes them. Found by restarting the daemon and trying it, minutes
+  after the unit tests for restore went green.
 - **Specialists could write code and never run it.** `--permission-mode
   acceptEdits` auto-accepts edits and nothing else, and a `-p` session is
   non-interactive, so every `pnpm build`, `pnpm test` and `npx tsc` was

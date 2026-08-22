@@ -6,6 +6,9 @@ const config = loadConfig();
 const registry = new SessionRegistry(config);
 const server = createServer({ config, registry });
 
+// Specialists outlive the daemon: the roster comes back from disk before
+// anyone can ask for it.
+await registry.restore();
 
 server.listen(config.port, "127.0.0.1", () => {
   process.stdout.write(`bench: http://127.0.0.1:${config.port}/?token=${config.token}\n`);

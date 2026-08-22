@@ -11,7 +11,7 @@ import type { RosterRow } from "../shared/types.js";
 
 export interface SessionRegistryLike {
   list(): RosterRow[];
-  get(id: string): { reportsDir: string; threadPath: string; alive: boolean } | null;
+  get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null;
   send(id: string, text: string): void;
   stop(id: string): void;
   create(input: { project: string; label: string; model: string }): Promise<string>;
@@ -164,8 +164,12 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
       if (text === "") { json(res, 400, { error: "text is required" }); return; }
 
       // A dead process cannot be queued into, and silently accepting the
-      // message would strand it forever.
-      if (!session.alive) { json(res, 409, { error: "session is not running" }); return; }
+      // message would strand it forever. A specialist restored from disk has
+      // no process yet either, but prompting it is what brings it back.
+      if (!session.alive && !session.revivable) {
+        json(res, 409, { error: "session is not running" });
+        return;
+      }
 
       registry.send(message[1], text);
       json(res, 200, { ok: true });

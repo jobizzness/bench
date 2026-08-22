@@ -15,6 +15,9 @@ export interface SessionOptions {
   model: string;
   port: number;
   claudeBin?: string;
+  /** Pick up a session the CLI already has a transcript for, rather than
+   * starting a new one. Used when a specialist outlives the daemon. */
+  resume?: boolean;
 }
 
 /**
@@ -66,7 +69,7 @@ export class ClaudeSession extends EventEmitter {
       "--verbose",
       "--input-format", "stream-json",
       "--output-format", "stream-json",
-      "--session-id", this.opts.id,
+      ...(this.opts.resume ? ["--resume", this.opts.id] : ["--session-id", this.opts.id]),
       "--name", this.opts.label,
       "--model", this.opts.model,
       "--permission-mode", "acceptEdits",

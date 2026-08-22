@@ -20,10 +20,11 @@ class StubRegistry extends EventEmitter {
   list() { return this.rows; }
   threadPathValue = "";
   aliveValue = true;
+  revivableValue = false;
 
   get(id: string) {
     return id === "s1"
-      ? { reportsDir: this.reportsDir, threadPath: this.threadPathValue, alive: this.aliveValue }
+      ? { reportsDir: this.reportsDir, threadPath: this.threadPathValue, alive: this.aliveValue, revivable: this.revivableValue }
       : null;
   }
   send(id: string, text: string) { this.sent.push({ id, text }); }
@@ -200,6 +201,22 @@ describe("POST /api/sessions/:id/message", () => {
 
     expect(res.status).toBe(200);
     expect(registry.sent.at(-1)).toEqual({ id: "s1", text: "why zod?" });
+  });
+
+  it("accepts a message for a cold specialist that can be revived", async () => {
+    // Restored from disk after a restart: no process yet, but not dead.
+    registry.aliveValue = false;
+    registry.revivableValue = true;
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "carry on" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.sent.at(-1)).toEqual({ id: "s1", text: "carry on" });
+    registry.aliveValue = true;
+    registry.revivableValue = false;
   });
 
   it("400s on an empty message", async () => {

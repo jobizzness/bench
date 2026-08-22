@@ -73,4 +73,43 @@ run("end to end against the real claude CLI", () => {
 
     session.stop();
   }, 300_000);
+
+  it("comes back knowing what it was doing after the daemon dies", async () => {
+    const base = join(homedir(), ".bench-e2e");
+    await mkdir(base, { recursive: true });
+    const project = await mkdtemp(join(base, "resume-"));
+    const worktree = join(project, ".claude", "worktrees", "r");
+    await mkdir(worktree, { recursive: true });
+    await exec("git", ["init", "-q", "-b", "main"], { cwd: worktree });
+    const reportsDir = join(project, ".bench", "reports", "r");
+    await mkdir(reportsDir, { recursive: true });
+
+    const id = crypto.randomUUID();
+    const opts = {
+      id, label: "r", worktree, reportsDir,
+      hookCommand: `node ${join(process.cwd(), "dist", "daemon", "hooks", "bench-hook.js")}`,
+      pluginDir: join(process.cwd(), "plugin"),
+      model: CHEAP_MODEL,
+      port: 3193,
+    };
+
+    const first = new ClaudeSession(opts);
+    first.open();
+    first.send("Remember this codeword: PLUMTREE-47. Reply with just: noted.");
+    await once(first, "turn-end");
+    // The daemon dies, taking the process with it.
+    first.stop();
+    await once(first, "exit");
+
+    // A new process for the same specialist, resuming the transcript on disk.
+    const revived = new ClaudeSession({ ...opts, resume: true });
+    const replies: string[] = [];
+    revived.on("reply", (text: string) => replies.push(text));
+    revived.open();
+    revived.send("What was the codeword I gave you? Reply with just the codeword.");
+    await once(revived, "turn-end");
+
+    expect(replies.join(" ")).toContain("PLUMTREE-47");
+    revived.stop();
+  }, 300_000);
 });
