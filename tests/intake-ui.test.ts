@@ -174,7 +174,8 @@ describe("the progress panel beside an intake", () => {
     // The panel is repainted on the cockpit's own interval, not on the event.
     await new Promise((resolve) => setTimeout(resolve, 400));
 
-    expect($<HTMLElement>("#progress").hidden).toBe(true);
+    // React renders it as absent rather than hidden - same guarantee.
+    expect(document.querySelector("#progress")).toBeNull();
   });
 });
 

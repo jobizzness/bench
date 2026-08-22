@@ -66,13 +66,7 @@ const state: CockpitState = {
 
 const el = {
   list: byId("roster-list"),
-  head: byId("stage-head"),
-  headLabel: byId("stage-label"),
-  headStatus: byId("stage-status"),
   thread: byId("thread"),
-  progress: byId("progress"),
-  plan: byId("plan"),
-  trail: byId("trail"),
   decision: byId("decision"),
   kind: byId("decision-kind"),
   title: byId("decision-title"),
@@ -90,10 +84,6 @@ const el = {
   send: byId<HTMLButtonElement>("composer-send"),
   hint: byId("composer-hint"),
   newSession: byId("new-session"),
-  working: byId("working"),
-  glyph: byId("working-glyph"),
-  verb: byId("working-verb"),
-  meta: byId("working-meta"),
   stale: byId("stale"),
 };
 
@@ -711,158 +701,6 @@ function renderComposer() {
 // Deliberately unhurried words. A specialist is reading and thinking, not
 // spinning - the copy should say so without pretending to know what it is
 // doing at any instant.
-const VERBS = [
-  "Reading", "Tracing", "Rummaging", "Untangling", "Cross-checking",
-  "Squinting", "Collating", "Whittling", "Deliberating", "Circling back",
-  "Following a hunch", "Second-guessing", "Reconsidering", "Digging",
-];
-const GLYPHS = ["✢", "✦", "✧", "✶"];
-
-function hashOf(text: string) {
-  let h = 0;
-  for (let i = 0; i < text.length; i += 1) h = (h * 31 + text.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-
-function elapsedSince(iso: string) {
-  const started = Date.parse(iso);
-  if (Number.isNaN(started)) return "";
-  const total = Math.max(0, Math.round((Date.now() - started) / 1000));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, "0")}s` : `${seconds}s`;
-}
-
-function formatTokens(n: number) {
-  if (!n) return null;
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k tokens` : `${n} tokens`;
-}
-
-let tick = 0;
-
-function renderWorking() {
-  const row = selectedRow();
-  const live = row && (row.status === "working" || row.status === "provisioning");
-
-  if (!live || !state.selectedId) {
-    el.working.hidden = true;
-    return;
-  }
-
-  el.working.hidden = false;
-
-  // The verb changes slowly, and is seeded per session so two specialists
-  // working at once do not say the same thing.
-  const seed = hashOf(row.id);
-  const verb = VERBS[(seed + Math.floor(tick / 24)) % VERBS.length];
-
-  el.glyph.textContent = GLYPHS[tick % GLYPHS.length];
-  el.verb.textContent = row.status === "provisioning" ? "Preparing worktree" : verb;
-
-  const parts = [];
-  if (row.startedAt) parts.push(elapsedSince(row.startedAt));
-  const tokens = formatTokens(row.tokens);
-  if (tokens) parts.push(`↓ ${tokens}`);
-  if (row.detail && row.status === "working") parts.push(row.detail);
-  // Elapsed time alone cannot tell a long turn from a wedged one.
-  const last = row.activity?.at(-1);
-  if (last && row.status === "working") parts.push(ago(last.at));
-  el.meta.textContent = parts.join("  ·  ");
-}
-
-/** How long ago, in the shortest form that is still honest. */
-function ago(iso: string) {
-  const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
-}
-
-async function loadPlan(row: RosterRow | null) {
-  if (!row) { state.plan = null; return; }
-  try {
-    const res = await api(`/api/sessions/${row.id}/plan`);
-    state.plan = res.ok ? (await res.json()).steps : null;
-  } catch {
-    state.plan = null;
-  }
-}
-
-/**
- * Two views of the same turn. The plan is what the specialist says it is
- * doing and can go stale; the trail is derived from its tool calls and
- * cannot. Showing both is what makes either one trustworthy.
- */
-function renderProgress() {
-  const row = selectedRow();
-  const steps = state.plan;
-  const trail = row?.activity ?? [];
-
-  if (!progressVisible({
-    hasRow: Boolean(row),
-    steps,
-    trailLength: trail.length,
-    decisionShowing: Boolean(state.decision),
-  })) {
-    el.progress.hidden = true;
-    return;
-  }
-  el.progress.hidden = false;
-
-  el.plan.replaceChildren(...(steps ?? []).map((step) => {
-    const li = document.createElement("li");
-    li.className = "step";
-    li.dataset.state = step.state;
-
-    const mark = document.createElement("span");
-    mark.className = "mark";
-    mark.textContent = step.state === "done" ? "\u2713" : step.state === "doing" ? "\u25b8" : "\u00b7";
-
-    const text = document.createElement("span");
-    text.textContent = step.text;
-
-    li.append(mark, text);
-    return li;
-  }));
-
-  // Newest first: what it is doing now is the thing you came to look at.
-  el.trail.replaceChildren(...[...trail].reverse().map((item) => {
-    const li = document.createElement("li");
-    li.className = "trail-item";
-
-    const what = document.createElement("span");
-    what.textContent = item.text;
-
-    const when = document.createElement("span");
-    when.className = "when";
-    when.textContent = ago(item.at);
-
-    li.append(what, when);
-    return li;
-  }));
-}
-
-// 250ms drives the glyph; everything else derives from it.
-setInterval(() => {
-  tick += 1;
-  renderWorking();
-  renderProgress();
-
-  // The plan is a file the specialist rewrites as it goes, so it is polled
-  // while the turn runs and left alone when nothing can change it.
-  const row = selectedRow();
-  if (row && row.status === "working" && tick % 8 === 0) {
-    void loadPlan(row).then(renderProgress);
-  }
-}, 250);
-
-function renderHead() {
-  const row = selectedRow();
-  el.head.hidden = !row;
-  if (!row) return;
-  el.headLabel.textContent = row.label;
-  el.headStatus.textContent = `${row.status.replace(/_/g, " ")} · ${row.detail}`;
-}
 
 async function loadDecision(row: RosterRow | null) {
   // An answered decision is not a decision. Without this the same question
@@ -903,9 +741,7 @@ async function select(id: string, push = true) {
   }
   await refreshThread();
   await loadDecision(selectedRow());
-  renderRoster(); renderHead(); renderThread(); renderComposer(); renderWorking();
-  state.plan = null;
-  void loadPlan(selectedRow()).then(renderProgress);
+  renderRoster(); renderThread(); renderComposer();
 }
 
 async function submit() {
@@ -1121,7 +957,6 @@ function connect() {
 
     state.rows = message.rows;
     renderRoster();
-    renderHead();
 
     // The URL names a specialist before the roster exists to select it from.
     const wanted = sessionFromPath(location.pathname);
@@ -1135,7 +970,6 @@ function connect() {
     await loadDecision(selectedRow());
     renderThread();
     renderComposer();
-    renderWorking();
   };
 
   socket.onclose = (event) => {

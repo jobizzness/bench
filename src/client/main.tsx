@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { Progress } from "./components/Progress.js";
 import { Roster } from "./components/Roster.js";
+import { StageHead } from "./components/StageHead.js";
+import { Working } from "./components/Working.js";
 
 // The vanilla cockpit still owns everything that has not been ported. It runs
 // first so its state and actions exist before an island asks for them.
@@ -17,3 +20,6 @@ function mount(id: string, node: ReactNode): void {
 }
 
 mount("roster-list", <Roster />);
+mount("stage-head-root", <StageHead />);
+mount("working-root", <Working />);
+mount("progress-root", <Progress />);
