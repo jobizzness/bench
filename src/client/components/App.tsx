@@ -12,6 +12,7 @@ import { IntakeCard } from "./IntakeCard.js";
 import { IntakeSheet } from "./IntakeSheet.js";
 import { Mark } from "./Mark.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
+import { Queue } from "./Queue.js";
 import { Progress } from "./Progress.js";
 import { Roster } from "./Roster.js";
 import { SettingsDialog } from "./SettingsDialog.js";
@@ -23,6 +24,7 @@ import { BenchProvider } from "./context.js";
 import { useCloseSpecialist } from "./useCloseSpecialist.js";
 import { useDecision } from "./useDecision.js";
 import { useGithub } from "./useGithub.js";
+import { useQueue } from "./useQueue.js";
 import { useSessionPlan } from "./useSessionPlan.js";
 import { useDecisionKeys } from "./useDecisionKeys.js";
 import { useRoster } from "./useRoster.js";
@@ -55,6 +57,7 @@ export function App() {
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const note$ = useRef<HTMLTextAreaElement>(null);
 
@@ -68,6 +71,12 @@ export function App() {
   // Fetched only while the drawer is up: it is something you reach for, not a
   // panel that lives on screen.
   const github = useGithub(selectedId, githubOpen);
+
+  // Every decision waiting on the developer, across every project. Fetched
+  // only while the queue is open: it is a place you go, not a panel that
+  // lives on screen.
+  const queue = useQueue(rows, queueOpen);
+  const waiting = rows.filter(isWaiting).length;
 
   // Fetched once here and given to both the checklist and the working strip,
   // which draws a bar from it - two pollers on one file would drift.
@@ -163,6 +172,13 @@ export function App() {
           <header>
             <h1><Mark /><span>Bench</span></h1>
             <div className="header-actions">
+              {/* Only when there is something in it. A queue that says zero
+                  is a button that has to be read before it can be ignored. */}
+              {waiting > 0 && (
+                <button id="open-queue" type="button" onClick={() => setQueueOpen(true)}>
+                  {waiting} waiting
+                </button>
+              )}
               <button id="new-session" type="button" onClick={() => setCreating(true)}>New</button>
             </div>
           </header>
@@ -254,6 +270,12 @@ export function App() {
         list={github}
         project={row ? projectName(row.project) : null}
         onClose={() => setGithubOpen(false)}
+      />
+      <Queue
+        items={queue}
+        open={queueOpen}
+        onClose={() => setQueueOpen(false)}
+        onOpenSpecialist={select}
       />
       <NewSessionDialog open={creating} onClose={() => setCreating(false)} />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
