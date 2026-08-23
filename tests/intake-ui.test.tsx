@@ -68,7 +68,7 @@ const asked = () => cards().map((c) => c.querySelector(".q-ask")!.textContent);
 const cardFor = (ask: string) => cards().find((c) => c.querySelector(".q-ask")!.textContent === ask)!;
 const optionsFor = (ask: string) => [...cardFor(ask).querySelectorAll<HTMLButtonElement>("button.option")];
 const pressedIn = (ask: string) => optionsFor(ask).map((b) => b.getAttribute("aria-pressed"));
-const send = () => ui.$<HTMLButtonElement>("#composer-send")!;
+const send = () => ui.$<HTMLButtonElement>("#intake-send")!;
 const brief = () => ui.$("#intake-brief")!.textContent;
 
 describe("the intake panel", () => {
@@ -168,7 +168,7 @@ describe("answering it with a mouse", () => {
     await ui.click(optionsFor(ASKS.expiry)[0]);
     await ui.click(optionsFor(ASKS.flows)[1]);
     await ui.click(optionsFor(ASKS.audit)[0]);
-    await ui.type(ui.$("#composer-text"), "keep the copy terse");
+    await ui.type(ui.$("#intake-note"), "keep the copy terse");
     await ui.click(send());
 
     const post = ui.sent.find((s) => s.url.includes("/answer"))!;
