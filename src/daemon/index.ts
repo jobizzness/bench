@@ -1,6 +1,7 @@
 import { loadConfig } from "./config.js";
 import { createServer } from "./server.js";
 import { SessionRegistry } from "./registry.js";
+import { cockpitUrls, isLoopback } from "./urls.js";
 
 const config = loadConfig();
 const registry = new SessionRegistry(config);
@@ -10,8 +11,19 @@ const server = createServer({ config, registry });
 // anyone can ask for it.
 await registry.restore();
 
-server.listen(config.port, "127.0.0.1", () => {
-  process.stdout.write(`bench: http://127.0.0.1:${config.port}/?token=${config.token}\n`);
+server.listen(config.port, config.host, () => {
+  const urls = cockpitUrls({ host: config.host, port: config.port, token: config.token });
+  for (const url of urls) process.stdout.write(`bench: ${url}\n`);
+
+  if (!isLoopback(config.host)) {
+    // Said plainly and once. The token is the whole of the authentication,
+    // it travels in the URL over plain HTTP, and a specialist has a full
+    // shell - so anyone on this network holding it can run anything here.
+    process.stdout.write(
+      "bench: reachable on this network. The token in that URL is the only thing"
+      + " standing in front of a shell on this machine.\n",
+    );
+  }
 });
 
 // Children are killed deliberately so no orphaned claude processes survive

@@ -75,6 +75,23 @@ BENCH_PROJECTS_ROOT=~/code pnpm start
 | `BENCH_PORT` | `7420` | Cockpit port |
 | `BENCH_HOME` | `~/.bench` | Where the specialist index and token are kept |
 | `BENCH_TOKEN` | generated | Override the cockpit token |
+| `BENCH_LAN` | unset | `1` binds every interface, not just loopback |
+| `BENCH_HOST` | `127.0.0.1` | Bind one interface by name instead |
+
+### Opening it from another device
+
+```bash
+pnpm start:lan
+```
+
+It prints every address the cockpit can be reached at, and says once that it
+is no longer only on this machine.
+
+Weigh that before you use it. The token is the whole of the authentication,
+it travels in the URL over plain HTTP, and a specialist has a full shell — so
+anyone on that network holding the token can run anything on this machine.
+On a home network with a 48-character secret that is a reasonable trade; on a
+café network it is not a trade at all.
 
 Nothing hot-reloads yet: `pnpm build` before `pnpm start`, and run it from the
 repository root.
