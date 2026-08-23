@@ -512,10 +512,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 #decision-kind { flex: none; color: var(--wants); opacity: 0.75; }
 
-/* Capped and scrollable: an intake is a document, but it must never push
-   the send bar off the bottom of the screen. */
+/* Scrollable inside its sheet. The old cap was min(52vh, 560px), which was
+   never about the intake - it was about sharing a footer with the thread.
+   In a sheet it can have the room the sheet has. */
 #intake {
-  max-height: min(52vh, 560px);
+  max-height: 62vh;
   overflow-y: auto;
   padding-right: 4px;
   margin-bottom: 14px;
@@ -851,6 +852,82 @@ button, input, textarea, select { font: inherit; color: inherit; }
   border-bottom-width: 2px;
 }
 #f-create:hover, #s-save:hover { border-color: var(--wants); }
+
+/* ── The intake sheet, and the card that reopens it ─────────────────── */
+
+/* Wider than the other two sheets: a question with four options and a reason
+   under it is not a form field. 780 rather than 720 because an option is
+   capped at 34ch and two of them plus the gap need 657px of the 686 this
+   leaves - at 720 they missed by 31px and every question stacked. */
+#intake-dialog { width: min(780px, 94vw); }
+#intake-dialog #decision { margin-bottom: 18px; }
+/* One scroller, not two. The intake carried its own because it was a panel
+   inside a footer; inside a sheet that reads as a box within a box, and the
+   note under it ends up hidden behind a scrollbar of its own. */
+#intake-dialog #intake {
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
+  background: none;
+}
+/* A title and a summary side by side is a footer's economy. Here there is
+   room for the summary to be a sentence under its heading. */
+#intake-dialog #decision-head { flex-wrap: wrap; margin-bottom: 16px; }
+#intake-dialog #decision-summary { flex-basis: 100%; }
+
+#intake-send {
+  border-color: var(--wants-dim);
+  color: var(--wants);
+  border-bottom-width: 2px;
+}
+#intake-send:hover:not(:disabled) { border-color: var(--wants); }
+#intake-send[data-pending="true"] {
+  color: var(--busy);
+  border-color: var(--busy-dim);
+  cursor: not-allowed;
+}
+
+/* The door back in. A card rather than a link: it is the one thing in the
+   footer while an intake is waiting, and it has to be worth tapping on a
+   screen you are holding. */
+#intake-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "eyebrow count" "title count";
+  gap: 2px 14px;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 14px;
+  padding: 13px 16px;
+  text-align: left;
+  background: var(--raised);
+  border: 1px solid var(--line-firm);
+  border-left: 2px solid var(--wants-dim);
+  border-radius: 3px 8px 8px 3px;
+  cursor: pointer;
+  transition: border-color 120ms var(--ease), background 120ms var(--ease);
+}
+#intake-card:hover { border-color: var(--wants-dim); border-left-color: var(--wants); background: var(--hover); }
+#intake-card .eyebrow { grid-area: eyebrow; }
+#intake-card-title {
+  grid-area: title;
+  font: 600 15px/1.3 var(--sans);
+  color: var(--wants);
+  letter-spacing: -0.01em;
+}
+#intake-card-count {
+  grid-area: count;
+  font: 400 11px/1 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+#intake-card[data-waiting="true"] #intake-card-count {
+  color: var(--wants);
+  background: var(--wants-dim);
+  border-radius: 3px;
+  padding: 4px 7px;
+}
 
 /* ── House rules ────────────────────────────────────────────────────── */
 

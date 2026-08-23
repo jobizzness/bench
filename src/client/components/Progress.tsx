@@ -1,5 +1,4 @@
 import { progressVisible } from "../progress.js";
-import { isWaiting } from "../waiting.js";
 import { Plan } from "./Plan.js";
 import { Trail } from "./Trail.js";
 import { useBenchState } from "./context.js";
@@ -12,7 +11,11 @@ import { useTick } from "./useTick.js";
  * stale; the trail is derived from its tool calls and cannot. Showing both is
  * what makes either trustworthy — but only one of them is worth the room.
  */
-export function Progress() {
+export function Progress({ decisionShowing }: {
+  /** Whether a decision is taking room in the footer. An intake is a sheet
+   * now, so it takes none - and the checklist can stay where it was. */
+  decisionShowing: boolean;
+}) {
   const { rows, selectedId } = useBenchState();
   const row = rows.find((r) => r.id === selectedId) ?? null;
   const live = row?.status === "working";
@@ -24,7 +27,7 @@ export function Progress() {
     hasRow: row !== null,
     steps,
     trailLength: trail.length,
-    decisionShowing: row !== null && isWaiting(row),
+    decisionShowing,
   });
   if (!visible) return null;
 
