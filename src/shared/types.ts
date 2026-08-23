@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Role } from "./roles.js";
 
 export type SessionStatus =
   | "provisioning"
@@ -11,6 +12,14 @@ export type SessionStatus =
 export interface RosterRow {
   id: string;
   label: string;
+  /** What kind of agent this is. A name on the roster, nothing more. */
+  role: Role;
+  /** The branch it is on. Empty until a worktree has been provisioned. */
+  branch: string;
+  /** False when it works in the project checkout itself, alongside the
+   * developer - which is the case worth seeing before you wonder who else
+   * has been editing your files. */
+  isolated: boolean;
   project: string;
   status: SessionStatus;
   detail: string;

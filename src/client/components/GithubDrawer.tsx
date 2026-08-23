@@ -61,7 +61,18 @@ export function GithubDrawer({
   const pulls = list.items.filter((i) => i.kind === "pull");
 
   return (
-    <dialog id="gh-drawer" className="drawer" ref={ref} onClose={onClose}>
+    <dialog
+      id="gh-drawer"
+      className="drawer"
+      ref={ref}
+      onClose={onClose}
+      // A click on the scrim reports the dialog itself as its target, since
+      // the backdrop is drawn by the dialog rather than by an element of its
+      // own. Anything inside it targets that instead - so this is the whole
+      // of "click outside to close", and it is safe here because the drawer
+      // holds nothing you could be halfway through.
+      onClick={(event) => { if (event.target === ref.current) onClose(); }}
+    >
       <header id="gh-head">
         <GithubMark size={15} />
         <span id="gh-slug">{list.slug ?? "no GitHub remote"}</span>

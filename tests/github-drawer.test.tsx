@@ -41,9 +41,14 @@ async function open(github: { slug: string | null; items: unknown[] }): Promise<
 }
 
 describe("the GitHub drawer", () => {
-  it("needs a specialist before it can know which project to ask about", async () => {
+  it("is not there at all until a specialist is on the stage", async () => {
+    // It lives in that specialist's header, so with nothing open there is no
+    // button to disable and no project it could be about.
     ui = await bootCockpit({ rows: [row()] });
-    expect(ui.$<HTMLButtonElement>("#open-github")!.disabled).toBe(true);
+    expect(ui.$("#open-github")).toBeNull();
+
+    await ui.open("auth");
+    expect(ui.$("#open-github")).not.toBeNull();
   });
 
   it("lists what has moved lately, pull requests first", async () => {
@@ -88,5 +93,21 @@ describe("the GitHub drawer", () => {
     await open({ slug: "o/r", items: ITEMS });
     await ui.click(ui.$("#gh-close"));
     expect(drawer()!.hasAttribute("open")).toBe(false);
+  });
+
+  it("closes when the scrim is clicked", async () => {
+    // The backdrop belongs to the dialog, so a click on it arrives with the
+    // dialog as its target. Anything inside reports itself instead.
+    await open({ slug: "o/r", items: ITEMS });
+    await ui.click(drawer());
+
+    expect(drawer()!.hasAttribute("open")).toBe(false);
+  });
+
+  it("stays open when something inside it is clicked", async () => {
+    await open({ slug: "o/r", items: ITEMS });
+    await ui.click(ui.$("#gh-slug"));
+
+    expect(drawer()!.hasAttribute("open")).toBe(true);
   });
 });

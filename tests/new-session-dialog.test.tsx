@@ -150,3 +150,42 @@ describe("what it refuses to send", () => {
     expect(created()!.body.project).toBe("/srv/elsewhere");
   });
 });
+
+describe("what kind of agent it opens", () => {
+  const roleNote = () => ui.$("#f-role-note")!.textContent ?? "";
+
+  it("opens a specialist unless you say otherwise", async () => {
+    await open();
+    await fill("password-reset");
+    await ui.click(ui.$("#f-create"));
+
+    expect(created()!.body.role).toBe("specialist");
+  });
+
+  it("says what each one is for as it is picked", async () => {
+    // Four words with no explanation is a field nobody can answer.
+    await open();
+    expect(roleNote()).toContain("spec to done");
+
+    await ui.pick(ui.$("#f-role"), "reviewer");
+    expect(roleNote()).toContain("says what is wrong with it");
+  });
+
+  it("sends the one that was picked", async () => {
+    await open();
+    await fill("second-opinion");
+    await ui.pick(ui.$("#f-role"), "reviewer");
+    await ui.click(ui.$("#f-create"));
+
+    expect(created()!.body.role).toBe("reviewer");
+  });
+
+  it("comes back a specialist next time", async () => {
+    await open();
+    await ui.pick(ui.$("#f-role"), "researcher");
+    await ui.click(ui.$("#f-cancel"));
+    await ui.click(ui.$("#new-session"));
+
+    expect(ui.$<HTMLSelectElement>("#f-role")!.value).toBe("specialist");
+  });
+});

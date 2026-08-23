@@ -8,7 +8,6 @@ import { Composer } from "./Composer.js";
 import { DecisionPanel, isIntake } from "./DecisionPanel.js";
 import { Gear } from "./Gear.js";
 import { GithubDrawer } from "./GithubDrawer.js";
-import { GithubMark } from "./GithubMark.js";
 import { IntakeCard } from "./IntakeCard.js";
 import { IntakeSheet } from "./IntakeSheet.js";
 import { Mark } from "./Mark.js";
@@ -160,20 +159,6 @@ export function App() {
             <h1><Mark /><span>Bench</span></h1>
             <div className="header-actions">
               <button id="new-session" type="button" onClick={() => setCreating(true)}>New</button>
-              {/* Last, and furthest right: it is about the project rather than
-                  about Bench, and it needs a specialist selected to know which
-                  project that is. */}
-              <button
-                id="open-github"
-                type="button"
-                disabled={!row}
-                title={row
-                  ? `Issues and pull requests in ${projectName(row.project)}`
-                  : "Open a specialist to see its project"}
-                onClick={() => setGithubOpen(true)}
-              >
-                <GithubMark />
-              </button>
             </div>
           </header>
           <ul id="roster-list"><Roster /></ul>
@@ -195,7 +180,7 @@ export function App() {
         </aside>
 
         <section id="stage">
-          <StageHead />
+          <StageHead onGithub={() => setGithubOpen(true)} />
           {/* Where it has got to comes before what was said about it: the
               checklist is the answer to the question you opened this for. */}
           {/* An intake no longer competes for this room, so only a decision

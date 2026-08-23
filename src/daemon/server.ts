@@ -24,7 +24,7 @@ export interface SessionRegistryLike {
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
   stop(id: string): void;
   create(input: {
-    project: string; label: string; model: string; isolated?: boolean;
+    project: string; label: string; model: string; role?: string; isolated?: boolean;
   }): Promise<string>;
   on(event: "roster", listener: () => void): unknown;
 }
@@ -197,6 +197,7 @@ export function createServer(opts: {
         project: String(body.project),
         label: String(body.label),
         model: String(body.model ?? "opus"),
+        role: typeof body.role === "string" ? body.role : undefined,
         // Absent means isolated. A caller that has not heard of the toggle
         // gets the safer of the two.
         isolated: body.isolated !== false,
