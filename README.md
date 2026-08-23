@@ -95,6 +95,12 @@ anyone on that network holding the token can run anything on this machine.
 On a home network with a 48-character secret that is a reasonable trade; on a
 café network it is not a trade at all.
 
+Settings holds the house rules every specialist is given, and the address this
+tab is talking to — point it at another machine's daemon and the same page
+loads from there.
+
+![Settings: house rules, and the address this tab is talking to](docs/screenshots/settings.png)
+
 Nothing hot-reloads yet: `pnpm build` before `pnpm start`, and run it from the
 repository root.
 
