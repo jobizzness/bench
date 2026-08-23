@@ -1040,6 +1040,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* A drawer, not a sheet: it comes in from the edge and takes a column rather
    than the middle of the screen, because it is read beside the work. */
+/* A closed dialog is hidden by the UA at the weakest possible weight, so the
+   `display: flex` below outranks it and the drawer stays on screen whether it
+   is open or not. Every other dialog here gates its display on [open]; this
+   one did not, and sat over the right of the cockpit permanently. Same shape
+   as the [hidden] problem, one layer down. */
+.drawer:not([open]) { display: none; }
+
 .drawer {
   position: fixed;
   inset: 0 0 0 auto;
