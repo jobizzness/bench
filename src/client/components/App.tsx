@@ -22,6 +22,7 @@ import { Thread } from "./Thread.js";
 import { Working } from "./Working.js";
 import { BenchProvider } from "./context.js";
 import { useCloseSpecialist } from "./useCloseSpecialist.js";
+import { useDocumentTitle } from "./useDocumentTitle.js";
 import { useDecision } from "./useDecision.js";
 import { useGithub } from "./useGithub.js";
 import { useQueue } from "./useQueue.js";
@@ -65,6 +66,10 @@ export function App() {
   const closeSpecialist = useCloseSpecialist(
     useCallback((id: string) => { if (id === selectedId) select(null); }, [selectedId, select]),
   );
+  // A tab per specialist is the normal way to use this, so the strip has to
+  // be able to tell them apart - and say which of them has started wanting you.
+  useDocumentTitle(rows, selectedId);
+
   const state = useMemo(() => ({ rows, selectedId }), [rows, selectedId]);
   const actions = useMemo(() => ({ select, closeSpecialist }), [select, closeSpecialist]);
 
