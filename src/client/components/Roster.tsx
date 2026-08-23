@@ -4,6 +4,11 @@ import { useBenchActions, useBenchState } from "./context.js";
 import { isWaiting } from "../waiting.js";
 import { projectName } from "../format.js";
 import { Meta } from "./Meta.js";
+import { recall, remember } from "../remembered.js";
+
+/** Folded projects, by path. Named once so the reader and the writer cannot
+ * drift apart. */
+const FOLDED = "folded-projects";
 
 function Row({ row, selected }: { row: RosterRow; selected: boolean }) {
   const { select, closeSpecialist } = useBenchActions();
@@ -49,8 +54,16 @@ function Row({ row, selected }: { row: RosterRow; selected: boolean }) {
 export function Roster() {
   const { rows, selectedId } = useBenchState();
   // Which groups the developer has folded away. Kept here rather than derived
-  // from the rows, so a roster update does not spring them all open again.
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  // from the rows, so a roster update does not spring them all open again -
+  // and read from the browser on the way in, so neither does a refresh.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+    () => new Set(recall<string[]>(FOLDED, [])),
+  );
+
+  const fold = (next: ReadonlySet<string>) => {
+    setCollapsed(next);
+    remember(FOLDED, [...next]);
+  };
 
   const groups = new Map<string, RosterRow[]>();
   for (const row of rows) {
@@ -73,12 +86,10 @@ export function Roster() {
             open={!collapsed.has(project)}
             onToggle={(event) => {
               const open = (event.currentTarget as HTMLDetailsElement).open;
-              setCollapsed((current) => {
-                const next = new Set(current);
-                if (open) next.delete(project);
-                else next.add(project);
-                return next;
-              });
+              const next = new Set(collapsed);
+              if (open) next.delete(project);
+              else next.add(project);
+              fold(next);
             }}
           >
             <summary title={project}>
