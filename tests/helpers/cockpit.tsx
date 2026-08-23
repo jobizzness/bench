@@ -53,13 +53,15 @@ export interface Cockpit {
   ) => Promise<void>;
   click: (element: Element | null | undefined) => Promise<void>;
   type: (input: Element | null | undefined, value: string) => Promise<void>;
+  /** Choose an option in a <select>, which React tracks separately. */
+  pick: (select: Element | null | undefined, value: string) => Promise<void>;
   $: <T extends Element>(selector: string) => T | null;
   $$: (selector: string) => HTMLElement[];
   unmount: () => void;
 }
 
 export const row = (over: Partial<RosterRow> = {}): RosterRow => ({
-  id: "s1", label: "auth", project: "/var/www/demo", status: "awaiting_decision",
+  id: "s1", label: "auth", role: "specialist", project: "/var/www/demo", status: "awaiting_decision",
   detail: "ready", latestReportSeq: null, answeredReportSeq: null,
   startedAt: null, tokens: 0, activity: [], ...over,
 });
@@ -173,7 +175,11 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       await settle();
     },
     open: async (label) => {
-      const target = $$(".row").find((node) => node.querySelector(".label")?.textContent === label);
+      // The label now carries a role badge beside the name, so match the name
+      // itself rather than everything inside the line.
+      const target = $$(".row").find(
+        (node) => node.querySelector(".label")?.firstChild?.textContent === label,
+      );
       if (!target) throw new Error(`no roster row labelled ${label}`);
       await act(async () => { target.click(); });
       await settle();
@@ -213,6 +219,16 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
         const setter = Object.getOwnPropertyDescriptor(proto, "value")!.set!;
         setter.call(field, value);
         field.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await settle();
+    },
+    pick: async (select, value) => {
+      if (!select) throw new Error("nothing to pick in");
+      const field = select as HTMLSelectElement;
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+        setter.call(field, value);
+        field.dispatchEvent(new Event("change", { bubbles: true }));
       });
       await settle();
     },

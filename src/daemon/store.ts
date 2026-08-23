@@ -9,6 +9,9 @@ import { join } from "node:path";
 export interface SessionRecord {
   id: string;
   label: string;
+  /** Absent on every record written before roles existed; those are
+   * specialists, which is what they have always been. */
+  role?: string;
   project: string;
   worktree: string;
   /** Recorded rather than derived: the branch name is not recoverable from

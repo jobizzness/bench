@@ -13,6 +13,7 @@ export function StageHead({ onGithub }: {
   return (
     <header id="stage-head">
       <span id="stage-label">{row.label}</span>
+      <span className="role" data-role={row.role}>{row.role}</span>
       <span id="stage-status">{`${row.status.replace(/_/g, " ")} · ${row.detail}`}</span>
 
       {/* Top right of the pane the specialist is on, because the project it

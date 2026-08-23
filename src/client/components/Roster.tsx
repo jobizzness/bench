@@ -25,7 +25,12 @@ function Row({ row, selected }: { row: RosterRow; selected: boolean }) {
       aria-selected={selected}
       onClick={() => select(row.id)}
     >
-      <div className="label">{row.label}</div>
+      <div className="label">
+        {row.label}
+        {/* What kind of agent this is, beside what it is called. A tab named
+            for its task said nothing about whether it builds or reads. */}
+        <span className="role" data-role={row.role}>{row.role}</span>
+      </div>
       <div className="detail">{detailOf(row)}</div>
       <button
         type="button"

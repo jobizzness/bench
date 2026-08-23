@@ -14,6 +14,7 @@ import { appendActivity } from "./activity.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
 import { appendEntry, readThread } from "./thread.js";
 import { answeredReportSeq } from "./answered.js";
+import { asRole } from "../shared/roles.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
 import type { RosterRow, SessionStatus } from "../shared/types.js";
 
@@ -100,6 +101,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         row: {
           id: rec.id,
           label: rec.label,
+          role: asRole(rec.role),
           project: rec.project,
           status: worktreeGone ? "crashed" : "awaiting_decision",
           detail: worktreeGone ? "worktree is gone" : "ready",
@@ -283,10 +285,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     project: string;
     label: string;
     model: string;
+    /** What kind of agent this is. Anything unrecognised is a specialist. */
+    role?: string;
     /** Default true: isolation is what a specialist is normally for. */
     isolated?: boolean;
   }): Promise<string> {
     const isolated = input.isolated ?? true;
+    const role = asRole(input.role);
     const id = randomUUID();
     const reportsDir = join(input.project, ".bench", "reports", id);
 
@@ -305,6 +310,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       row: {
         id,
         label: input.label,
+        role,
         project: input.project,
         status: "provisioning",
         detail: isolated ? "creating worktree" : "opening the checkout",
@@ -348,7 +354,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       // The process waits. A specialist is given work by prompting it, not
       // by being created.
       await this.store.put({
-        id, label: input.label, project: input.project, worktree, branch, reportsDir,
+        id, label: input.label, role, project: input.project, worktree, branch, reportsDir,
         model: input.model, port, createdAt: new Date().toISOString(), isolated,
       });
       this.update(id, "awaiting_decision", "ready");

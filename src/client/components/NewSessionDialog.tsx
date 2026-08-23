@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
+import { asRole, DEFAULT_ROLE, ROLES, ROLE_NOTE, type Role } from "../../shared/roles.js";
 import { useBenchActions } from "./context.js";
 
 interface Project { name: string; path: string }
@@ -39,6 +40,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const [project, setProject] = useState("");
   const [label, setLabel] = useState("");
   const [model, setModel] = useState("opus");
+  const [role, setRole] = useState<Role>(DEFAULT_ROLE);
   const [isolated, setIsolated] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -53,6 +55,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     setProject("");
     setLabel("");
     setModel("opus");
+    setRole(DEFAULT_ROLE);
     setIsolated(true);
     dialog.showModal?.();
     projectRef.current?.focus();
@@ -80,7 +83,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     setBusy(true);
     try {
       const res = await postJson("/api/sessions", {
-        project: path, label: label.trim(), model, isolated,
+        project: path, label: label.trim(), role, model, isolated,
       });
       // The old prompt flow discarded this response, so a rejected request
       // produced no specialist and no explanation.
@@ -129,6 +132,20 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
         <p className="field-note">
           Lowercase letters, numbers and hyphens. Names the branch and worktree.
         </p>
+
+        <label htmlFor="f-role">Role</label>
+        <select
+          id="f-role"
+          value={role}
+          onChange={(event) => setRole(asRole(event.target.value))}
+        >
+          {ROLES.map((option) => (
+            <option value={option} key={option}>
+              {option[0].toUpperCase() + option.slice(1)}
+            </option>
+          ))}
+        </select>
+        <p className="field-note" id="f-role-note">{ROLE_NOTE[role]}</p>
 
         <label htmlFor="f-model">Model</label>
         <select id="f-model" value={model} onChange={(event) => setModel(event.target.value)}>

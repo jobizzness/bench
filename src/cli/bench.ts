@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isRole, ROLES } from "../shared/roles.js";
 
 /**
  * The bench, from inside it.
@@ -98,14 +99,19 @@ async function main(): Promise<void> {
   }
 
   if (command === "new") {
-    const label = args[0];
-    if (!label) fail("usage: bench new <label>");
+    // `bench new implementer --as implementer` is the common shape, but the
+    // label names the work as often as the kind, so they are separate.
+    const as = args.indexOf("--as");
+    const role = as === -1 ? undefined : args[as + 1];
+    const label = args.filter((a, i) => i !== as && i !== as + 1)[0];
+    if (!label) fail("usage: bench new <label> [--as specialist|implementer|reviewer|researcher]");
+    if (as !== -1 && !isRole(role)) fail(`bench: no such role "${role ?? ""}". One of: ${ROLES.join(", ")}`);
 
     const all = await rows();
     const project = ownProject(all);
     const { id } = await call("/api/sessions", {
       method: "POST",
-      body: JSON.stringify({ label, project, model: process.env.BENCH_MODEL ?? "opus" }),
+      body: JSON.stringify({ label, project, role, model: process.env.BENCH_MODEL ?? "opus" }),
     });
 
     // It opens empty on purpose: what it is for is the first thing you tell
@@ -138,7 +144,7 @@ async function main(): Promise<void> {
   process.stderr.write(
     "bench — the roster, from inside it\n\n"
     + "  bench ls                      who is on this project\n"
-    + "  bench new <label>             open a tab, waiting to be told what to do\n"
+    + "  bench new <label> [--as <role>]  open a tab, waiting to be told what to do\n"
     + '  bench tell <label> "<text>"   give one its next turn\n',
   );
   process.exit(command ? 1 : 0);

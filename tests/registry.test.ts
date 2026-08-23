@@ -574,3 +574,49 @@ describe("a revived specialist's turn numbering", () => {
     expect((registry as any).entries.get(id).turnsTaken).toBe(0);
   });
 });
+
+describe("what kind of agent a tab holds", () => {
+  it("calls everything already on disk a specialist", async () => {
+    // Every record written before roles existed has no role, and every one of
+    // them was a specialist. Guessing anything else rewrites history.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir, model: "opus",
+      port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect(registry.list()[0].role).toBe("specialist");
+  });
+
+  it("keeps the role it was opened with", async () => {
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", role: "reviewer", project, worktree,
+      branch: "bench/auth-abcd1234", reportsDir, model: "opus",
+      port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect(registry.list()[0].role).toBe("reviewer");
+  });
+
+  it("refuses a role nobody defined rather than showing it", async () => {
+    // The role reaches the daemon as a string off an HTTP body.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", role: "supervisor", project, worktree,
+      branch: "bench/auth-abcd1234", reportsDir, model: "opus",
+      port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect(registry.list()[0].role).toBe("specialist");
+  });
+});

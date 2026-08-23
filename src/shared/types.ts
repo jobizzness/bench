@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Role } from "./roles.js";
 
 export type SessionStatus =
   | "provisioning"
@@ -11,6 +12,8 @@ export type SessionStatus =
 export interface RosterRow {
   id: string;
   label: string;
+  /** What kind of agent this is. A name on the roster, nothing more. */
+  role: Role;
   project: string;
   status: SessionStatus;
   detail: string;

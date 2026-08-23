@@ -313,10 +313,34 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 
 .row .label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
   font: 500 14px/1.35 var(--sans);
   letter-spacing: -0.01em;
   margin-bottom: 2px;
 }
+
+/* The kind of agent, beside its name. Quiet by default because most of them
+   are specialists and a roster shouting SPECIALIST six times is a roster you
+   stop reading - the three that are not are the ones worth spotting. */
+.role {
+  flex: none;
+  font: 500 9px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 3px 5px 2px;
+}
+/* Not amber: that hue means "in flight" everywhere else in the cockpit, and
+   a badge in it beside a working rail reads as a second status. */
+.role[data-role="implementer"] { color: var(--text); border-color: var(--line-firm); }
+.role[data-role="reviewer"] { color: #a98bd4; border-color: #3b2f52; }
+.role[data-role="researcher"] { color: #6fb3d0; border-color: #26404d; }
+
+#stage-head .role { align-self: center; }
 .row[data-waiting="true"] .label { color: var(--wants); font-weight: 600; }
 .row[data-status="crashed"] .label,
 .row[data-status="provisioning_failed"] .label { color: var(--broken); }
