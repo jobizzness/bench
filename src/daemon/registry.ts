@@ -32,6 +32,8 @@ interface Entry {
   resumable: boolean;
   /** Turns already taken, read from disk when the roster is restored. */
   turnsTaken: number;
+  /** The developer ended this turn, so the exit is a decision not a crash. */
+  stopping?: boolean;
   model: string;
   port: number;
 }
@@ -200,6 +202,15 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     session.on("exit", (code: number | null, stderr: string) => {
       const entry = this.entries.get(id);
       if (entry) entry.alive = false;
+
+      // Asked for, not suffered. The specialist is still here and its next
+      // prompt revives it from the last turn it finished.
+      if (entry?.stopping) {
+        entry.stopping = false;
+        this.update(id, "awaiting_decision", "stopped by you");
+        return;
+      }
+
       // The CLI's own words first: it refuses with a plain sentence, and that
       // sentence is the difference between a developer who knows what to do
       // and one looking at "process exited".
@@ -389,8 +400,24 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     this.update(id, "working", "starting");
   }
 
+  /**
+   * End the turn a specialist is in the middle of.
+   *
+   * The process goes; the specialist does not. Its worktree, its thread and
+   * its reports are untouched, and the next prompt brings it back from the
+   * last turn it finished - so what is lost is the turn in flight, which is
+   * what the developer asked to lose.
+   *
+   * Marked before the kill so the exit is read as a decision rather than as
+   * a crash. "Process exited" is what a specialist that fell over says, and
+   * telling the developer that about something they just did themselves is
+   * how a roster stops being believed.
+   */
   stop(id: string): void {
-    this.entries.get(id)?.session?.stop();
+    const entry = this.entries.get(id);
+    if (!entry?.session) return;
+    entry.stopping = true;
+    entry.session.stop();
   }
 
   /**

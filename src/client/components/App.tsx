@@ -5,6 +5,7 @@ import type { ArtifactRef } from "./ArtifactCard.js";
 import { ArtifactDialog } from "./ArtifactDialog.js";
 import { Composer } from "./Composer.js";
 import { DecisionPanel, isIntake } from "./DecisionPanel.js";
+import { Mark } from "./Mark.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
 import { Progress } from "./Progress.js";
 import { Roster } from "./Roster.js";
@@ -118,7 +119,7 @@ export function App() {
       <main id="app">
         <aside id="roster">
           <header>
-            <h1>Bench</h1>
+            <h1><Mark /><span>Bench</span></h1>
             <div className="header-actions">
               {/* House rules are not per specialist, so they hang off the
                   roster rather than off whoever happens to be on the stage. */}

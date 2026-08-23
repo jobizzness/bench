@@ -134,10 +134,19 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 #roster h1 {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font: 600 13px/1 var(--mono);
   letter-spacing: 0.22em;
   text-transform: uppercase;
 }
+
+/* The mark takes its colours from here rather than carrying its own, so it
+   cannot drift away from the cockpit it sits in. */
+.mark-logo { flex: none; display: block; }
+.mark-rest { fill: var(--muted); }
+.mark-live { fill: var(--wants); }
 
 .header-actions { display: flex; align-items: center; gap: 7px; }
 
@@ -905,6 +914,24 @@ button, input, textarea, select { font: inherit; color: inherit; }
   font-family: var(--mono);
   font-size: 12px;
 }
+
+/* Sits at the far end of the strip that says a turn is running, which is the
+   only place it means anything. Quiet until pointed at: ending a turn is
+   deliberate, not something to invite. */
+#stop-turn {
+  margin-left: auto;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  padding: 2px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#stop-turn:hover:not(:disabled) { color: var(--text); border-color: var(--line-firm); }
+#stop-turn:focus-visible { outline: 2px solid var(--wants); outline-offset: 2px; }
+#stop-turn:disabled { opacity: 0.5; cursor: default; }
 
 #working-glyph {
   color: var(--busy);

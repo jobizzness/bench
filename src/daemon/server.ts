@@ -128,10 +128,11 @@ export function createServer(opts: {
     // The client reads the id back out of the path; the daemon does not need
     // to know it, and never turns it into a filesystem path.
     const isShell = path === "/" || /^\/s\/[A-Za-z0-9-]+\/?$/.test(path);
-    if (isShell || path === "/app.js" || path === "/styles.css") {
+    if (isShell || path === "/app.js" || path === "/styles.css" || path === "/favicon.svg") {
       const file = isShell ? "index.html" : path.slice(1);
       const type = file.endsWith(".js") ? "text/javascript"
-        : file.endsWith(".css") ? "text/css" : "text/html";
+        : file.endsWith(".css") ? "text/css"
+        : file.endsWith(".svg") ? "image/svg+xml" : "text/html";
       try {
         const body = await readFile(join(CLIENT_DIR, file), "utf8");
         res.writeHead(200, { "content-type": `${type}; charset=utf-8` });

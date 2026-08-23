@@ -1,6 +1,7 @@
 import type { RosterRow } from "../../shared/types.js";
 import { elapsedSince, formatTokens, hashOf } from "../format.js";
 import { useBenchState } from "./context.js";
+import { StopTurn } from "./StopTurn.js";
 import { useTick } from "./useTick.js";
 
 // Deliberately unhurried words. A specialist is reading and thinking, not
@@ -44,6 +45,9 @@ export function Working() {
       <span id="working-glyph" aria-hidden="true">{GLYPHS[tick % GLYPHS.length]}</span>
       <span id="working-verb">{verb}</span>
       <span id="working-meta">{meta(row)}</span>
+      {/* Only while there is a turn to end. Provisioning is a worktree being
+          built, and stopping that leaves half a checkout behind. */}
+      {row.status === "working" && <StopTurn id={row.id} />}
     </div>
   );
 }

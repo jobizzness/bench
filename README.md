@@ -1,3 +1,5 @@
+<img src="docs/brand/mark.svg" width="52" height="52" alt="">
+
 # Bench
 
 **A bench of Claude Code specialists, and one page to decide from.**
