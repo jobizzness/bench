@@ -16,9 +16,13 @@ const row = (id: string, label: string, project = "/var/www/bench"): RosterRow =
 let root: Root | null = null;
 let host: HTMLElement;
 let posted: Array<{ url: string; body: any }>;
+let selected: Array<string | null>;
+let closed: number;
 
 beforeEach(() => {
   posted = [];
+  selected = [];
+  closed = 0;
   (globalThis as any).fetch = async (url: string, init?: RequestInit) => {
     posted.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
     return { ok: true, status: 200, json: async () => ({ sent: 1 }) } as any;
@@ -33,8 +37,16 @@ function render(rows: RosterRow[], sessionId = "s1") {
   act(() => {
     root = createRoot(host);
     root.render(
-      <BenchProvider state={{ rows, selectedId: sessionId }} actions={{ select() {}, closeSpecialist() {} }}>
-        <ShareReport sessionId={sessionId} seq={2} file="report.html" />
+      <BenchProvider
+        state={{ rows, selectedId: sessionId }}
+        actions={{ select: (id: string | null) => selected.push(id), closeSpecialist() {} }}
+      >
+        <ShareReport
+          sessionId={sessionId}
+          seq={2}
+          file="report.html"
+          onShared={() => { closed += 1; }}
+        />
       </BenchProvider>,
     );
   });
@@ -78,19 +90,51 @@ describe("sharing a report", () => {
     expect(posted[0].body).toMatchObject({ seq: 2, file: "report.html", to: ["s2"] });
   });
 
-  it("closes and says it went", async () => {
+  it("goes to whoever it was shared with", async () => {
+    // Sharing starts a turn on somebody else, and them reading it is the
+    // thing worth watching next - not the report you have finished with.
     render([row("s1", "author"), row("s2", "reviewer")]);
     act(() => { openButton()!.click(); });
     await act(async () => { targets()[0].click(); });
 
-    expect(targets()).toHaveLength(0);
-    expect(openButton()!.textContent).toContain("Shared");
+    expect(selected).toEqual(["s2"]);
   });
 
-  it("shows which project a specialist belongs to, since labels repeat", () => {
-    render([row("s1", "author"), row("s2", "general", "/var/www/fulacx-enterprise")]);
+  it("closes the report on its way there", async () => {
+    render([row("s1", "author"), row("s2", "reviewer")]);
+    act(() => { openButton()!.click(); });
+    await act(async () => { targets()[0].click(); });
+
+    expect(closed).toBe(1);
+    expect(targets()).toHaveLength(0);
+  });
+
+  it("stays put when the share failed", async () => {
+    (globalThis as any).fetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+    render([row("s1", "author"), row("s2", "reviewer")]);
+    act(() => { openButton()!.click(); });
+    await act(async () => { targets()[0].click(); });
+
+    expect(selected).toEqual([]);
+    expect(closed).toBe(0);
+  });
+
+  it("does not offer a specialist working on another project", () => {
+    // A report is about one codebase. A specialist elsewhere has no worktree
+    // it applies to - it would be reading a file about somebody else's repo.
+    render([
+      row("s1", "author"),
+      row("s2", "reviewer"),
+      row("s3", "general", "/var/www/fulacx-enterprise"),
+    ]);
     act(() => { openButton()!.click(); });
 
-    expect(host.querySelector(".share-project")!.textContent).toBe("fulacx-enterprise");
+    expect(targets()).toHaveLength(1);
+    expect(targets()[0].textContent).toContain("reviewer");
+  });
+
+  it("says nothing when the only others are on different projects", () => {
+    render([row("s1", "author"), row("s2", "general", "/var/www/teledoctor")]);
+    expect(openButton()).toBeNull();
   });
 });

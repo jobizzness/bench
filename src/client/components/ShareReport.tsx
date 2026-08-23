@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { postJson } from "../api.js";
-import { useBenchState } from "./context.js";
+import { useBenchActions, useBenchState } from "./context.js";
 
 /**
  * Hand a report to another specialist.
@@ -12,30 +12,39 @@ import { useBenchState } from "./context.js";
  * summary Bench made up.
  */
 export function ShareReport({
-  sessionId, seq, file,
+  sessionId, seq, file, onShared,
 }: {
   sessionId: string;
   seq: number;
   file: string;
+  /** Closes the report, because what happens next is on another page. */
+  onShared?: () => void;
 }) {
   const { rows } = useBenchState();
+  const { select } = useBenchActions();
   const [open, setOpen] = useState(false);
-  const [sentTo, setSentTo] = useState<number | null>(null);
   const sending = useRef(false);
 
-  // Sharing a report back to whoever wrote it is the one thing this cannot
-  // usefully do.
-  const others = rows.filter((r) => r.id !== sessionId);
+  // Within the project and nowhere else. A report is about one codebase, and
+  // a specialist in another has no worktree it applies to - it would be
+  // reading a file about somebody else's repository. Sharing a report back to
+  // whoever wrote it is the other thing this cannot usefully do.
+  const from = rows.find((r) => r.id === sessionId);
+  const others = rows.filter((r) => r.id !== sessionId && r.project === from?.project);
 
   async function share(toId: string) {
     if (sending.current) return;
     sending.current = true;
     try {
       const res = await postJson(`/api/sessions/${sessionId}/share`, { seq, file, to: [toId] });
-      if (res.ok) {
-        setSentTo((n) => (n ?? 0) + 1);
-        setOpen(false);
-      }
+      if (!res.ok) return;
+
+      // Go and watch. Sharing starts a turn on somebody else, and the thing
+      // worth seeing next is them reading it - not the report you have just
+      // finished with.
+      setOpen(false);
+      onShared?.();
+      select(toId);
     } finally {
       sending.current = false;
     }
@@ -51,7 +60,7 @@ export function ShareReport({
         title="Ask another specialist to read this"
         onClick={() => setOpen((v) => !v)}
       >
-        {sentTo ? `Shared ×${sentTo}` : "Share"}
+        Share
       </button>
 
       {open && (
@@ -60,9 +69,7 @@ export function ShareReport({
             <li key={row.id}>
               <button type="button" onClick={() => share(row.id)}>
                 <span className="share-label">{row.label}</span>
-                <span className="share-project">
-                  {row.project.split("/").filter(Boolean).pop()}
-                </span>
+                <span className="share-project">{row.detail}</span>
               </button>
             </li>
           ))}

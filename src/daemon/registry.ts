@@ -167,6 +167,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       model: opts.model,
       port: opts.port,
       resume: opts.resume,
+      cockpitUrl: `http://127.0.0.1:${this.config.port}`,
       claudeBin: this.config.claudeBin,
       startTurn: opts.startTurn,
       rules: () => houseRules(this.settings),

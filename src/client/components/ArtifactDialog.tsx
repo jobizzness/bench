@@ -40,7 +40,12 @@ export function ArtifactDialog({
         <span id="artifact-kind">{open?.label ?? ""}</span>
         <span id="artifact-title">{open?.title ?? ""}</span>
         {open && sessionId && (
-          <ShareReport sessionId={sessionId} seq={open.seq} file={open.file} />
+          <ShareReport
+            sessionId={sessionId}
+            seq={open.seq}
+            file={open.file}
+            onShared={onClose}
+          />
         )}
         <a id="artifact-tab" href={src ?? undefined} target="_blank" rel="noreferrer"
            title="Open in a real tab">↗</a>

@@ -350,8 +350,18 @@ export function createServer(opts: {
         note: typeof body.note === "string" ? body.note : undefined,
       });
 
+      // Within the project and nowhere else. A report is about one codebase,
+      // and a specialist in another has no worktree it applies to. Enforced
+      // here rather than only in the menu: a filter the client draws is not a
+      // rule, it is a suggestion.
+      const rows = registry.list();
+      const sameProject = new Set(
+        rows.filter((r) => r.project === row?.project).map((r) => r.id),
+      );
+
       // A specialist that has gone is not a reason to fail the others.
-      const sent = to.filter((id) => id !== share[1] && registry.get(id) !== null);
+      const sent = to.filter((id) =>
+        id !== share[1] && sameProject.has(id) && registry.get(id) !== null);
       for (const id of sent) registry.send(id, message);
 
       json(res, 200, { sent: sent.length });

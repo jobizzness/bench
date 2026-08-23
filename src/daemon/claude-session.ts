@@ -17,6 +17,8 @@ export interface SessionOptions {
   pluginDir: string;
   model: string;
   port: number;
+  /** Where the cockpit answers, so a specialist can staff its own project. */
+  cockpitUrl?: string;
   claudeBin?: string;
   /** Turns this specialist has already taken. A revived one keeps counting
    * from where it stopped; starting again at one overwrites its own past. */
@@ -102,6 +104,11 @@ export class ClaudeSession extends EventEmitter {
         BENCH_SESSION_ID: this.opts.id,
         BENCH_REPORTS_DIR: this.opts.reportsDir,
         PORT: String(this.opts.port),
+        // What the `bench` command needs to find the cockpit. The token is
+        // deliberately not here: the command reads it from ~/.bench/token so
+        // it never has to appear on a command line, where `ps` would show it
+        // to everything else on the machine.
+        BENCH_URL: this.opts.cockpitUrl,
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
