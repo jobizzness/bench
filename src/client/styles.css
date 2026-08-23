@@ -1320,6 +1320,26 @@ button, input, textarea, select { font: inherit; color: inherit; }
   animation: sweep 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Only while there is nothing better to draw. With a checklist to measure,
+   the bar below says the same thing and says how far. */
+#working[data-measured="true"]::before { display: none; }
+
+/* The bar. Filled from the specialist's own checklist, which is the only
+   honest measure of a turn there is - elapsed time and tokens have no total
+   to be a fraction of. */
+#working-progress {
+  position: absolute;
+  top: 0; left: 0;
+  height: 2px;
+  background: var(--busy);
+  /* Long enough to be seen as movement rather than a redraw: steps land one
+     at a time, minutes apart. */
+  transition: width 500ms var(--ease);
+}
+
+#working-steps { color: var(--busy); }
+#working-steps::after { content: "  ·  "; color: var(--faint); }
+
 /* 313% is the strip's width in units of the highlight's own: the element is
    32% wide, and translateX is a percentage of that. */
 @keyframes sweep {

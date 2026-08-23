@@ -23,6 +23,7 @@ import { BenchProvider } from "./context.js";
 import { useCloseSpecialist } from "./useCloseSpecialist.js";
 import { useDecision } from "./useDecision.js";
 import { useGithub } from "./useGithub.js";
+import { useSessionPlan } from "./useSessionPlan.js";
 import { useDecisionKeys } from "./useDecisionKeys.js";
 import { useRoster } from "./useRoster.js";
 import { useSelection } from "./useSelection.js";
@@ -67,6 +68,10 @@ export function App() {
   // Fetched only while the drawer is up: it is something you reach for, not a
   // panel that lives on screen.
   const github = useGithub(selectedId, githubOpen);
+
+  // Fetched once here and given to both the checklist and the working strip,
+  // which draws a bar from it - two pollers on one file would drift.
+  const steps = useSessionPlan(selectedId, row?.status === "working");
 
   const intake = isIntake(decision);
   const bar = decision && intake ? sendBar(decision, answers) : null;
@@ -185,14 +190,14 @@ export function App() {
               checklist is the answer to the question you opened this for. */}
           {/* An intake no longer competes for this room, so only a decision
               still drawn in the footer hides the checklist. */}
-          <Progress decisionShowing={row !== null && isWaiting(row) && !intake} />
+          <Progress decisionShowing={row !== null && isWaiting(row) && !intake} steps={steps} />
           <Thread
             entries={entries}
             sessionId={selectedId}
             hasRows={rows.length > 0}
             onOpen={setArtifact}
           />
-          <Working />
+          <Working steps={steps} />
 
           <footer id="composer">
             {/* An intake is a sheet; what stays down here is the door back to
