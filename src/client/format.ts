@@ -38,3 +38,9 @@ export function relativeTime(iso: string, now = Date.now()): string {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
+
+/** The repo name out of an absolute path: what a project is called, rather
+ * than where it happens to live. */
+export function projectName(path: string): string {
+  return path.split("/").filter(Boolean).pop() ?? path;
+}

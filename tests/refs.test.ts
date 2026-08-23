@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSlug, RefIndex, type Ref } from "../src/daemon/refs.js";
+import { parseSlug, RefIndex, type Item, type Ref } from "../src/daemon/refs.js";
 
 describe("which repository a number belongs to", () => {
   it("reads both spellings of a GitHub remote", () => {
@@ -88,5 +88,52 @@ describe("the cache", () => {
     await index.lookup("/p", [12]);
 
     expect(asked).toEqual([12, 12]);
+  });
+});
+
+/** The drawer's list: two calls, merged, newest movement first. */
+const item = (over: Partial<Item> & { number: number }): Item => ({
+  title: `thing ${over.number}`,
+  url: `https://github.com/o/r/issues/${over.number}`,
+  kind: "issue",
+  state: "open",
+  updatedAt: "2026-08-01T00:00:00Z",
+  author: "someone",
+  ...over,
+});
+
+describe("what has been happening on the project", () => {
+  const index = (list: Ref[] | Item[], now = () => 0) => new RefIndex({
+    readSlug: async () => "o/r",
+    list: async () => list as Item[],
+    now,
+  });
+
+  it("says which repository it is talking about", async () => {
+    expect((await index([item({ number: 1 })]).recent("/p")).slug).toBe("o/r");
+  });
+
+  it("has nothing to say about a project with no GitHub remote", async () => {
+    const blind = new RefIndex({ readSlug: async () => null, list: async () => [item({ number: 1 })] });
+    expect(await blind.recent("/p")).toEqual({ slug: null, items: [] });
+  });
+
+  it("asks GitHub once a minute, however often the drawer is opened", async () => {
+    let calls = 0;
+    let clock = 0;
+    const counting = new RefIndex({
+      readSlug: async () => "o/r",
+      list: async () => { calls += 1; return [item({ number: 1 })]; },
+      now: () => clock,
+    });
+
+    await counting.recent("/p");
+    await counting.recent("/p");
+    expect(calls).toBe(1);
+
+    // Long enough that something could have moved.
+    clock = 61_000;
+    await counting.recent("/p");
+    expect(calls).toBe(2);
   });
 });

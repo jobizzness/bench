@@ -269,6 +269,17 @@ export function createServer(opts: {
       return;
     }
 
+    // What has been happening on the project's repository. Per session, like
+    // the references, because it is that specialist's project being asked
+    // about - and because the daemon never takes a path from a URL.
+    const github = path.match(/^\/api\/sessions\/([^/]+)\/github$/);
+    if (github && req.method === "GET") {
+      const project = registry.list().find((r) => r.id === github[1])?.project;
+      if (!project) { json(res, 404, { error: "no such session" }); return; }
+      json(res, 200, await index.recent(project));
+      return;
+    }
+
     const message = path.match(/^\/api\/sessions\/([^/]+)\/message$/);
     if (message && req.method === "POST") {
       const session = registry.get(message[1]);
