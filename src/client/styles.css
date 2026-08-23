@@ -313,95 +313,62 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 
 .row .label {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: nowrap;
-  gap: 7px;
   font: 500 14px/1.35 var(--sans);
   letter-spacing: -0.01em;
   margin-bottom: 2px;
 }
-
-/* The kind of agent, beside its name. Quiet by default because most of them
-   are specialists and a roster shouting SPECIALIST six times is a roster you
-   stop reading - the three that are not are the ones worth spotting. */
-.role {
-  flex: none;
-  font: 500 9px/1 var(--mono);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--faint);
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  padding: 3px 5px 2px;
-}
-/* Not amber: that hue means "in flight" everywhere else in the cockpit, and
-   a badge in it beside a working rail reads as a second status. */
-.role[data-role="implementer"] { color: var(--text); border-color: var(--line-firm); }
-.role[data-role="reviewer"] { color: #a98bd4; border-color: #3b2f52; }
-.role[data-role="researcher"] { color: #6fb3d0; border-color: #26404d; }
-
-#stage-head .role { align-self: center; }
-
-/* Where a specialist is working. The branch is information; "your checkout"
-   is a warning, and it is the only part that changes colour. */
-.where {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font: 400 11px/1 var(--mono);
-  letter-spacing: 0.04em;
-  color: var(--faint);
-  min-width: 0;
-}
-.where svg { flex: none; opacity: 0.8; }
-.where-branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.where-shared, .row-shared {
-  flex: none;
-  font: 500 9px/1 var(--mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--busy);
-  background: var(--busy-dim);
-  border-radius: 3px;
-  padding: 3px 5px 2px;
-}
-.where[data-shared="true"] { color: var(--muted); }
-
-#stage-head .where { align-self: center; margin-left: 14px; min-width: 0; }
-/* The name gives way, not the badges: which agent it is, is readable from
-   the two words beside it even when the name is clipped. */
-.label-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.label-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row[data-waiting="true"] .label { color: var(--wants); font-weight: 600; }
 .row[data-status="crashed"] .label,
 .row[data-status="provisioning_failed"] .label { color: var(--broken); }
 
-.row .detail {
+/* ── The quiet line ─────────────────────────────────────────────────── */
+
+/* Everything about a specialist that is not its name, in one texture. Four
+   facts used to be four bordered chips in three invented colours, each with
+   the weight of a control - and a row where everything is emphasised has
+   nothing emphasised.
+
+   The kind is read from the word rather than from a hue, which gives the
+   palette its meanings back: green wants you, amber is in flight or in your
+   files, red is broken, and everything else is furniture. */
+.meta {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
   font: 400 11px/1.45 var(--mono);
   color: var(--faint);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
 }
+/* Drawn rather than typed, so no segment has to know whether it is first.
+   Spacing by margin, not by spaces inside the content: generated whitespace
+   at the edge of a flex item collapses, and the dot ends up welded to the
+   word before it. */
+.meta > * + *::before { content: "·"; margin: 0 6px; opacity: 0.55; }
+.meta > * { flex: none; }
+/* The one that gives way is what the specialist is doing: it is the longest
+   and the most replaceable, and the role and the warning beside it are not. */
+.meta-detail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.meta-branch { color: var(--muted); }
+/* The only raised voice on the line, and the only place it is warranted:
+   this specialist is editing the files you have open. */
+.meta-shared { color: var(--busy); }
 
 /* ── Stage ──────────────────────────────────────────────────────────── */
 
 #stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
 #stage-head {
-  display: flex; align-items: baseline; gap: 12px;
-  padding: 18px 32px 16px;
+  padding: 18px 32px 15px;
   border-bottom: 1px solid var(--line);
+  min-width: 0;
 }
-/* Top right of the pane, away from the label and the status it belongs
-   beside. Aligned to the middle rather than the baseline: an icon has no
-   baseline to share with words. */
-#stage-head #open-github { margin-left: auto; align-self: center; }
-#stage-label { font: 600 15px/1 var(--sans); letter-spacing: -0.01em; }
-#stage-status {
-  font: 400 11px/1 var(--mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--faint);
-}
+/* The name and the one control that belongs to it. Everything else is on the
+   line below, where it is metadata rather than a heading. */
+#stage-title { display: flex; align-items: center; gap: 12px; margin-bottom: 5px; }
+#stage-label { font: 600 15px/1.2 var(--sans); letter-spacing: -0.01em; }
+#stage-head #open-github { margin-left: auto; }
 
 /* min-height:0 is required: a flex child inside a grid item otherwise
    grows to fit its content and pushes the composer out of the viewport. */

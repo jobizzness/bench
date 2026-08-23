@@ -1,8 +1,15 @@
 import { projectName } from "../format.js";
 import { GithubMark } from "./GithubMark.js";
-import { Where } from "./Where.js";
+import { Meta } from "./Meta.js";
 import { useBenchState } from "./context.js";
 
+/**
+ * Who is on the stage: their name, and one line of everything else.
+ *
+ * The line is the same one the roster row carries, with the two facts a row
+ * has no room for - the status word, which on a row is read off the rail, and
+ * the branch.
+ */
 export function StageHead({ onGithub }: {
   /** Opens the drawer of what has been happening on this project. */
   onGithub: () => void;
@@ -13,22 +20,20 @@ export function StageHead({ onGithub }: {
 
   return (
     <header id="stage-head">
-      <span id="stage-label">{row.label}</span>
-      <span className="role" data-role={row.role}>{row.role}</span>
-      <span id="stage-status">{`${row.status.replace(/_/g, " ")} · ${row.detail}`}</span>
-      <Where row={row} />
-
-      {/* Top right of the pane the specialist is on, because the project it
-          lists is that specialist's - and here it can never be the button
-          with nothing to show, since this header only exists with one open. */}
-      <button
-        id="open-github"
-        type="button"
-        title={`Issues and pull requests in ${projectName(row.project)}`}
-        onClick={onGithub}
-      >
-        <GithubMark />
-      </button>
+      <div id="stage-title">
+        <span id="stage-label">{row.label}</span>
+        {/* Top right of the pane the specialist is on, because the project it
+            lists is that specialist's. */}
+        <button
+          id="open-github"
+          type="button"
+          title={`Issues and pull requests in ${projectName(row.project)}`}
+          onClick={onGithub}
+        >
+          <GithubMark />
+        </button>
+      </div>
+      <Meta row={row} status branch />
     </header>
   );
 }

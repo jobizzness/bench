@@ -3,12 +3,7 @@ import type { RosterRow } from "../../shared/types.js";
 import { useBenchActions, useBenchState } from "./context.js";
 import { isWaiting } from "../waiting.js";
 import { projectName } from "../format.js";
-
-function detailOf(row: RosterRow): string {
-  return row.status === "awaiting_decision"
-    ? row.detail
-    : `${row.status.replace(/_/g, " ")} · ${row.detail}`;
-}
+import { Meta } from "./Meta.js";
 
 function Row({ row, selected }: { row: RosterRow; selected: boolean }) {
   const { select, closeSpecialist } = useBenchActions();
@@ -25,20 +20,11 @@ function Row({ row, selected }: { row: RosterRow; selected: boolean }) {
       aria-selected={selected}
       onClick={() => select(row.id)}
     >
-      <div className="label">
-        <span className="label-name">{row.label}</span>
-        {/* What kind of agent this is, beside what it is called. A tab named
-            for its task said nothing about whether it builds or reads. */}
-        <span className="role" data-role={row.role}>{row.role}</span>
-        {/* Only when it is in your checkout. Its own worktree is the normal
-            case, and a roster that says so on every row says nothing. */}
-        {!row.isolated && row.branch !== "" && (
-          <span className="row-shared" title={`Working in your checkout, on ${row.branch}`}>
-            checkout
-          </span>
-        )}
-      </div>
-      <div className="detail">{detailOf(row)}</div>
+      <div className="label"><span className="label-name">{row.label}</span></div>
+      {/* Everything that is not its name, in one quiet line. The rail already
+          says what the status is, in colour, so the word is not repeated
+          here. */}
+      <Meta row={row} />
       <button
         type="button"
         className="close"

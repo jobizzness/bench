@@ -6,9 +6,9 @@ import { describe, it, expect, afterEach } from "vitest";
 import { bootCockpit, row, type Cockpit } from "./helpers/cockpit.js";
 
 /**
- * A tab named for its task said nothing about whether it builds or reads.
- * The role is a name on the roster and nothing more, so all there is to prove
- * is that it is on screen where the agent is.
+ * Everything about a specialist that is not its name sits on one quiet line.
+ * What these hold in place is the order of it, and the one segment that is
+ * allowed to raise its voice.
  */
 
 let ui: Cockpit;
@@ -17,71 +17,81 @@ afterEach(() => {
   history.pushState({}, "", "/?token=t");
 });
 
+const metaOf = (rowEl: Element) =>
+  [...rowEl.querySelectorAll(".meta > *")].map((s) => s.textContent);
+
 describe("what kind of agent each one is", () => {
-  it("says the role beside the name, on every row", async () => {
+  it("leads the line with the role, on every row", async () => {
+    // The left edge of the column is then the shape of your bench, readable
+    // without reading a word of the rest.
     ui = await bootCockpit({ rows: [
-      row({ id: "a", label: "payouts", role: "implementer" }),
-      row({ id: "b", label: "payouts-review", role: "reviewer" }),
+      row({ id: "a", label: "payouts", role: "implementer", detail: "editing invoice.ts" }),
+      row({ id: "b", label: "payouts-review", role: "reviewer", detail: "three findings" }),
     ] });
 
-    expect(ui.$$(".row .role").map((r) => r.textContent)).toEqual(["implementer", "reviewer"]);
+    expect(ui.$$(".row").map((r) => metaOf(r)[0])).toEqual(["implementer", "reviewer"]);
   });
 
-  it("keeps the specialists labelled too, rather than only the unusual ones", async () => {
-    // The question was what kind each one is. Answering for three of four
-    // leaves the fourth looking like a row that failed to load.
+  it("names the specialists too, rather than only the unusual ones", async () => {
     ui = await bootCockpit({ rows: [row({ label: "auth", role: "specialist" })] });
-    expect(ui.$(".row .role")!.textContent).toBe("specialist");
+    expect(metaOf(ui.$(".row")!)[0]).toBe("specialist");
   });
 
-  it("says it on the stage too, for whoever is in front of you", async () => {
-    ui = await bootCockpit({ rows: [row({ label: "payouts", role: "researcher" })] });
+  it("does not repeat the status the rail is already showing", async () => {
+    // The rail is coloured and it breathes while a turn runs. Saying
+    // "working" beside it spends a third of the line on a fact already told.
+    ui = await bootCockpit({ rows: [
+      row({ label: "payouts", role: "implementer", status: "working", detail: "Bash pnpm test" }),
+    ] });
+
+    expect(metaOf(ui.$(".row")!)).toEqual(["implementer", "Bash pnpm test"]);
+  });
+
+  it("says the status on the stage, where there is no rail to read it off", async () => {
+    ui = await bootCockpit({ rows: [
+      row({ label: "payouts", role: "implementer", status: "working", detail: "Bash pnpm test" }),
+    ] });
     await ui.open("payouts");
 
-    expect(ui.$("#stage-head .role")!.textContent).toBe("researcher");
-  });
-
-  it("leaves the name findable beside it", async () => {
-    // The badge sits inside the label, so anything reading the row's name has
-    // to still get the name.
-    ui = await bootCockpit({ rows: [row({ label: "payouts", role: "reviewer" })] });
-    expect(ui.$(".row .label")!.firstChild!.textContent).toBe("payouts");
+    expect(metaOf(ui.$("#stage-head")!))
+      .toEqual(["implementer", "working", "Bash pnpm test", "bench/auth-abcd1234"]);
   });
 });
 
 describe("where a specialist is working", () => {
-  it("names the branch on the stage", async () => {
+  it("names the branch on the stage, and not on the row", async () => {
+    // A row is where you choose between them; the branch is what you read
+    // once you have.
     ui = await bootCockpit({ rows: [row({ label: "auth", branch: "bench/auth-abcd1234" })] });
     await ui.open("auth");
 
-    expect(ui.$(".where-branch")!.textContent).toBe("bench/auth-abcd1234");
+    expect(metaOf(ui.$("#stage-head")!)).toContain("bench/auth-abcd1234");
+    expect(metaOf(ui.$(".row")!)).not.toContain("bench/auth-abcd1234");
   });
 
-  it("says plainly when one is in your checkout rather than its own worktree", async () => {
-    // This is the one worth seeing: it edits the files you have open, on the
-    // branch you are on.
+  it("says in your checkout, in both places, when that is where it is", async () => {
+    // The one thing on the line that is a warning rather than a fact.
     ui = await bootCockpit({ rows: [row({ label: "quick-look", branch: "main", isolated: false })] });
     await ui.open("quick-look");
 
-    expect(ui.$(".where-shared")!.textContent).toBe("your checkout");
-    expect(ui.$(".where")!.getAttribute("title")).toContain("Working in your checkout, on main");
+    expect(metaOf(ui.$(".row")!)).toContain("in your checkout");
+    expect(ui.$(".row .meta-shared")).not.toBeNull();
+    expect(metaOf(ui.$("#stage-head")!)).toContain("in your checkout");
   });
 
-  it("marks that one on the roster too, where you are choosing between them", async () => {
-    ui = await bootCockpit({ rows: [
-      row({ id: "a", label: "auth" }),
-      row({ id: "b", label: "quick-look", branch: "main", isolated: false }),
-    ] });
-
-    const marked = ui.$$(".row").map((r) => r.querySelector(".row-shared") !== null);
-    expect(marked).toEqual([false, true]);
+  it("says nothing about where when it has its own worktree", async () => {
+    // The normal case. A line that says it on every row says nothing.
+    ui = await bootCockpit({ rows: [row({ label: "auth" })] });
+    expect(ui.$(".row .meta-shared")).toBeNull();
   });
 
   it("says nothing at all while the worktree is still being made", async () => {
-    // A branch it does not have yet is not a branch worth naming.
-    ui = await bootCockpit({ rows: [row({ label: "new-one", branch: "", status: "provisioning" })] });
+    ui = await bootCockpit({ rows: [
+      row({ label: "new-one", branch: "", status: "provisioning", detail: "creating worktree" }),
+    ] });
     await ui.open("new-one");
 
-    expect(ui.$(".where")).toBeNull();
+    expect(metaOf(ui.$("#stage-head")!))
+      .toEqual(["specialist", "provisioning", "creating worktree"]);
   });
 });

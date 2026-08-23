@@ -9,7 +9,8 @@ import type { RosterRow } from "../src/shared/types.js";
 import { BenchProvider } from "../src/client/components/context.js";
 
 const row = (over: Partial<RosterRow> = {}): RosterRow => ({
-  id: "s1", label: "auth", project: "/p", status: "awaiting_decision",
+  id: "s1", label: "auth", role: "specialist", branch: "bench/auth-abcd1234", isolated: true,
+  project: "/p", status: "awaiting_decision",
   detail: "waiting on you", latestReportSeq: null, answeredReportSeq: null,
   startedAt: null, tokens: 0, activity: [], ...over,
 });
@@ -26,7 +27,7 @@ function render(rows: RosterRow[], selectedId: string | null): HTMLElement {
     root = createRoot(host);
     root.render(
       <BenchProvider state={{ rows, selectedId }} actions={actions}>
-        <StageHead />
+        <StageHead onGithub={() => {}} />
       </BenchProvider>,
     );
   });
@@ -37,10 +38,11 @@ describe("StageHead", () => {
   it("names the specialist and what it is doing", () => {
     const host = render([row()], "s1");
     expect(host.querySelector("#stage-label")!.textContent).toBe("auth");
-    // The detail is the useful half: "awaiting decision" alone says nothing
-    // about whether there is anything to read.
-    expect(host.querySelector("#stage-status")!.textContent)
-      .toBe("awaiting decision · waiting on you");
+    // One line under the name, in reading order: what kind of agent, what it
+    // is doing, and where. The detail is the useful half - "awaiting
+    // decision" alone says nothing about whether there is anything to read.
+    expect([...host.querySelectorAll(".meta > *")].map((s) => s.textContent))
+      .toEqual(["specialist", "awaiting decision", "waiting on you", "bench/auth-abcd1234"]);
   });
 
   it("renders nothing when no specialist is selected", () => {
