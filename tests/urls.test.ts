@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cockpitUrls, isLoopback } from "../src/daemon/urls.js";
+import { cockpitOrigins, cockpitUrls, isLoopback } from "../src/daemon/urls.js";
 
 const interfaces = () => ({
   lo: [{ family: "IPv4", address: "127.0.0.1", internal: true }],
@@ -54,5 +54,22 @@ describe("cockpitUrls", () => {
   it("still answers with loopback when there is no network to list", () => {
     const urls = cockpitUrls({ host: "0.0.0.0", port: 7420, token: "t", interfaces: () => ({}) });
     expect(urls).toEqual(["http://127.0.0.1:7420/?token=t"]);
+  });
+});
+
+describe("cockpitOrigins", () => {
+  it("is the same set without the token", () => {
+    // The settings page is allowed to know where the daemon answers; handing
+    // it the key alongside is a different decision.
+    expect(cockpitOrigins({ host: "0.0.0.0", port: 7420, interfaces })).toEqual([
+      "http://127.0.0.1:7420",
+      "http://192.168.1.198:7420",
+      "http://172.17.0.1:7420",
+    ]);
+  });
+
+  it("offers only itself when the daemon is bound to loopback", () => {
+    expect(cockpitOrigins({ host: "127.0.0.1", port: 7420, interfaces }))
+      .toEqual(["http://127.0.0.1:7420"]);
   });
 });

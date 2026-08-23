@@ -115,19 +115,22 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* ── Roster ─────────────────────────────────────────────────────────── */
 
+/* The pane itself no longer scrolls - the list inside it does. That is what
+   keeps the settings row at the foot rather than at the bottom of a long list
+   nobody scrolls to. */
 #roster {
   background: var(--panel);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 #roster header {
+  flex: none;
   display: flex; align-items: center; justify-content: space-between;
   padding: 20px 18px 16px;
-  position: sticky; top: 0; z-index: 3;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
@@ -150,7 +153,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .header-actions { display: flex; align-items: center; gap: 7px; }
 
-#new-session, #open-settings {
+#new-session {
   background: transparent;
   border: 1px solid var(--line-firm);
   border-radius: 5px;
@@ -162,11 +165,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
   cursor: pointer;
   transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
 }
-#new-session:hover, #open-settings:hover {
+#new-session:hover {
   color: var(--text); border-color: var(--wants-dim); background: var(--hover);
 }
-/* The rules are the quieter of the two: you set them once and leave them. */
-#open-settings { border-color: var(--line); color: var(--faint); }
 
 /* An icon rather than a word, because it is a place you already recognise -
    and square, so it does not read as a third button of the same kind. */
@@ -188,11 +189,44 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* With no specialist open there is no project, and so nothing to list. */
 #open-github:disabled { opacity: 0.35; cursor: default; }
 
-#roster-list { list-style: none; margin: 0; padding: 0; }
+#roster-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The settings row. Quiet, and the same height whatever the roster is doing
+   above it, so it is somewhere the eye can go back to. */
+#roster-foot {
+  flex: none;
+  border-top: 1px solid var(--line);
+  padding: 8px;
+}
+#open-settings {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--faint);
+  font: 400 13px/1 var(--sans);
+  text-align: left;
+  cursor: pointer;
+  transition: color 120ms var(--ease), background 120ms var(--ease);
+}
+#open-settings:hover { color: var(--text); background: var(--hover); }
+#open-settings .gear { flex: none; }
 
 /* Project groups. Never a flat list. */
 .group > summary {
-  position: sticky; top: 57px; z-index: 2;
+  /* Sticks to the top of the list, which is now the thing that scrolls. */
+  position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: 8px;
   padding: 14px 18px 8px;
   background: var(--panel);
@@ -1105,6 +1139,64 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .gh-row[data-state="closed"] .gh-state { color: var(--broken); }
 .gh-row[data-state="draft"] .gh-state { color: var(--muted); }
 .gh-row[data-kind="pull"] .gh-number { color: var(--muted); }
+
+/* ── Where the cockpit is pointed ───────────────────────────────────── */
+
+#s-server {
+  display: block;
+  margin: 2px 0 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+#s-here code, #s-server .field-note code {
+  font: 400 12px/1.5 var(--mono);
+  color: var(--muted);
+}
+
+#s-known { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+
+/* An address is a place to go, so it reads as a row you press rather than a
+   value in a field. */
+.s-address {
+  display: flex; align-items: baseline; gap: 10px;
+  text-decoration: none;
+  padding: 9px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font: 400 13px/1.3 var(--mono);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms var(--ease), background 120ms var(--ease);
+}
+.s-address:hover { border-color: var(--wants-dim); background: var(--hover); }
+.s-address-note {
+  margin-left: auto;
+  font: 400 10px/1 var(--sans);
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+#s-address-row { display: flex; gap: 8px; align-items: stretch; }
+#s-address-row #s-address { flex: 1; margin-bottom: 0; font-family: var(--mono); font-size: 13px; }
+#s-address-go {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  text-decoration: none;
+  background: var(--raised);
+  border: 1px solid var(--line-firm);
+  border-radius: 8px;
+  color: var(--text);
+  font: 500 13px/1 var(--sans);
+  cursor: pointer;
+  transition: border-color 120ms var(--ease), background 120ms var(--ease);
+}
+#s-address-go[href]:hover { border-color: var(--wants-dim); background: var(--hover); }
+#s-address-go[aria-disabled="true"] { opacity: 0.4; cursor: default; }
 
 /* ── House rules ────────────────────────────────────────────────────── */
 

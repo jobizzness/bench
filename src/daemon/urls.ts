@@ -21,9 +21,20 @@ export function cockpitUrls(opts: {
   token: string;
   interfaces?: () => Record<string, Array<{ family: string; address: string; internal: boolean }> | undefined>;
 }): string[] {
-  const query = `/?token=${opts.token}`;
+  return cockpitOrigins(opts).map((origin) => `${origin}/?token=${opts.token}`);
+}
 
-  if (isLoopback(opts.host)) return [`http://127.0.0.1:${opts.port}${query}`];
+/**
+ * The same set without the token, for anything that is allowed to know where
+ * the daemon answers but should not be handed the key with it.
+ */
+export function cockpitOrigins(opts: {
+  host: string;
+  port: number;
+  interfaces?: () => Record<string, Array<{ family: string; address: string; internal: boolean }> | undefined>;
+}): string[] {
+  const loopback = `http://127.0.0.1:${opts.port}`;
+  if (isLoopback(opts.host)) return [loopback];
 
   const read = opts.interfaces ?? (networkInterfaces as unknown as NonNullable<typeof opts.interfaces>);
   const addresses: string[] = [];
@@ -37,6 +48,5 @@ export function cockpitUrls(opts: {
 
   // Loopback still works when bound wide, and it stays first because it is
   // the one that needs no network at all.
-  return [`http://127.0.0.1:${opts.port}${query}`,
-    ...addresses.map((address) => `http://${address}:${opts.port}${query}`)];
+  return [loopback, ...addresses.map((address) => `http://${address}:${opts.port}`)];
 }

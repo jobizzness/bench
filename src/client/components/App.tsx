@@ -6,6 +6,7 @@ import type { ArtifactRef } from "./ArtifactCard.js";
 import { ArtifactDialog } from "./ArtifactDialog.js";
 import { Composer } from "./Composer.js";
 import { DecisionPanel, isIntake } from "./DecisionPanel.js";
+import { Gear } from "./Gear.js";
 import { GithubDrawer } from "./GithubDrawer.js";
 import { GithubMark } from "./GithubMark.js";
 import { IntakeCard } from "./IntakeCard.js";
@@ -158,16 +159,6 @@ export function App() {
           <header>
             <h1><Mark /><span>Bench</span></h1>
             <div className="header-actions">
-              {/* House rules are not per specialist, so they hang off the
-                  roster rather than off whoever happens to be on the stage. */}
-              <button
-                id="open-settings"
-                type="button"
-                title="House rules — how you want work done"
-                onClick={() => setSettingsOpen(true)}
-              >
-                Rules
-              </button>
               <button id="new-session" type="button" onClick={() => setCreating(true)}>New</button>
               {/* Last, and furthest right: it is about the project rather than
                   about Bench, and it needs a specialist selected to know which
@@ -186,6 +177,21 @@ export function App() {
             </div>
           </header>
           <ul id="roster-list"><Roster /></ul>
+
+          {/* At the foot of the pane, where settings live in everything else.
+              It is not something you reach for while working, and the header
+              is for what you do reach for. */}
+          <footer id="roster-foot">
+            <button
+              id="open-settings"
+              type="button"
+              title="House rules — how you want work done"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Gear />
+              <span>Settings</span>
+            </button>
+          </footer>
         </aside>
 
         <section id="stage">
