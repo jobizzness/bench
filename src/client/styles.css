@@ -1286,12 +1286,45 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* Working indicator. Sits on the seam between thread and composer, so it
    reads as the live edge of the conversation rather than a status bar. */
 #working {
+  position: relative;
+  overflow: hidden;
   display: flex; align-items: baseline; gap: 10px;
   padding: 10px 32px 11px;
   border-top: 1px solid var(--line);
   background: linear-gradient(180deg, transparent, rgba(216, 164, 95, 0.045));
   font-family: var(--mono);
   font-size: 12px;
+}
+
+/* The seam above the strip, alive while a turn is.
+
+   Indeterminate on purpose: a turn has no known length, and a bar that fills
+   toward an end nobody can see is a lie told smoothly. This says "something
+   is happening" and refuses to say how much is left - which is the honest
+   half of what a progress bar does.
+
+   It rides on the border rather than adding a bar of its own, so the strip
+   gains motion without gaining an element. */
+#working::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0;
+  /* 2px, not 1: on the seam it has the border under it, and a single pixel
+     of amber that fades at both ends is an animation nobody sees. */
+  height: 2px;
+  width: 32%;
+  background: linear-gradient(90deg, transparent, var(--busy), transparent);
+  /* Symmetric ease: it gathers pace across the middle and eases out at each
+     end, which reads as a scan rather than a machine. 2.4s is the cadence the
+     status rail already breathes at. */
+  animation: sweep 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* 313% is the strip's width in units of the highlight's own: the element is
+   32% wide, and translateX is a percentage of that. */
+@keyframes sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(313%); }
 }
 
 /* Sits at the far end of the strip that says a turn is running, which is the
@@ -1338,6 +1371,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 @keyframes flicker { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 @media (prefers-reduced-motion: reduce) {
   #working-glyph { animation: none; }
+  /* The seam stays where it is: an unmoving highlight parked at the left
+     would read as a bar stuck at 30%. */
+  #working::before { display: none; }
 }
 
 /* Closing is destructive, so it stays out of the way until the row is
