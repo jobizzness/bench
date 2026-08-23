@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { bootCockpit, row, type Cockpit } from "./helpers/cockpit.js";
+import { waitFor } from "./helpers/wait-for.js";
 
 /**
  * Where a specialist lives is decided here and nowhere else, so the flag this
@@ -17,7 +18,12 @@ const PROJECTS = [
 ];
 
 let ui: Cockpit;
-afterEach(() => ui?.unmount());
+afterEach(() => {
+  ui?.unmount();
+  // Selection lives in the URL, and the URL outlives the mount: a test that
+  // opens a specialist would otherwise decide what the next one starts on.
+  history.pushState({}, "", "/?token=t");
+});
 
 const toggle = () => ui.$<HTMLInputElement>("#f-worktree")!;
 const note = () => ui.$("#f-worktree-note")!.textContent ?? "";
@@ -77,6 +83,35 @@ describe("choosing where a specialist lives", () => {
     await ui.click(ui.$("#new-session"));
     // The safer of the two is the one you should have to ask for again.
     expect(toggle().checked).toBe(true);
+  });
+});
+
+describe("what it opens once the specialist exists", () => {
+  it("puts the new specialist on the stage, not the one you were reading", async () => {
+    await open();
+    await fill("password-reset");
+    await ui.click(ui.$("#f-create"));
+
+    // The daemon answers with the id, then pushes the roster it belongs to.
+    await ui.roster([
+      row(),
+      row({ id: "s-new", label: "password-reset", project: "/var/www/teledoctor" }),
+    ]);
+
+    const head = await waitFor(() => ui.$("#stage-label"), "the stage head");
+    expect(head.textContent).toBe("password-reset");
+    // And it is a place, so the tab you leave open is its own.
+    expect(location.pathname).toBe("/s/s-new");
+  });
+
+  it("stays where it is when the dialog refuses to send", async () => {
+    await open();
+    await ui.click(ui.$("#roster-list .row"));
+    await fill("Password Reset");
+    await ui.click(ui.$("#f-create"));
+
+    expect(location.pathname).toBe("/s/s1");
+    expect(ui.$("#stage-label")!.textContent).toBe("auth");
   });
 });
 

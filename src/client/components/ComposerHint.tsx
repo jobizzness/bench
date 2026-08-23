@@ -15,7 +15,12 @@ export function ComposerHint({ kind, optionCount = 0 }: {
   return (
     <p id="composer-hint">
       {kind === "working" && "Working — a message queues and is answered when this turn ends."}
-      {kind === "reply" && "Press Enter to send."}
+      {kind === "reply" && (
+        <>
+          <Key>↵</Key>{" send  "}
+          <Key>⇧↵</Key>{" new line"}
+        </>
+      )}
       {kind === "intake" && (
         <>
           <Key>1</Key>–<Key>9</Key>{" pick  "}

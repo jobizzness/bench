@@ -8,6 +8,7 @@ import { DecisionPanel, isIntake } from "./DecisionPanel.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
 import { Progress } from "./Progress.js";
 import { Roster } from "./Roster.js";
+import { SettingsDialog } from "./SettingsDialog.js";
 import { StageHead } from "./StageHead.js";
 import { StaleLink } from "./StaleLink.js";
 import { Thread } from "./Thread.js";
@@ -39,7 +40,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [artifact, setArtifact] = useState<ArtifactRef | null>(null);
   const [creating, setCreating] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const input = useRef<HTMLTextAreaElement>(null);
 
   // Closing the one you were reading leaves the stage pointing at nothing.
   const closeSpecialist = useCloseSpecialist(
@@ -117,7 +119,19 @@ export function App() {
         <aside id="roster">
           <header>
             <h1>Bench</h1>
-            <button id="new-session" type="button" onClick={() => setCreating(true)}>New</button>
+            <div className="header-actions">
+              {/* House rules are not per specialist, so they hang off the
+                  roster rather than off whoever happens to be on the stage. */}
+              <button
+                id="open-settings"
+                type="button"
+                title="House rules — how you want work done"
+                onClick={() => setSettingsOpen(true)}
+              >
+                Rules
+              </button>
+              <button id="new-session" type="button" onClick={() => setCreating(true)}>New</button>
+            </div>
           </header>
           <ul id="roster-list"><Roster /></ul>
         </aside>
@@ -165,6 +179,7 @@ export function App() {
 
       <ArtifactDialog open={artifact} sessionId={selectedId} onClose={() => setArtifact(null)} />
       <NewSessionDialog open={creating} onClose={() => setCreating(false)} />
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </BenchProvider>
   );
 }
