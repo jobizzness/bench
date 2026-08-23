@@ -206,7 +206,15 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     });
     session.on("exit", (code: number | null, stderr: string) => {
       const entry = this.entries.get(id);
-      if (entry) entry.alive = false;
+      if (entry) {
+        entry.alive = false;
+        // Let go of it. A session whose process has gone refuses everything
+        // sent to it, and holding the reference meant the next message took
+        // the "already running" path and threw - which, inside a request
+        // handler, took the whole daemon with it. Cleared, the next prompt
+        // takes the revival path, which is what a stopped specialist is for.
+        entry.session = null;
+      }
 
       // Asked for, not suffered. The specialist is still here and its next
       // prompt revives it from the last turn it finished.

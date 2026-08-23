@@ -649,3 +649,34 @@ describe("where a specialist is working", () => {
     expect(registry.list()[0].isolated).toBe(true);
   });
 });
+
+describe("a specialist whose process has gone", () => {
+  it("lets go of the dead session, so the next prompt revives it", async () => {
+    // Holding the reference meant the next message took the "already running"
+    // path and threw - and a throw in a request handler ended the daemon.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    const bin = join(await mkdtemp(join(tmpdir(), "bench-fake-")), "cli.mjs");
+    await writeFile(bin, "process.stdin.on('data', () => {});\nsetInterval(() => {}, 1000);\n");
+
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-23T00:00:00.000Z",
+    } as any);
+
+    const registry = new SessionRegistry({ ...config, claudeBin: "node" } as any);
+    await registry.restore();
+
+    // The real wiring, so the real exit handler runs.
+    const entry = (registry as any).entries.get(id);
+    (registry as any).attach(id, {
+      label: "auth", worktree, model: "opus", port: 3101, startTurn: 0,
+    });
+    expect(entry.session).not.toBeNull();
+
+    registry.stop(id);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(entry.session).toBeNull();
+    expect(entry.alive).toBe(false);
+  });
+});

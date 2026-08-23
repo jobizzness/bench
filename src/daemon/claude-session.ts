@@ -123,6 +123,18 @@ export class ClaudeSession extends EventEmitter {
       // It used to be emitted instead, which nothing listened to.
       this.lastStderr = (this.lastStderr + chunk).slice(-STDERR_KEPT);
     });
+    // An EventEmitter with no "error" listener rethrows, so a process that
+    // fails to spawn, or a pipe written to just after the process went, would
+    // reach the top of the daemon and end it. Both are the child's problem
+    // and neither should be the bench's.
+    this.child.on("error", (error) => {
+      this.lastStderr = (this.lastStderr + String(error)).slice(-STDERR_KEPT);
+    });
+    this.child.stdin.on("error", () => {
+      // Writing to a stopped specialist. `close` is already on its way and
+      // reports what happened; there is nothing to add here.
+    });
+
     // `close` rather than `exit`: exit can fire before the last stderr chunk
     // has been read, which is exactly the chunk worth having.
     this.child.on("close", (code) => {

@@ -120,7 +120,25 @@ export function createServer(opts: {
   const { config, registry } = opts;
   const index = opts.refs ?? new RefIndex();
 
-  const server = createHttpServer(async (req, res) => {
+  /**
+   * A throw inside an async request handler is not caught by anything: node
+   * does not await the promise it returns, so it becomes an unhandled
+   * rejection and the process exits. One bad route therefore took down every
+   * specialist on the bench - which is what stopping a turn did, by way of a
+   * later message reaching a session whose process had gone.
+   *
+   * A request that fails should fail. The daemon supervising six agents
+   * should not.
+   */
+  const server = createHttpServer((req, res) => {
+    void handle(req, res).catch((error) => {
+      process.stderr.write(`bench: ${req.method} ${req.url} failed: ${String(error)}\n`);
+      if (!res.headersSent) json(res, 500, { error: "the daemon failed to handle that" });
+      else res.end();
+    });
+  });
+
+  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const path = url.pathname;
 
@@ -410,7 +428,7 @@ export function createServer(opts: {
     }
 
     json(res, 404, { error: "not found" });
-  });
+  }
 
   const wss = new WebSocketServer({ server, path: "/events" });
   wss.on("connection", (socket, req) => {
