@@ -1,3 +1,4 @@
+import type { PlanStep } from "../../daemon/plan.js";
 import type { RosterRow } from "../../shared/types.js";
 import { elapsedSince, formatTokens, hashOf } from "../format.js";
 import { useBenchState } from "./context.js";
@@ -27,7 +28,23 @@ function meta(row: RosterRow): string {
   return parts.join("  ·  ");
 }
 
-export function Working() {
+/**
+ * How far through its own checklist a specialist is, or null when there is
+ * nothing honest to draw.
+ *
+ * Nothing when every step is done, which is not the boast it looks like: the
+ * daemon falls back to the most recent plan on disk when this turn has not
+ * written one, so a full bar at the start of a turn is last turn's bar. A
+ * bar that only ever appears while there is something left to do cannot tell
+ * that lie, and the sweep covers the rest.
+ */
+export function fractionDone(steps: PlanStep[] | null): number | null {
+  if (!steps || steps.length === 0) return null;
+  const done = steps.filter((step) => step.state === "done").length;
+  return done < steps.length ? done / steps.length : null;
+}
+
+export function Working({ steps }: { steps: PlanStep[] | null }) {
   const { rows, selectedId } = useBenchState();
   const tick = useTick();
   const row = rows.find((r) => r.id === selectedId);
@@ -40,11 +57,27 @@ export function Working() {
     ? "Preparing worktree"
     : VERBS[(hashOf(row.id) + Math.floor(tick / 24)) % VERBS.length];
 
+  const fraction = fractionDone(steps);
+  const done = steps?.filter((step) => step.state === "done").length ?? 0;
+
   return (
-    <div id="working">
+    <div id="working" data-measured={fraction !== null}>
+      {fraction !== null && (
+        <div
+          id="working-progress"
+          style={{ width: `${Math.round(fraction * 100)}%` }}
+          role="progressbar"
+          aria-valuenow={done}
+          aria-valuemin={0}
+          aria-valuemax={steps!.length}
+        />
+      )}
       <span id="working-glyph" aria-hidden="true">{GLYPHS[tick % GLYPHS.length]}</span>
       <span id="working-verb">{verb}</span>
-      <span id="working-meta">{meta(row)}</span>
+      <span id="working-meta">
+        {fraction !== null && <span id="working-steps">{done} of {steps!.length}</span>}
+        {meta(row)}
+      </span>
       {/* Only while there is a turn to end. Provisioning is a worktree being
           built, and stopping that leaves half a checkout behind. */}
       {row.status === "working" && <StopTurn id={row.id} />}
