@@ -336,6 +336,10 @@ button, input, textarea, select { font: inherit; color: inherit; }
   padding: 18px 32px 16px;
   border-bottom: 1px solid var(--line);
 }
+/* Top right of the pane, away from the label and the status it belongs
+   beside. Aligned to the middle rather than the baseline: an icon has no
+   baseline to share with words. */
+#stage-head #open-github { margin-left: auto; align-self: center; }
 #stage-label { font: 600 15px/1 var(--sans); letter-spacing: -0.01em; }
 #stage-status {
   font: 400 11px/1 var(--mono);
