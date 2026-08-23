@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { ThreadEntry as Entry } from "../../shared/types.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
 import { ThreadEntry } from "./ThreadEntry.js";
+import { useRefs } from "./useRefs.js";
 
 function Empty({ heading, body }: { heading: string; body: string }) {
   return <p id="empty"><b>{heading}</b>{body}</p>;
@@ -40,6 +41,9 @@ export function Thread({
 }) {
   const host = useRef<HTMLDivElement>(null);
   usePinToBottom(host, entries);
+  // Resolved once for the whole thread: the same number turns up in several
+  // messages, and the answer is the same in all of them.
+  const refs = useRefs(sessionId, entries);
 
   return (
     <div id="thread" ref={host}>
@@ -50,7 +54,7 @@ export function Thread({
         : entries.length === 0
           ? <Empty heading="Working." body="Nothing to read yet — the first report will land here." />
           : entries.map((entry) => (
-            <ThreadEntry key={entry.seq} entry={entry} sessionId={sessionId} onOpen={onOpen} />
+            <ThreadEntry key={entry.seq} entry={entry} sessionId={sessionId} refs={refs} onOpen={onOpen} />
           ))}
     </div>
   );

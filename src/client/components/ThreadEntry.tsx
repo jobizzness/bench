@@ -2,15 +2,17 @@ import type { ThreadEntry as Entry } from "../../shared/types.js";
 import { relativeTime } from "../format.js";
 import { ArtifactCard, type ArtifactRef } from "./ArtifactCard.js";
 import { Markdown } from "./Markdown.js";
+import type { References } from "../markdown.js";
 
 const WHO: Record<string, string> = { user: "you", reply: "specialist" };
 
 /** A report card, a reply card, or something somebody said. */
 export function ThreadEntry({
-  entry, sessionId, onOpen,
+  entry, sessionId, refs, onOpen,
 }: {
   entry: Entry;
   sessionId: string;
+  refs?: References;
   onOpen: (artifact: ArtifactRef) => void;
 }) {
   const who = WHO[entry.kind];
@@ -39,7 +41,7 @@ export function ThreadEntry({
             onOpen={onOpen}
           />
         )
-        : <Markdown className="bubble" text={entry.body} />}
+        : <Markdown className="bubble" text={entry.body} refs={refs} />}
     </div>
   );
 }

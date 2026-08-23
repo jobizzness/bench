@@ -10,6 +10,7 @@ import { artifactPage } from "./artifact-page.js";
 import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
+import { RefIndex } from "./refs.js";
 import type { IntakeAnswer, RosterRow } from "../shared/types.js";
 
 export interface SessionRegistryLike {
@@ -108,8 +109,14 @@ function readIntakeAnswers(value: unknown): IntakeAnswer[] | null {
   return answers;
 }
 
-export function createServer(opts: { config: BenchConfig; registry: SessionRegistryLike }) {
+export function createServer(opts: {
+  config: BenchConfig;
+  registry: SessionRegistryLike;
+  /** Injected by the tests, which must not reach GitHub. */
+  refs?: RefIndex;
+}) {
   const { config, registry } = opts;
+  const index = opts.refs ?? new RefIndex();
 
   const server = createHttpServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -240,6 +247,23 @@ export function createServer(opts: { config: BenchConfig; registry: SessionRegis
       const session = registry.get(thread[1]);
       if (!session) { json(res, 404, { error: "no such session" }); return; }
       json(res, 200, { entries: await readThread(session.threadPath) });
+      return;
+    }
+
+    // What the numbers in a thread are about. Answered per session because
+    // #12 belongs to the repository the specialist is working in.
+    const refs = path.match(/^\/api\/sessions\/([^/]+)\/refs$/);
+    if (refs && req.method === "GET") {
+      const project = registry.list().find((r) => r.id === refs[1])?.project;
+      if (!project) { json(res, 404, { error: "no such session" }); return; }
+
+      const numbers = (url.searchParams.get("n") ?? "")
+        .split(",")
+        .map((n) => Number(n.trim()))
+        .filter((n) => Number.isInteger(n) && n > 0)
+        .slice(0, 40);
+
+      json(res, 200, { refs: numbers.length === 0 ? [] : await index.lookup(project, numbers) });
       return;
     }
 
