@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { postJson } from "../api.js";
+import { projectName } from "../format.js";
 import { intakePayload, pickOption, sendBar } from "../intake.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
 import { ArtifactDialog } from "./ArtifactDialog.js";
 import { Composer } from "./Composer.js";
 import { DecisionPanel, isIntake } from "./DecisionPanel.js";
+import { GithubDrawer } from "./GithubDrawer.js";
+import { GithubMark } from "./GithubMark.js";
 import { IntakeCard } from "./IntakeCard.js";
 import { IntakeSheet } from "./IntakeSheet.js";
 import { Mark } from "./Mark.js";
@@ -19,6 +22,7 @@ import { Working } from "./Working.js";
 import { BenchProvider } from "./context.js";
 import { useCloseSpecialist } from "./useCloseSpecialist.js";
 import { useDecision } from "./useDecision.js";
+import { useGithub } from "./useGithub.js";
 import { useDecisionKeys } from "./useDecisionKeys.js";
 import { useRoster } from "./useRoster.js";
 import { useSelection } from "./useSelection.js";
@@ -49,6 +53,7 @@ export function App() {
   const [artifact, setArtifact] = useState<ArtifactRef | null>(null);
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [githubOpen, setGithubOpen] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const note$ = useRef<HTMLTextAreaElement>(null);
 
@@ -58,6 +63,10 @@ export function App() {
   );
   const state = useMemo(() => ({ rows, selectedId }), [rows, selectedId]);
   const actions = useMemo(() => ({ select, closeSpecialist }), [select, closeSpecialist]);
+
+  // Fetched only while the drawer is up: it is something you reach for, not a
+  // panel that lives on screen.
+  const github = useGithub(selectedId, githubOpen);
 
   const intake = isIntake(decision);
   const bar = decision && intake ? sendBar(decision, answers) : null;
@@ -160,6 +169,20 @@ export function App() {
                 Rules
               </button>
               <button id="new-session" type="button" onClick={() => setCreating(true)}>New</button>
+              {/* Last, and furthest right: it is about the project rather than
+                  about Bench, and it needs a specialist selected to know which
+                  project that is. */}
+              <button
+                id="open-github"
+                type="button"
+                disabled={!row}
+                title={row
+                  ? `Issues and pull requests in ${projectName(row.project)}`
+                  : "Open a specialist to see its project"}
+                onClick={() => setGithubOpen(true)}
+              >
+                <GithubMark />
+              </button>
             </div>
           </header>
           <ul id="roster-list"><Roster /></ul>
@@ -230,6 +253,12 @@ export function App() {
           onClose={() => setSheetOpen(false)}
         />
       )}
+      <GithubDrawer
+        open={githubOpen}
+        list={github}
+        project={row ? projectName(row.project) : null}
+        onClose={() => setGithubOpen(false)}
+      />
       <NewSessionDialog open={creating} onClose={() => setCreating(false)} />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </BenchProvider>

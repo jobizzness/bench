@@ -28,10 +28,14 @@ export interface Fixtures {
   createdId?: string;
   /** House rules already on the daemon when the page opens. */
   settings?: { codingStyle: string; workflowRules: string };
+  /** What GitHub says about the project the drawer is opened on. */
+  github?: { slug: string | null; items: unknown[] };
 }
 
 export interface Cockpit {
   sent: Sent[];
+  /** Every URL the page asked for, GETs included. */
+  fetched: string[];
   /** Push a roster over the socket, as the daemon does. */
   roster: (rows: RosterRow[]) => Promise<void>;
   /** Click a roster row, as the developer does. */
@@ -81,6 +85,7 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
   polyfillDialogs();
 
   const sent: Sent[] = [];
+  const fetched: string[] = [];
   let socket: any = null;
 
   (globalThis as any).WebSocket = class {
@@ -92,6 +97,7 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
   };
 
   (globalThis as any).fetch = async (url: string, init?: RequestInit) => {
+    fetched.push(url);
     if (init?.method === "POST") {
       sent.push({ url, body: JSON.parse(String(init.body)) });
       // Creating a specialist answers with its id, and the cockpit acts on it.
@@ -110,6 +116,14 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
     }
     if (url.includes("/projects")) {
       return { ok: true, status: 200, json: async () => ({ projects: fixtures.projects ?? [] }) };
+    }
+    if (url.includes("/github")) {
+      const github = fixtures.github;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ slug: github?.slug ?? null, items: github?.items ?? [] }),
+      };
     }
     if (url.includes("/settings")) {
       const settings = fixtures.settings ?? { codingStyle: "", workflowRules: "" };
@@ -137,6 +151,7 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
 
   const cockpit: Cockpit = {
     sent,
+    fetched,
     $, $$,
     roster: async (rows) => {
       await act(async () => {

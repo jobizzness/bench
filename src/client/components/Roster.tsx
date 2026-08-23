@@ -2,10 +2,7 @@ import { useState } from "react";
 import type { RosterRow } from "../../shared/types.js";
 import { useBenchActions, useBenchState } from "./context.js";
 import { isWaiting } from "../waiting.js";
-
-function projectName(path: string): string {
-  return path.split("/").filter(Boolean).pop() ?? path;
-}
+import { projectName } from "../format.js";
 
 function detailOf(row: RosterRow): string {
   return row.status === "awaiting_decision"
