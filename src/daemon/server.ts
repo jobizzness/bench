@@ -12,6 +12,7 @@ import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
 import { RefIndex } from "./refs.js";
+import { cockpitOrigins, isLoopback } from "./urls.js";
 import type { IntakeAnswer, RosterRow } from "../shared/types.js";
 
 export interface SessionRegistryLike {
@@ -167,6 +168,17 @@ export function createServer(opts: {
         // settings - and half a set would erase the half it left out.
         json(res, 400, { error: "settings must arrive whole, and short enough to send every turn" });
       }
+      return;
+    }
+
+    // Where else this same daemon answers. Without the token: the client
+    // asking already holds one, and a list of addresses is not a secret while
+    // the key that opens them is.
+    if (path === "/api/addresses" && req.method === "GET") {
+      json(res, 200, {
+        origins: cockpitOrigins({ host: config.host, port: config.port }),
+        loopbackOnly: isLoopback(config.host),
+      });
       return;
     }
 

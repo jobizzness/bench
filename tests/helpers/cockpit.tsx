@@ -30,6 +30,8 @@ export interface Fixtures {
   settings?: { codingStyle: string; workflowRules: string };
   /** What GitHub says about the project the drawer is opened on. */
   github?: { slug: string | null; items: unknown[] };
+  /** Where else this daemon answers. */
+  addresses?: { origins: string[]; loopbackOnly: boolean };
 }
 
 export interface Cockpit {
@@ -123,6 +125,17 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
         ok: true,
         status: 200,
         json: async () => ({ slug: github?.slug ?? null, items: github?.items ?? [] }),
+      };
+    }
+    if (url.includes("/addresses")) {
+      const where = fixtures.addresses;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          origins: where?.origins ?? ["http://127.0.0.1:7420"],
+          loopbackOnly: where?.loopbackOnly ?? true,
+        }),
       };
     }
     if (url.includes("/settings")) {

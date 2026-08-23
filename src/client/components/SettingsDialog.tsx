@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { houseRules, NO_SETTINGS, type Settings } from "../../shared/settings.js";
+import { ServerLocation } from "./ServerLocation.js";
 
 const PLACEHOLDER = {
   codingStyle:
@@ -100,6 +101,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
             {framing === "" ? "Nothing. With both boxes empty, no house rules are sent at all." : framing}
           </pre>
         </details>
+
+        <ServerLocation open={open} />
 
         {error && <p id="s-error" className="error">{error}</p>}
 
