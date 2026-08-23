@@ -7,6 +7,7 @@ import type { BenchConfig } from "./config.js";
 import { findReport } from "./reports.js";
 import { readPlan } from "./plan.js";
 import { artifactPage } from "./artifact-page.js";
+import { shareMessage } from "./share.js";
 import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
@@ -313,6 +314,36 @@ export function createServer(opts: {
       const session = registry.get(plan[1]);
       if (!session) { json(res, 404, { error: "no such session" }); return; }
       json(res, 200, { steps: await readPlan(session.reportsDir) });
+      return;
+    }
+
+    const share = path.match(/^\/api\/sessions\/([^/]+)\/share$/);
+    if (share && req.method === "POST") {
+      const source = registry.get(share[1]);
+      if (!source) { json(res, 404, { error: "no such session" }); return; }
+
+      const body = await readBody(req);
+      const seq = Number(body.seq);
+      const to: string[] = Array.isArray(body.to) ? body.to.map(String) : [];
+      const file = body.file === "reply.html" ? "reply.html" : "report.html";
+
+      if (!Number.isInteger(seq) || seq < 1) { json(res, 400, { error: "seq is required" }); return; }
+      if (to.length === 0) { json(res, 400, { error: "nobody to share with" }); return; }
+
+      const row = registry.list().find((r) => r.id === share[1]);
+      const report = await findReport(source.reportsDir, seq);
+      const message = shareMessage({
+        from: row?.label ?? "a specialist",
+        title: report?.decision.title ?? `Report ${seq}`,
+        path: join(source.reportsDir, String(seq), file),
+        note: typeof body.note === "string" ? body.note : undefined,
+      });
+
+      // A specialist that has gone is not a reason to fail the others.
+      const sent = to.filter((id) => id !== share[1] && registry.get(id) !== null);
+      for (const id of sent) registry.send(id, message);
+
+      json(res, 200, { sent: sent.length });
       return;
     }
 

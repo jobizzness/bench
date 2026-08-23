@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { artifactUrl } from "../api.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
+import { ShareReport } from "./ShareReport.js";
 
 /**
  * A report is a page, so it opens as one.
@@ -38,6 +39,9 @@ export function ArtifactDialog({
       <header>
         <span id="artifact-kind">{open?.label ?? ""}</span>
         <span id="artifact-title">{open?.title ?? ""}</span>
+        {open && sessionId && (
+          <ShareReport sessionId={sessionId} seq={open.seq} file={open.file} />
+        )}
         <a id="artifact-tab" href={src ?? undefined} target="_blank" rel="noreferrer"
            title="Open in a real tab">↗</a>
         <button type="button" id="artifact-close" aria-label="Close" autoFocus onClick={onClose}>

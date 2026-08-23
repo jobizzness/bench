@@ -411,6 +411,59 @@ button, input, textarea, select { font: inherit; color: inherit; }
   padding: 15px 16px 14px 20px;
   border-bottom: 1px solid var(--line);
 }
+/* Sits beside the title with the other things you can do to a report. The
+   menu is anchored to it rather than to the dialog, so it opens where the
+   pointer already is. */
+#artifact-share { flex: none; margin-left: auto; position: relative; }
+
+#artifact-share .share-open {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#artifact-share .share-open:hover { color: var(--text); border-color: var(--line-firm); }
+#artifact-share .share-open:focus-visible { outline: 2px solid var(--wants); outline-offset: 2px; }
+
+.share-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  min-width: 190px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line-firm);
+  border-radius: 6px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+.share-menu button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.share-menu button:hover { background: rgba(255, 255, 255, 0.05); }
+.share-menu button:focus-visible { outline: 2px solid var(--wants); outline-offset: -2px; }
+.share-label { font-weight: 600; font-size: 13px; }
+.share-project { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+
 #artifact-kind {
   flex: none;
   font-family: var(--mono); font-size: 10px;
