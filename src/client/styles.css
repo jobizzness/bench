@@ -1113,3 +1113,23 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .bubble hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
 .bubble a { color: var(--wants); text-underline-offset: 2px; }
+
+/* An issue or pull request, said in full. "#12" is a fact about a database;
+   what it is about is the thing worth reading, so the title carries the
+   weight and the number is the door. */
+.ref { white-space: nowrap; }
+.ref-title { font-weight: 600; white-space: normal; }
+.bubble .ref-number {
+  font: 500 0.85em/1 var(--mono);
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid var(--line-firm);
+  border-radius: 4px;
+  padding: 2px 5px;
+  transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
+}
+.bubble .ref-number:hover {
+  color: var(--wants);
+  border-color: var(--wants-dim);
+  background: var(--hover);
+}

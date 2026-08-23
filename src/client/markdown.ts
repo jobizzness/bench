@@ -26,7 +26,59 @@ const LINK = /^\[([^\]]+)\]\(([^)\s]+)\)$/;
  * data:, a bare path - stays as the text it was written as. */
 const SAFE_HREF = /^https?:\/\//i;
 
-function renderInline(parent: Node, text: string): void {
+/** A bare issue or pull request number, not preceded by a word character -
+ * so `sha#12` and a heading's `#` are left alone. */
+const REFERENCE = /(?<![\w#])(#\d+)/g;
+
+/** What a number in a thread turns out to be about. */
+export interface Reference { number: number; title: string; url: string }
+export type References = ReadonlyMap<number, Reference>;
+
+/** Every `#12` in the text, in the order they appear. */
+export function referencedNumbers(text: string): number[] {
+  return [...new Set(
+    [...String(text ?? "").matchAll(REFERENCE)].map((m) => Number(m[1].slice(1))),
+  )];
+}
+
+/**
+ * `#12` says nothing. What the developer needs from a thread is what the
+ * number is about, so a resolved reference reads as its title with the number
+ * beside it, linked - and an unresolved one stays the text it always was.
+ */
+function renderReferences(parent: Node, text: string, refs: References | undefined): void {
+  if (!refs || refs.size === 0) { parent.appendChild(document.createTextNode(text)); return; }
+
+  for (const part of text.split(REFERENCE)) {
+    if (!part) continue;
+
+    const ref = /^#\d+$/.test(part) ? refs.get(Number(part.slice(1))) : undefined;
+    // The daemon supplies these, but the rule is the same as for a written
+    // link: nothing the browser will not navigate to safely.
+    if (!ref || !SAFE_HREF.test(ref.url)) {
+      parent.appendChild(document.createTextNode(part));
+      continue;
+    }
+
+    const title = document.createElement("strong");
+    title.className = "ref-title";
+    title.textContent = ref.title;
+
+    const anchor = document.createElement("a");
+    anchor.className = "ref-number";
+    anchor.href = ref.url;
+    anchor.textContent = part;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+
+    const wrap = document.createElement("span");
+    wrap.className = "ref";
+    wrap.append(title, " ", anchor);
+    parent.appendChild(wrap);
+  }
+}
+
+function renderInline(parent: Node, text: string, refs?: References): void {
   // Splitting on a capturing pattern returns the delimiters interleaved with
   // the plain runs between them.
   for (const part of text.split(INLINE)) {
@@ -41,7 +93,7 @@ function renderInline(parent: Node, text: string): void {
 
     if (part.length > 4 && part.startsWith("**") && part.endsWith("**")) {
       const strong = document.createElement("strong");
-      renderInline(strong, part.slice(2, -2));
+      renderInline(strong, part.slice(2, -2), refs);
       parent.appendChild(strong);
       continue;
     }
@@ -51,7 +103,7 @@ function renderInline(parent: Node, text: string): void {
         || (part.startsWith("_") && part.endsWith("_")));
     if (italic) {
       const em = document.createElement("em");
-      renderInline(em, part.slice(1, -1));
+      renderInline(em, part.slice(1, -1), refs);
       parent.appendChild(em);
       continue;
     }
@@ -67,11 +119,11 @@ function renderInline(parent: Node, text: string): void {
       continue;
     }
 
-    parent.appendChild(document.createTextNode(part));
+    renderReferences(parent, part, refs);
   }
 }
 
-export function renderMarkdown(text: string): DocumentFragment {
+export function renderMarkdown(text: string, refs?: References): DocumentFragment {
   const root = document.createDocumentFragment();
   const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
   const held: string[] = [];
@@ -84,7 +136,7 @@ export function renderMarkdown(text: string): DocumentFragment {
     const paragraph = document.createElement("p");
     held.forEach((line, index) => {
       if (index > 0) paragraph.appendChild(document.createElement("br"));
-      renderInline(paragraph, line);
+      renderInline(paragraph, line, refs);
     });
     root.appendChild(paragraph);
     held.length = 0;
@@ -126,7 +178,7 @@ export function renderMarkdown(text: string): DocumentFragment {
       flush();
       // A bubble is not a document: the largest heading in one is an h3.
       const h = document.createElement(`h${Math.min(6, heading[1].length + 2)}`);
-      renderInline(h, heading[2]);
+      renderInline(h, heading[2], refs);
       root.appendChild(h);
       i += 1;
       continue;
@@ -138,7 +190,7 @@ export function renderMarkdown(text: string): DocumentFragment {
       const list = document.createElement(ordered ? "ol" : "ul");
       while (i < lines.length && BULLET.test(lines[i]) && ORDERED.test(lines[i]) === ordered) {
         const item = document.createElement("li");
-        renderInline(item, lines[i].replace(BULLET, ""));
+        renderInline(item, lines[i].replace(BULLET, ""), refs);
         list.appendChild(item);
         i += 1;
       }
@@ -154,7 +206,7 @@ export function renderMarkdown(text: string): DocumentFragment {
         i += 1;
       }
       const quote = document.createElement("blockquote");
-      quote.appendChild(renderMarkdown(body.join("\n")));
+      quote.appendChild(renderMarkdown(body.join("\n"), refs));
       root.appendChild(quote);
       continue;
     }
