@@ -102,6 +102,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           id: rec.id,
           label: rec.label,
           role: asRole(rec.role),
+          branch: rec.branch ?? `worktree-${rec.label}`,
+          isolated: rec.isolated ?? true,
           project: rec.project,
           status: worktreeGone ? "crashed" : "awaiting_decision",
           detail: worktreeGone ? "worktree is gone" : "ready",
@@ -311,6 +313,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         id,
         label: input.label,
         role,
+        branch: "",
+        isolated,
         project: input.project,
         status: "provisioning",
         detail: isolated ? "creating worktree" : "opening the checkout",
@@ -344,6 +348,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       const entry = this.entries.get(id)!;
       entry.worktree = worktree;
       entry.branch = branch;
+      // The row is made before the worktree exists, so this is the first
+      // moment there is a branch to name.
+      entry.row.branch = branch;
       entry.port = port;
       this.attach(id, {
         label: input.label,

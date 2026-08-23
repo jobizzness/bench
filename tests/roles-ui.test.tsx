@@ -48,3 +48,40 @@ describe("what kind of agent each one is", () => {
     expect(ui.$(".row .label")!.firstChild!.textContent).toBe("payouts");
   });
 });
+
+describe("where a specialist is working", () => {
+  it("names the branch on the stage", async () => {
+    ui = await bootCockpit({ rows: [row({ label: "auth", branch: "bench/auth-abcd1234" })] });
+    await ui.open("auth");
+
+    expect(ui.$(".where-branch")!.textContent).toBe("bench/auth-abcd1234");
+  });
+
+  it("says plainly when one is in your checkout rather than its own worktree", async () => {
+    // This is the one worth seeing: it edits the files you have open, on the
+    // branch you are on.
+    ui = await bootCockpit({ rows: [row({ label: "quick-look", branch: "main", isolated: false })] });
+    await ui.open("quick-look");
+
+    expect(ui.$(".where-shared")!.textContent).toBe("your checkout");
+    expect(ui.$(".where")!.getAttribute("title")).toContain("Working in your checkout, on main");
+  });
+
+  it("marks that one on the roster too, where you are choosing between them", async () => {
+    ui = await bootCockpit({ rows: [
+      row({ id: "a", label: "auth" }),
+      row({ id: "b", label: "quick-look", branch: "main", isolated: false }),
+    ] });
+
+    const marked = ui.$$(".row").map((r) => r.querySelector(".row-shared") !== null);
+    expect(marked).toEqual([false, true]);
+  });
+
+  it("says nothing at all while the worktree is still being made", async () => {
+    // A branch it does not have yet is not a branch worth naming.
+    ui = await bootCockpit({ rows: [row({ label: "new-one", branch: "", status: "provisioning" })] });
+    await ui.open("new-one");
+
+    expect(ui.$(".where")).toBeNull();
+  });
+});

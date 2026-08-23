@@ -26,10 +26,17 @@ function Row({ row, selected }: { row: RosterRow; selected: boolean }) {
       onClick={() => select(row.id)}
     >
       <div className="label">
-        {row.label}
+        <span className="label-name">{row.label}</span>
         {/* What kind of agent this is, beside what it is called. A tab named
             for its task said nothing about whether it builds or reads. */}
         <span className="role" data-role={row.role}>{row.role}</span>
+        {/* Only when it is in your checkout. Its own worktree is the normal
+            case, and a roster that says so on every row says nothing. */}
+        {!row.isolated && row.branch !== "" && (
+          <span className="row-shared" title={`Working in your checkout, on ${row.branch}`}>
+            checkout
+          </span>
+        )}
       </div>
       <div className="detail">{detailOf(row)}</div>
       <button

@@ -315,6 +315,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .row .label {
   display: flex;
   align-items: baseline;
+  flex-wrap: nowrap;
   gap: 7px;
   font: 500 14px/1.35 var(--sans);
   letter-spacing: -0.01em;
@@ -341,6 +342,36 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .role[data-role="researcher"] { color: #6fb3d0; border-color: #26404d; }
 
 #stage-head .role { align-self: center; }
+
+/* Where a specialist is working. The branch is information; "your checkout"
+   is a warning, and it is the only part that changes colour. */
+.where {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 400 11px/1 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  min-width: 0;
+}
+.where svg { flex: none; opacity: 0.8; }
+.where-branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.where-shared, .row-shared {
+  flex: none;
+  font: 500 9px/1 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--busy);
+  background: var(--busy-dim);
+  border-radius: 3px;
+  padding: 3px 5px 2px;
+}
+.where[data-shared="true"] { color: var(--muted); }
+
+#stage-head .where { align-self: center; margin-left: 14px; min-width: 0; }
+/* The name gives way, not the badges: which agent it is, is readable from
+   the two words beside it even when the name is clipped. */
+.label-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row[data-waiting="true"] .label { color: var(--wants); font-weight: 600; }
 .row[data-status="crashed"] .label,
 .row[data-status="provisioning_failed"] .label { color: var(--broken); }

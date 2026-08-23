@@ -1,5 +1,6 @@
 import { projectName } from "../format.js";
 import { GithubMark } from "./GithubMark.js";
+import { Where } from "./Where.js";
 import { useBenchState } from "./context.js";
 
 export function StageHead({ onGithub }: {
@@ -15,6 +16,7 @@ export function StageHead({ onGithub }: {
       <span id="stage-label">{row.label}</span>
       <span className="role" data-role={row.role}>{row.role}</span>
       <span id="stage-status">{`${row.status.replace(/_/g, " ")} · ${row.detail}`}</span>
+      <Where row={row} />
 
       {/* Top right of the pane the specialist is on, because the project it
           lists is that specialist's - and here it can never be the button
