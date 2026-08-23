@@ -27,6 +27,12 @@
 
   --step: 4px;
   --ease: cubic-bezier(0.2, 0, 0.1, 1);
+
+  /* The cockpit never said it was dark, so the browser assumed light and drew
+     every widget it owns for a light page: pale scrollbars, and a white menu
+     dropping out of a dark select. The report frame has said this from the
+     start, which is why its scrollbars never looked wrong. */
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -47,6 +53,48 @@ body {
 }
 
 button, input, textarea, select { font: inherit; color: inherit; }
+
+/* ── Scrollbars ─────────────────────────── begin: scrollbars ───────── */
+
+/* Nine surfaces here scroll, and every one of them wore the platform default:
+   16px wide with a stepper arrow on each end, drawn above everything else and
+   wider than the rail that carries a specialist's status.
+
+   The WebKit pseudo-elements rather than `scrollbar-width`/`scrollbar-color`,
+   which is a real choice and not an old habit: setting either standard
+   property makes Chrome ignore these entirely, and the standard ones cannot
+   drop the stepper arrows or inset the thumb. Chrome is what the cockpit is
+   served to. Everything else falls back to the UA's dark scrollbar, which
+   `color-scheme` above has already asked for. */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-button { display: none; }
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* Transparent border with the background clipped inside it: that is the only
+   way to inset a thumb, and an inset one reads as part of the panel rather
+   than a bar bolted to its edge. */
+*::-webkit-scrollbar-thumb {
+  background: var(--line-firm);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: padding-box;
+}
+
+/* A sunk panel - a code block, the framing preview, the composer - is darker
+   than the page, so a thumb the colour of a border disappears into it. */
+.bubble pre::-webkit-scrollbar-thumb,
+#s-framing::-webkit-scrollbar-thumb,
+#composer-text::-webkit-scrollbar-thumb {
+  background: var(--muted);
+  background-clip: padding-box;
+}
+
+/* ────────────────────────────────────────── end: scrollbars ────────── */
 
 :focus-visible {
   outline: 2px solid var(--wants);

@@ -33,6 +33,21 @@ const GROUND = `
     color-scheme: dark;
   }
 
+  /* A report is long by nature, so its scrollbar is always on screen. The same
+     thin inset thumb as the cockpit, rather than the 16px stepper the UA
+     draws. See the note in styles.css for why these and not the standard
+     scrollbar properties. */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-button { display: none; }
+  *::-webkit-scrollbar-thumb {
+    background: var(--firm);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: padding-box; }
+
   html { background: var(--ground); }
   body {
     margin: 0 auto;

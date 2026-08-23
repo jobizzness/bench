@@ -24,9 +24,13 @@ export function useAutoGrow(
 
     const style = getComputedStyle(node);
     const line = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5;
-    const frame = node.offsetHeight - node.clientHeight
-      + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    // `box-sizing: border-box` is set globally, so the height being assigned
+    // includes the borders - and scrollHeight does not. Setting one to the
+    // other left the content two pixels taller than the box it was in, which
+    // is why an empty composer wore a scrollbar.
+    const borders = node.offsetHeight - node.clientHeight;
+    const frame = borders + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
 
-    node.style.height = `${Math.min(node.scrollHeight, line * maxRows + frame)}px`;
+    node.style.height = `${Math.min(node.scrollHeight + borders, line * maxRows + frame)}px`;
   }, [ref, value, maxRows]);
 }
