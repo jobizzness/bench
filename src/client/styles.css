@@ -440,8 +440,15 @@ button, input, textarea, select { font: inherit; color: inherit; }
   min-width: 0;
 }
 /* Editable, said by the field appearing under the pointer rather than by an
-   icon sitting next to the name forever. */
-#stage-label { cursor: text; text-align: left; }
+   icon sitting next to the name forever. A name can now be a sentence, and
+   the control beside it is not the thing that should give way to one. */
+#stage-label {
+  cursor: text;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 #stage-label:hover { background: var(--hover); }
 #stage-label:focus-visible { outline: none; border-color: var(--line-firm); }
 #stage-label[data-failed="true"] { color: var(--broken); }
