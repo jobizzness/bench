@@ -49,6 +49,11 @@
    here so the next dialog cannot rediscover it. */
 dialog:not([open]) { display: none !important; }
 
+/* The one colour the browser picks for you. Renaming a specialist opens
+   with the old name selected, and the UA blue arrived in the header like a
+   dialog from another program. */
+::selection { background: var(--wants-dim); color: var(--text); }
+
 html, body { height: 100%; }
 
 body {
@@ -421,7 +426,38 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* The name and the one control that belongs to it. Everything else is on the
    line below, where it is metadata rather than a heading. */
 #stage-title { display: flex; align-items: center; gap: 12px; margin-bottom: 5px; }
-#stage-label { font: 600 15px/1.2 var(--sans); letter-spacing: -0.01em; }
+/* The name reads the same whether it is text or a field. A rename that
+   moves the word it is renaming is a rename you have to look at twice. */
+.stage-name {
+  font: 600 15px/1.2 var(--sans);
+  letter-spacing: -0.01em;
+  color: var(--text);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--step);
+  padding: 3px 6px;
+  margin: -3px -6px;
+  min-width: 0;
+}
+/* Editable, said by the field appearing under the pointer rather than by an
+   icon sitting next to the name forever. A name can now be a sentence, and
+   the control beside it is not the thing that should give way to one. */
+#stage-label {
+  cursor: text;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#stage-label:hover { background: var(--hover); }
+#stage-label:focus-visible { outline: none; border-color: var(--line-firm); }
+#stage-label[data-failed="true"] { color: var(--broken); }
+#stage-label-input {
+  flex: 1;
+  background: var(--sunk);
+  border-color: var(--line-firm);
+  outline: none;
+}
 #stage-head #open-github { margin-left: auto; }
 
 /* min-height:0 is required: a flex child inside a grid item otherwise
