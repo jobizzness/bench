@@ -34,9 +34,3 @@ export function contextTone(context: Context | null): ContextTone {
   if (fraction >= 0.9) return "full";
   return fraction >= 0.75 ? "high" : "ok";
 }
-
-/** "62%" - rounded down, so it never says a hundred while there is room. */
-export function contextLabel(context: Context | null): string | null {
-  const fraction = fractionUsed(context);
-  return fraction === null ? null : `${Math.floor(fraction * 100)}% context`;
-}

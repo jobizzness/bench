@@ -1,4 +1,5 @@
-import { contextLabel, contextTone } from "../../shared/context-window.js";
+import { contextTone } from "../../shared/context-window.js";
+import { ContextMeter } from "./ContextMeter.js";
 import type { RosterRow } from "../../shared/types.js";
 
 /**
@@ -24,7 +25,7 @@ export function Meta({ row, status = false, branch = false }: {
   const tone = contextTone(row.context);
   // On the stage it is always worth knowing; on a row it is worth the space
   // only once it is close, which is the same rule the checkout warning uses.
-  const fill = (status || branch || tone !== "ok") ? contextLabel(row.context) : null;
+  const fill = status || branch || tone !== "ok";
   // A roster row is 276px wide and this line has to fit the two things a
   // roster is for: which one this is, and whether it wants watching. What it
   // is doing is the third of those, and it is one click away on the stage -
@@ -43,7 +44,7 @@ export function Meta({ row, status = false, branch = false }: {
       {branch && row.branch !== "" && <span className="meta-branch">{row.branch}</span>}
       {/* How full the conversation is. Last, because it is the one thing here
           you act on between turns rather than during one. */}
-      {fill && <span className="meta-context" data-tone={tone}>{fill}</span>}
+      {fill && <ContextMeter context={row.context} />}
     </div>
   );
 }

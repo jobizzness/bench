@@ -103,7 +103,11 @@ describe("how full a conversation is", () => {
     ui = await bootCockpit({ rows: [row({ label: "auth", context: { used: 20_000, window: 200_000 } })] });
     await ui.open("auth");
 
-    expect(metaOf(ui.$("#stage-head")!)).toContain("10% context");
+    // A ring, not a sentence. The number is on the hover, where you go when
+    // you want the exact one.
+    const meter = ui.$("#stage-head .meta-context")!;
+    expect(meter).not.toBeNull();
+    expect(meter.getAttribute("title")).toBe("10% of the conversation used");
   });
 
   it("stays off a roster row until it is close", async () => {
@@ -113,8 +117,9 @@ describe("how full a conversation is", () => {
       row({ id: "b", label: "late", context }),
     ] });
 
-    expect(metaOf(ui.$$(".row")[0])).not.toContain("10% context");
-    expect(metaOf(ui.$$(".row")[1])).toContain("75% context");
+    expect(ui.$$(".row")[0].querySelector(".meta-context")).toBeNull();
+    expect(ui.$$(".row")[1].querySelector(".meta-context")?.getAttribute("title"))
+      .toBe("75% of the conversation used");
   });
 
   it("colours it only once it is worth acting on", async () => {

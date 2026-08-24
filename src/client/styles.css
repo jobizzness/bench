@@ -366,6 +366,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
    then red - the same three steps the rest of the cockpit uses for "fine",
    "watch this" and "broken", spent here on the one number you act on between
    turns rather than during one. */
+/* A dial, not a sentence. The ring carries the fraction and the hover
+   carries the number, so the line under a specialist's name keeps one fact
+   per segment instead of one clause. */
+.meta-context { display: inline-flex; align-items: center; color: var(--faint); }
+.context-ring { display: block; }
+.context-track { stroke: var(--line-firm); }
+.context-fill { stroke: currentColor; }
+
 .meta-context[data-tone="high"] { color: var(--busy); }
 .meta-context[data-tone="full"] { color: var(--broken); }
 
