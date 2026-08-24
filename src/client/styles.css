@@ -118,7 +118,19 @@ button, input, textarea, select { font: inherit; color: inherit; }
   color: var(--faint);
 }
 
-#app { display: grid; grid-template-columns: 276px 1fr; height: 100vh; }
+#app {
+  display: grid;
+  grid-template-columns: 276px 1fr;
+  /* dvh, not vh: on a phone the toolbars come and go, and 100vh is the tall
+     measurement, so the composer sits under the browser's own chrome. */
+  height: 100vh;
+  height: 100dvh;
+  /* Installed, the window is drawn to the edges of the screen - which on a
+     notched phone means behind the notch and the home indicator. */
+  padding:
+    env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
 
 /* ── Roster ─────────────────────────────────────────────────────────── */
 
@@ -1781,6 +1793,25 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 
 #stale strong { font-weight: 600; }
+
+/* The daemon not answering, which an installed cockpit meets often: it is
+   opened from a home screen whether or not the machine is awake. Quieter
+   than #stale because it needs nothing from you - the socket is already
+   trying - and because what is on screen is still true, just not current. */
+#offline {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 10;
+  display: grid;
+  gap: 0.15rem;
+  padding: calc(0.7rem + env(safe-area-inset-top)) 1rem 0.7rem;
+  background: var(--raised);
+  color: var(--muted);
+  border-bottom: 1px solid var(--line-firm);
+  font-size: 0.85rem;
+}
+
+#offline strong { font-weight: 600; color: var(--text); }
 
 /* Markdown inside a bubble. Tuned tight: this is spoken text, so the
    blocks sit closer together than they would on a page, and the first and

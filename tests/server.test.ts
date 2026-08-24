@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { EventEmitter } from "node:events";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -42,6 +42,7 @@ let server: ReturnType<typeof createServer>;
 let base: string;
 let registry: StubRegistry;
 let projectsRoot: string;
+let clientDir: string;
 
 beforeAll(async () => {
   registry = new StubRegistry();
@@ -63,9 +64,19 @@ beforeAll(async () => {
   projectsRoot = await mkdtemp(join(tmpdir(), "bench-projroot-"));
   await mkdir(join(projectsRoot, "demo-repo", ".git"), { recursive: true });
 
+  // The real shell, plus the two files that only exist after a build. The
+  // static route is worth testing against what it actually serves - a PNG
+  // read as text is a PNG that no longer decodes - so this is a copy of
+  // src/client rather than a set of stand-ins.
+  clientDir = await mkdtemp(join(tmpdir(), "bench-client-"));
+  await cp("src/client", clientDir, { recursive: true });
+  await writeFile(join(clientDir, "app.js"), "/* built bundle */\n");
+  await writeFile(join(clientDir, "sw.js"), "/* built worker */\n");
+
   server = createServer({
     config: { home: "/tmp/bench", port: 0, token: TOKEN, pluginDir: "/tmp/plugin", hookCommand: "node hook.js", projectsRoot },
     registry: registry as any,
+    clientDir,
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -90,6 +101,54 @@ describe("auth", () => {
     const res = await fetch(`${base}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
+  });
+});
+
+describe("what an installed cockpit fetches", () => {
+  it("keeps the manifest behind the token, since it contains one", async () => {
+    // start_url carries the token. Served without auth, /manifest.webmanifest
+    // would hand a shell on this machine to anyone on the network.
+    const res = await fetch(`${base}/manifest.webmanifest`);
+    expect(res.status).toBe(401);
+  });
+
+  it("serves a manifest that launches straight into this cockpit", async () => {
+    const res = await fetch(`${base}/manifest.webmanifest?token=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/manifest+json");
+    // Nothing carrying a token belongs in a disk cache.
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect((await res.json()).start_url).toBe(`/?token=${TOKEN}`);
+  });
+
+  it("serves the worker without a token, because it holds no secrets", async () => {
+    const res = await fetch(`${base}/sw.js`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/javascript");
+  });
+
+  it("serves the icons whole, as PNG rather than as mangled text", async () => {
+    const res = await fetch(`${base}/icons/icon-192.png`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+
+    // Read as UTF-8 and re-encoded, a PNG loses bytes and no longer decodes.
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect([...bytes.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect(bytes.byteLength).toBeGreaterThan(1000);
+  });
+
+  it("asks the browser to check the shell rather than assume it", async () => {
+    // The shell is rebuilt while the daemon runs, and a heuristically cached
+    // app.js is a cockpit a build behind the daemon it talks to.
+    const res = await fetch(`${base}/app.js`);
+    expect(res.headers.get("cache-control")).toBe("no-cache");
+  });
+
+  it("still refuses a path it was not told to serve", async () => {
+    for (const path of ["/../package.json", "/icons/../../package.json", "/config.js"]) {
+      expect((await fetch(`${base}${path}`)).status).not.toBe(200);
+    }
   });
 });
 

@@ -12,6 +12,7 @@ import { IntakeCard } from "./IntakeCard.js";
 import { IntakeSheet } from "./IntakeSheet.js";
 import { BrainMark } from "./BrainMark.js";
 import { Mark } from "./Mark.js";
+import { Offline } from "./Offline.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
 import { Queue } from "./Queue.js";
 import { Progress } from "./Progress.js";
@@ -41,7 +42,7 @@ import { isWaiting } from "../waiting.js";
  * to draw it.
  */
 export function App() {
-  const rows = useRoster();
+  const { rows, live } = useRoster();
   const { selectedId, select } = useSelection();
   const row = rows.find((r) => r.id === selectedId) ?? null;
 
@@ -87,6 +88,14 @@ export function App() {
   // Fetched once here and given to both the checklist and the working strip,
   // which draws a bar from it - two pollers on one file would drift.
   const steps = useSessionPlan(selectedId, row?.status === "working");
+
+  // Where the installed app's one shortcut lands. The hash is cleared as it
+  // is read, so reloading the page you were left on does not reopen it.
+  useEffect(() => {
+    if (location.hash !== "#queue") return;
+    history.replaceState(null, "", location.pathname + location.search);
+    setQueueOpen(true);
+  }, []);
 
   const intake = isIntake(decision);
   const bar = decision && intake ? sendBar(decision, answers) : null;
@@ -172,6 +181,9 @@ export function App() {
   return (
     <BenchProvider state={state} actions={actions}>
       <StaleLink />
+      {/* One or the other: a refused socket is a stale link, and saying both
+          would be describing the same silence twice. */}
+      <Offline shown={live === false} />
 
       <main id="app">
         <aside id="roster">

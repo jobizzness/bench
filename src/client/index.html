@@ -2,12 +2,30 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- viewport-fit=cover so a standalone window on a notched phone draws to
+       the edges; the layout pads itself back off them with the safe-area
+       insets rather than leaving the browser to letterbox it. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <!-- A real head, rather than a fragment with links loose in the body. The
        icon was being served the whole time and a link outside head is at the
        browser's discretion; a title that does not exist is at nobody's. -->
   <title>Bench</title>
+  <meta name="description" content="Supervise Claude Code specialists and answer what they ask." />
+  <!-- Drawn behind the status bar and the window chrome, so an installed
+       cockpit does not sit in a white frame. -->
+  <meta name="theme-color" content="#0b1210" />
+  <meta name="color-scheme" content="dark" />
+
+  <!-- The manifest link is written by the page, not here: it carries the
+       cockpit token, and this file is served to anyone who asks. -->
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <!-- iOS takes neither the manifest's icons nor an SVG. -->
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Bench" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>

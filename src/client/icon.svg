@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bench">
+  <title>Bench</title>
+  <!-- The app icon, which is not the favicon: a favicon is a 16px mark on
+       whatever the browser's chrome happens to be, and this is a tile on
+       somebody's home screen. It carries its own ground for that reason, and
+       the ground is the cockpit's own background rather than a lighter one
+       invented to make the icon pop.
+
+       The mark sits at 52% of the square, well inside the 80% circle a
+       maskable icon may be cropped to, so the same file serves both purposes
+       and no launcher can cut a leg off. -->
+  <rect width="512" height="512" fill="#0b1210"/>
+  <g transform="translate(88 104) scale(14)">
+    <rect x="2.4" y="16.4" width="19.2" height="2.6" rx="1.3" fill="#8ba396"/>
+    <rect x="4.6" y="11.4" width="2.4" height="5" rx="1.2" fill="#8ba396"/>
+    <rect x="12.6" y="11.4" width="2.4" height="5" rx="1.2" fill="#8ba396"/>
+    <rect x="16.6" y="11.4" width="2.4" height="5" rx="1.2" fill="#8ba396"/>
+    <rect x="8.6" y="7.4" width="2.4" height="9" rx="1.2" fill="#4fd18b"/>
+    <circle cx="9.8" cy="4.5" r="1.75" fill="#4fd18b"/>
+  </g>
+</svg>

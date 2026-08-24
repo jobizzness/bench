@@ -40,6 +40,10 @@ export interface Cockpit {
   fetched: string[];
   /** Push a roster over the socket, as the daemon does. */
   roster: (rows: RosterRow[]) => Promise<void>;
+  /** The socket opening, which is the page learning the daemon is there. */
+  connect: () => Promise<void>;
+  /** The socket going. 1006 is a daemon that died; 1008 is a refused token. */
+  drop: (code?: number) => Promise<void>;
   /** Click a roster row, as the developer does. */
   open: (label: string) => Promise<void>;
   press: (key: string) => Promise<void>;
@@ -94,6 +98,7 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
   let socket: any = null;
 
   (globalThis as any).WebSocket = class {
+    onopen: (() => void) | null = null;
     onmessage: ((e: { data: string }) => void) | null = null;
     onclose: ((e: { code: number }) => void) | null = null;
     constructor() { socket = this; }
@@ -173,6 +178,14 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       await act(async () => {
         socket?.onmessage?.({ data: JSON.stringify({ type: "roster", rows }) });
       });
+      await settle();
+    },
+    connect: async () => {
+      await act(async () => { socket?.onopen?.(); });
+      await settle();
+    },
+    drop: async (code = 1006) => {
+      await act(async () => { socket?.onclose?.({ code }); });
       await settle();
     },
     open: async (label) => {

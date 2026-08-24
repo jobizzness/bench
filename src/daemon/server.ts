@@ -6,6 +6,7 @@ import { WebSocketServer } from "ws";
 import type { BenchConfig } from "./config.js";
 import { findReport } from "./reports.js";
 import { readPlan } from "./plan.js";
+import { benchManifest } from "./manifest.js";
 import { artifactPage } from "./artifact-page.js";
 import { shareMessage } from "./share.js";
 import { readThread } from "./thread.js";
@@ -30,6 +31,25 @@ export interface SessionRegistryLike {
 }
 
 const CLIENT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "client");
+
+/**
+ * What the shell is allowed to fetch before it has proved anything.
+ *
+ * Named one file at a time rather than resolved from the path: this is the
+ * one route that turns a URL into a filename, and a table cannot be talked
+ * into ".." by anybody. The manifest is deliberately not here - it carries
+ * the token, so it lives behind the token, below.
+ */
+const STATIC: Record<string, string> = {
+  "/app.js": "text/javascript; charset=utf-8",
+  "/styles.css": "text/css; charset=utf-8",
+  "/sw.js": "text/javascript; charset=utf-8",
+  "/favicon.svg": "image/svg+xml; charset=utf-8",
+  "/icon.svg": "image/svg+xml; charset=utf-8",
+  "/icons/icon-192.png": "image/png",
+  "/icons/icon-512.png": "image/png",
+  "/icons/apple-touch-icon.png": "image/png",
+};
 
 /** Reports are untrusted generated HTML: no network, no scripts from elsewhere. */
 const REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:";
@@ -116,9 +136,13 @@ export function createServer(opts: {
   registry: SessionRegistryLike;
   /** Injected by the tests, which must not reach GitHub. */
   refs?: RefIndex;
+  /** Where the built shell is. Injected by the tests, which run from source
+   * and so have no bundle beside index.html. */
+  clientDir?: string;
 }) {
   const { config, registry } = opts;
   const index = opts.refs ?? new RefIndex();
+  const clientDir = opts.clientDir ?? CLIENT_DIR;
 
   /**
    * A throw inside an async request handler is not caught by anything: node
@@ -148,14 +172,17 @@ export function createServer(opts: {
     // The client reads the id back out of the path; the daemon does not need
     // to know it, and never turns it into a filesystem path.
     const isShell = path === "/" || /^\/s\/[A-Za-z0-9-]+\/?$/.test(path);
-    if (isShell || path === "/app.js" || path === "/styles.css" || path === "/favicon.svg") {
+    if (isShell || path in STATIC) {
       const file = isShell ? "index.html" : path.slice(1);
-      const type = file.endsWith(".js") ? "text/javascript"
-        : file.endsWith(".css") ? "text/css"
-        : file.endsWith(".svg") ? "image/svg+xml" : "text/html";
       try {
-        const body = await readFile(join(CLIENT_DIR, file), "utf8");
-        res.writeHead(200, { "content-type": `${type}; charset=utf-8` });
+        const body = await readFile(join(clientDir, file));
+        res.writeHead(200, {
+          "content-type": isShell ? "text/html; charset=utf-8" : STATIC[path],
+          // Revalidate rather than assume. The shell is rebuilt while the
+          // daemon runs, and a heuristically cached app.js is a cockpit a
+          // build behind the daemon it is talking to.
+          "cache-control": "no-cache",
+        });
         res.end(body);
       } catch {
         res.writeHead(404).end("not found");
@@ -166,6 +193,19 @@ export function createServer(opts: {
     const token = req.headers["x-bench-token"] ?? url.searchParams.get("token");
     if (token !== config.token) {
       json(res, 401, { error: "unauthorized" });
+      return;
+    }
+
+    // Behind the token, and built from it: an installed cockpit launches at
+    // its own start_url with nobody to paste a link, so the token has to be
+    // in the manifest - which means the manifest cannot be a static file.
+    if (path === "/manifest.webmanifest") {
+      res.writeHead(200, {
+        "content-type": "application/manifest+json; charset=utf-8",
+        // Nothing that carries a token gets to sit in a disk cache.
+        "cache-control": "no-store",
+      });
+      res.end(JSON.stringify(benchManifest(config.token)));
       return;
     }
 

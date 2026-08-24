@@ -20,6 +20,7 @@ import { row } from "./helpers/cockpit.js";
  */
 
 interface FakeSocket {
+  onopen: (() => void) | null;
   onmessage: ((e: { data: string }) => void) | null;
   onclose: ((e: { code: number }) => void) | null;
   closed: boolean;
@@ -30,13 +31,19 @@ let root: Root | null = null;
 let host: HTMLElement | null = null;
 
 function Probe() {
-  const rows = useRoster();
-  return <div id="labels">{rows.map((r) => r.label).join(",")}</div>;
+  const { rows, live } = useRoster();
+  return (
+    <>
+      <div id="labels">{rows.map((r) => r.label).join(",")}</div>
+      <div id="live">{String(live)}</div>
+    </>
+  );
 }
 
 function mount(): void {
   sockets = [];
   (globalThis as any).WebSocket = class {
+    onopen = null;
     onmessage = null;
     onclose = null;
     closed = false;
@@ -61,6 +68,7 @@ afterEach(() => {
 });
 
 const labels = () => host!.querySelector("#labels")!.textContent;
+const live = () => host!.querySelector("#live")!.textContent;
 const deliver = (socket: FakeSocket, ...rows: ReturnType<typeof row>[]) =>
   act(() => { socket.onmessage!({ data: JSON.stringify({ type: "roster", rows }) }); });
 
@@ -111,6 +119,35 @@ describe("the roster socket", () => {
     act(() => { sockets[0].onclose!({ code: 1006 }); });
     // A specialist does not stop existing because the page lost its socket.
     expect(labels()).toBe("auth");
+  });
+
+  it("says nothing about the connection until the first socket has settled", () => {
+    mount();
+    // A page that is still connecting has no bad news to announce.
+    expect(live()).toBe("null");
+  });
+
+  it("reports the connection up once the socket opens, and down when it drops", () => {
+    withFakeTimer();
+    mount();
+    act(() => { sockets[0].onopen!(); });
+    expect(live()).toBe("true");
+
+    act(() => { sockets[0].onclose!({ code: 1006 }); });
+    expect(live()).toBe("false");
+
+    act(() => { vi.advanceTimersByTime(1000); });
+    act(() => { sockets[1].onopen!(); });
+    expect(live()).toBe("true");
+  });
+
+  it("leaves a refused socket to the stale banner rather than calling it offline", () => {
+    // Both at once would describe the same silence twice, and only one of
+    // them can be acted on.
+    withFakeTimer();
+    mount();
+    act(() => { sockets[0].onclose!({ code: UNAUTHORIZED }); });
+    expect(live()).toBe("null");
   });
 
   it("closes its socket on unmount and does not reconnect afterwards", () => {
