@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { reviewBrief, reviewLabel } from "../src/daemon/review.js";
+import { LABEL_MAX } from "../src/shared/slug.js";
 
 /**
  * A reviewer is only worth opening if it argues. What these hold in place is
@@ -8,15 +9,13 @@ import { reviewBrief, reviewLabel } from "../src/daemon/review.js";
  */
 
 describe("naming a reviewer", () => {
-  it("names it after what it is reviewing", () => {
-    expect(reviewLabel("ui-designer")).toBe("review-ui-designer");
+  it("names it after what it is reviewing, the way a person would", () => {
+    // A label is read by people; the branch under it is slugged elsewhere.
+    expect(reviewLabel("Cash pickup")).toBe("Review of Cash pickup");
   });
 
-  it("produces something that can name a branch", () => {
-    // The daemon's own rule: lowercase, digits and hyphens, and nothing else.
-    expect(reviewLabel("Cash Pickup!")).toBe("review-cash-pickup");
-    expect(reviewLabel("a".repeat(80))).toHaveLength(64);
-    expect(reviewLabel("---")).toBe("review");
+  it("stays inside what a label is allowed to be", () => {
+    expect(reviewLabel("a".repeat(200)).length).toBeLessThanOrEqual(LABEL_MAX);
   });
 });
 

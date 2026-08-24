@@ -1,3 +1,5 @@
+import { LABEL_MAX } from "../shared/slug.js";
+
 /**
  * Putting a second pair of eyes on a piece of work.
  *
@@ -8,10 +10,13 @@
  * its own conversation, and a brief that tells it to disagree.
  */
 
-/** `review-ui-designer`, and short enough to name a branch. */
+/**
+ * What the reviewer is called. A label is a name a person reads now, so this
+ * is one - the branch under it is slugged where branches are made.
+ */
 export function reviewLabel(label: string): string {
-  const base = `review-${label}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-  return base.replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 64) || "review";
+  const name = `Review of ${label.trim()}`;
+  return name.length > LABEL_MAX ? `${name.slice(0, LABEL_MAX - 1)}…` : name;
 }
 
 /**

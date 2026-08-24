@@ -13,6 +13,7 @@ import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
 import { RefIndex } from "./refs.js";
 import { reviewBrief, reviewLabel } from "./review.js";
+import { labelIsUsable } from "../shared/slug.js";
 import { cockpitOrigins, isLoopback } from "./urls.js";
 import type { IntakeAnswer, RosterRow } from "../shared/types.js";
 
@@ -210,6 +211,12 @@ export function createServer(opts: {
       const body = await readBody(req);
       if (!body.project || !body.label) {
         json(res, 400, { error: "project and label are required" });
+        return;
+      }
+      // Said here rather than left to fail at the worktree, where it surfaces
+      // as a provisioning error with a git message under it.
+      if (!labelIsUsable(String(body.label))) {
+        json(res, 400, { error: "that label is empty or too long to name anything" });
         return;
       }
       const id = await registry.create({
