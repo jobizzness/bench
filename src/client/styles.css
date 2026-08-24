@@ -42,6 +42,13 @@
    on screen. Everything here toggles visibility through the attribute. */
 [hidden] { display: none !important; }
 
+/* The same trap, one layer down. A closed <dialog> is hidden by the UA at
+   that same weakest weight, so any `#queue { display: flex }` written later
+   quietly outranks it and the modal stays in the layout - focusable, in the
+   accessibility tree, and taking up space - while `open` is false. Said once
+   here so the next dialog cannot rediscover it. */
+dialog:not([open]) { display: none !important; }
+
 html, body { height: 100%; }
 
 body {
@@ -1074,19 +1081,28 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* The count in the roster header. Green because it is the one thing on that
    header that wants you rather than waits for you - the same green the group
    counts and the waiting rails use. */
+/* A mark and a number rather than a word. What is waiting is a judgement
+   somebody has to make - a brain, where a bell would say "something arrived"
+   - and the count is the only part that changes, so it is the only part set
+   in type. */
 #open-queue {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: var(--wants-dim);
   border: 1px solid var(--wants-dim);
   border-radius: 5px;
-  padding: 5px 9px;
-  font: 500 11px/1 var(--mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  padding: 5px 8px 5px 7px;
   color: var(--wants);
   cursor: pointer;
   transition: border-color 120ms var(--ease), background 120ms var(--ease);
 }
 #open-queue:hover { border-color: var(--wants); }
+#open-queue .brain-mark { flex: none; display: block; }
+#queue-badge {
+  font: 600 11px/1 var(--mono);
+  letter-spacing: 0.02em;
+}
 
 /* Wider than the other sheets: it holds a list and the thing being answered,
    and a decision squeezed into a column reads as an afterthought. */
@@ -1223,13 +1239,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* A drawer, not a sheet: it comes in from the edge and takes a column rather
    than the middle of the screen, because it is read beside the work. */
-/* A closed dialog is hidden by the UA at the weakest possible weight, so the
-   `display: flex` below outranks it and the drawer stays on screen whether it
-   is open or not. Every other dialog here gates its display on [open]; this
-   one did not, and sat over the right of the cockpit permanently. Same shape
-   as the [hidden] problem, one layer down. */
-.drawer:not([open]) { display: none; }
-
 .drawer {
   position: fixed;
   inset: 0 0 0 auto;

@@ -76,7 +76,13 @@ describe("the queue", () => {
       row({ id: "c", status: "working", latestReportSeq: null }),
     ] });
 
-    expect(ui.$("#open-queue")!.textContent).toBe("2 waiting");
+    // A brain and a number: what is waiting is a judgement to make, not a
+    // message that arrived, and only the count changes. The word moved to
+    // the accessible name, which is where it is read out.
+    const button = ui.$("#open-queue")!;
+    expect(button.textContent).toBe("2");
+    expect(button.getAttribute("aria-label")).toBe("2 waiting on you");
+    expect(button.querySelector("svg.brain-mark")).not.toBeNull();
   });
 
   it("lists them with where each one is from", async () => {

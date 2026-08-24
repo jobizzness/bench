@@ -10,6 +10,7 @@ import { Gear } from "./Gear.js";
 import { GithubDrawer } from "./GithubDrawer.js";
 import { IntakeCard } from "./IntakeCard.js";
 import { IntakeSheet } from "./IntakeSheet.js";
+import { BrainMark } from "./BrainMark.js";
 import { Mark } from "./Mark.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
 import { Queue } from "./Queue.js";
@@ -180,8 +181,15 @@ export function App() {
               {/* Only when there is something in it. A queue that says zero
                   is a button that has to be read before it can be ignored. */}
               {waiting > 0 && (
-                <button id="open-queue" type="button" onClick={() => setQueueOpen(true)}>
-                  {waiting} waiting
+                <button
+                  id="open-queue"
+                  type="button"
+                  title={`${waiting} waiting on you`}
+                  aria-label={`${waiting} waiting on you`}
+                  onClick={() => setQueueOpen(true)}
+                >
+                  <BrainMark />
+                  <span id="queue-badge">{waiting}</span>
                 </button>
               )}
               <button id="new-session" type="button" onClick={() => setCreating(true)}>New</button>
