@@ -3,6 +3,7 @@ import { authFetch, postJson } from "../api.js";
 import { asRole, DEFAULT_ROLE, ROLES, ROLE_NOTE, type Role } from "../../shared/roles.js";
 import { LABEL_MAX, labelIsUsable, slugify } from "../../shared/slug.js";
 import { useBenchActions } from "./context.js";
+import { showProject } from "../hidden.js";
 
 interface Project { name: string; path: string }
 
@@ -90,6 +91,10 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
         setError((await res.json()).error ?? "Could not create the specialist.");
         return;
       }
+      // Making a specialist somewhere is the end of hiding that project:
+      // otherwise the roster quietly refuses to show the thing you just made,
+      // and the only clue is a count at the foot of the pane.
+      showProject(path);
       // You made it to give it a job, so it is the one you want in front of
       // you. Leaving the old specialist on the stage meant finding the new
       // one in the roster yourself before you could say a word to it.

@@ -33,6 +33,7 @@ import { useDecisionKeys } from "./useDecisionKeys.js";
 import { useRoster } from "./useRoster.js";
 import { useSelection } from "./useSelection.js";
 import { threadSignature, useThread } from "./useThread.js";
+import { useHiddenProjects } from "../hidden.js";
 import { isWaiting } from "../waiting.js";
 
 /**
@@ -61,6 +62,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const hiddenProjects = useHiddenProjects();
   const input = useRef<HTMLTextAreaElement>(null);
   const note$ = useRef<HTMLTextAreaElement>(null);
 
@@ -205,11 +207,19 @@ export function App() {
             <button
               id="open-settings"
               type="button"
-              title="House rules — how you want work done"
+              title={hiddenProjects.size > 0
+                ? `House rules, and ${hiddenProjects.size} hidden project${hiddenProjects.size === 1 ? "" : "s"}`
+                : "House rules — how you want work done"}
               onClick={() => setSettingsOpen(true)}
             >
               <Gear />
               <span>Settings</span>
+              {/* Said here rather than in a control of its own: a roster
+                  missing a project has to explain itself, and this is the
+                  door to putting it back. */}
+              {hiddenProjects.size > 0 && (
+                <span id="hidden-count">{hiddenProjects.size} hidden</span>
+              )}
             </button>
           </footer>
         </aside>
