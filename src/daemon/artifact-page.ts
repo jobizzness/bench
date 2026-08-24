@@ -174,7 +174,78 @@ const GROUND = `
   tr:last-child td { border-bottom: 0; }
 
   hr { border: 0; border-top: 1px solid var(--line); margin: 26px 0; }
-  img { max-width: 100%; border-radius: 4px; }
+  img { max-width: 100%; border-radius: 4px; display: block; }
+
+  /* A screenshot is evidence, so it is framed like evidence: full measure,
+     a hairline round it so a dark screenshot has an edge, and a caption that
+     says what you are looking at. A picture with no caption is decoration. */
+  figure {
+    margin: 22px 0;
+    /* At the measure, not breaking out of it. Widening a figure past the
+       column needs arithmetic against the viewport that goes wrong in a
+       narrow frame, and a screenshot at 68ch is legible - which was the only
+       thing the breakout was for. */
+  }
+  figure img { border: 1px solid var(--line); }
+  figcaption {
+    margin-top: 8px;
+    font-family: var(--label);
+    font-size: 12.5px;
+    color: var(--faint);
+  }
+  /* Two shots side by side - before and after, which is the pair most worth
+     showing. They stack when the frame is narrow. */
+  figure[data-bench="pair"] { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+  figure[data-bench="pair"] figcaption { grid-column: 1 / -1; }
+  @media (max-width: 720px) {
+    figure[data-bench="pair"] { grid-template-columns: 1fr; }
+  }
+
+  /* The one-line answer, for a report whose whole point is a verdict. It sits
+     under the title and is the only thing besides it that is allowed to be
+     large. */
+  [data-bench="verdict"] {
+    /* Not a flex row: the bold clause and the sentence after it are one
+       sentence, and flex breaks "Ready to merge." over two lines the moment
+       the box is narrow. */
+    margin: 0 0 22px;
+    padding: 14px 16px;
+    border-left: 2px solid var(--accent);
+    background: var(--raised);
+    border-radius: 3px 8px 8px 3px;
+    font-family: var(--label);
+    font-size: 15px;
+    color: var(--text);
+  }
+  [data-bench="verdict"][data-tone="bad"] { border-left-color: var(--unverified); }
+  [data-bench="verdict"] strong { color: var(--accent); margin-right: 6px; }
+  [data-bench="verdict"][data-tone="bad"] strong { color: var(--unverified); }
+
+  /* Numbers worth reading at a glance rather than in a sentence: tests run,
+     files touched, what it cost. */
+  [data-bench="figures"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    margin: 0 0 24px;
+    padding: 0;
+    list-style: none;
+  }
+  [data-bench="figures"] li { display: flex; flex-direction: column; gap: 3px; }
+  [data-bench="figures"] b {
+    font-family: var(--label);
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  [data-bench="figures"] span {
+    font-family: var(--label);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
 
   /* Detail most readings will not need. A control, so it looks like one. */
   details {

@@ -115,16 +115,56 @@ plain semantic HTML and it comes out designed. A report with no styling of
 its own is the normal case, not a lazy one - style only where it earns its
 place.
 
-Two sections have a treatment waiting for them. Mark them and they get it:
+Five things have a treatment waiting for them. Mark them and they get it,
+and reach for them before you reach for a paragraph - a number in a stat is
+read, the same number in a sentence is skimmed.
 
 ```html
+<p data-bench="verdict"><strong>Ready to merge.</strong> One question left, and
+   it is not blocking.</p>
+<p data-bench="verdict" data-tone="bad"><strong>Do not merge.</strong> It drops
+   messages under load.</p>
+
+<ul data-bench="figures">
+  <li><b>528</b><span>tests</span></li>
+  <li><b>7</b><span>files</span></li>
+  <li><b>+184 −61</b><span>lines</span></li>
+</ul>
+
+<figure>
+  <img alt="The queue with three decisions waiting" src="data:image/png;base64,...">
+  <figcaption>Three waiting, the first one open.</figcaption>
+</figure>
+
+<figure data-bench="pair">
+  <img alt="Before" src="..."><img alt="After" src="...">
+  <figcaption>The roster row before and after.</figcaption>
+</figure>
+
 <section data-bench="verified">   <h2>Verified</h2>     ... </section>
 <section data-bench="unverified"> <h2>Not verified</h2>  ... </section>
 ```
 
+**A verdict** is the first thing on the page when there is one - one bold
+clause and one sentence. **Figures** are for numbers you would otherwise bury:
+what ran, what changed, what it cost. **A figure** is how a screenshot goes
+in, always with a caption; a picture with no caption is decoration.
+
 The weight goes to *Not verified*, not to Verified. An empty not-verified
 list is almost always a lie, so the frame gives that section the emphasis
 and sets what you actually checked quietly beneath it.
+
+## Show it, do not describe it
+
+If you changed something a person looks at, put a screenshot in. If you
+changed it twice, put both in a `data-bench="pair"` figure. A paragraph
+describing a layout is a paragraph asking to be trusted, and the developer
+cannot check it without leaving the report.
+
+Screenshots go in as base64 `data:` URIs - the frame allows those and
+nothing else, so an `<img src="shot.png">` beside your report will not
+load. If you ran an end-to-end test that draws anything, capture it and show
+it: a test that passed is a claim, and the frame it drew is evidence.
 
 If you do set colours, inherit the cockpit rather than fighting it. Light-mode
 values render as near-black on a dark ground, which looks like a report that

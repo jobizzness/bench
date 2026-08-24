@@ -1,3 +1,4 @@
+import { answersFor } from "../../shared/decisions.js";
 import type { Decision } from "../../shared/types.js";
 
 /**
@@ -16,10 +17,11 @@ export function DecisionOptions({
 }) {
   return (
     <div id={id} className="options">
-      {decision.options.map((option, index) => (
+      {answersFor(decision).map((option, index) => (
         <button
           type="button"
           className="option"
+          data-answer={option.id}
           key={option.id}
           aria-pressed={choice === option.id}
           onClick={() => onChoose(option.id)}

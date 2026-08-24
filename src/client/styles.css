@@ -611,7 +611,26 @@ button, input, textarea, select { font: inherit; color: inherit; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-#artifact-tab, #artifact-close {
+#artifact-tab, /* A second pair of eyes, from the report that says the work is done. It sits
+   with share and open-in-a-tab because it is the same kind of thing: what you
+   do with a report once you have read it. */
+#start-review {
+  background: transparent;
+  border: 1px solid var(--wants-dim);
+  border-radius: 5px;
+  padding: 5px 10px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--wants);
+  cursor: pointer;
+  transition: border-color 120ms var(--ease), background 120ms var(--ease);
+}
+#start-review:hover:not(:disabled) { border-color: var(--wants); background: var(--hover); }
+#start-review:disabled { opacity: 0.5; cursor: default; }
+#start-review[data-failed="true"] { color: var(--broken); border-color: var(--broken); }
+
+#artifact-close {
   flex: none;
   border: 0;
   background: transparent;

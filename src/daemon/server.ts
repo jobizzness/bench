@@ -12,6 +12,7 @@ import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
 import { RefIndex } from "./refs.js";
+import { reviewBrief, reviewLabel } from "./review.js";
 import { cockpitOrigins, isLoopback } from "./urls.js";
 import type { IntakeAnswer, RosterRow } from "../shared/types.js";
 
@@ -330,6 +331,42 @@ export function createServer(opts: {
 
       registry.send(message[1], text);
       json(res, 200, { ok: true });
+      return;
+    }
+
+    // A second pair of eyes on one specialist's work, opened from its report.
+    // A whole session rather than a subagent: its own worktree, its own
+    // conversation, and a report of its own to answer - a reviewer that
+    // reports upward into the thing it is reviewing is not independent of it.
+    const review = path.match(/^\/api\/sessions\/([^/]+)\/review$/);
+    if (review && req.method === "POST") {
+      const subject = registry.list().find((r) => r.id === review[1]);
+      if (!subject) { json(res, 404, { error: "no such session" }); return; }
+      if (subject.branch === "") {
+        json(res, 409, { error: "it has no branch to review yet" });
+        return;
+      }
+
+      const body = await readBody(req);
+      const seq = Number(body.seq);
+      const reportPath = Number.isInteger(seq) && seq > 0
+        ? join(subject.project, ".bench", "reports", subject.id, String(seq), "report.html")
+        : null;
+
+      const id = await registry.create({
+        project: subject.project,
+        label: reviewLabel(subject.label),
+        model: String(body.model ?? "opus"),
+        role: "reviewer",
+        isolated: true,
+      });
+      registry.send(id, reviewBrief({
+        label: subject.label,
+        branch: subject.branch,
+        reportPath,
+      }));
+
+      json(res, 200, { id });
       return;
     }
 

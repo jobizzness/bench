@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { postJson } from "../api.js";
+import { answersFor } from "../../shared/decisions.js";
 import { projectName } from "../format.js";
 import { intakePayload, pickOption, sendBar } from "../intake.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
@@ -164,7 +165,7 @@ export function App() {
   // box and says so - the keys that drive the questionnaire are described in
   // the sheet, where the questions are.
   const hint = decision && !intake
-    ? (decision.options.length > 0 ? "options" as const : "reply" as const)
+    ? (answersFor(decision).length > 0 ? "options" as const : "reply" as const)
     : row && (row.status === "working" || row.status === "provisioning")
       ? "working" as const
       : "none" as const;
@@ -252,7 +253,7 @@ export function App() {
               disabled={!row}
               placeholder={placeholder}
               hint={hint}
-              optionCount={decision?.options.length ?? 0}
+              optionCount={decision ? answersFor(decision).length : 0}
               send={null}
               inputRef={input}
               error={error}
@@ -261,7 +262,12 @@ export function App() {
         </section>
       </main>
 
-      <ArtifactDialog open={artifact} sessionId={selectedId} onClose={() => setArtifact(null)} />
+      <ArtifactDialog
+        open={artifact}
+        sessionId={selectedId}
+        onClose={() => setArtifact(null)}
+        onReviewing={select}
+      />
       {decision && intake && bar && (
         <IntakeSheet
           open={sheetOpen}
