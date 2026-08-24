@@ -44,7 +44,7 @@ describe("what kind of agent each one is", () => {
       row({ label: "payouts", role: "implementer", status: "working", detail: "Bash pnpm test" }),
     ] });
 
-    expect(metaOf(ui.$(".row")!)).toEqual(["implementer", "Bash pnpm test"]);
+    expect(metaOf(ui.$(".row")!)).toEqual(["implementer", "Bash pnpm test", "Opus 5"]);
   });
 
   it("says the status on the stage, where there is no rail to read it off", async () => {
@@ -57,7 +57,7 @@ describe("what kind of agent each one is", () => {
     // can see rather than clauses you have to read; the detail stays prose
     // because it is a sentence the specialist wrote.
     expect(metaOf(ui.$("#stage-head")!))
-      .toEqual(["implementer", "working", "bench/auth-abcd1234", "Bash pnpm test"]);
+      .toEqual(["implementer", "Opus 5", "working", "bench/auth-abcd1234", "Bash pnpm test"]);
   });
 });
 
@@ -102,7 +102,7 @@ describe("where a specialist is working", () => {
     await ui.open("new-one");
 
     expect(metaOf(ui.$("#stage-head")!))
-      .toEqual(["specialist", "provisioning", "creating worktree"]);
+      .toEqual(["specialist", "Opus 5", "provisioning", "creating worktree"]);
   });
 });
 

@@ -22,6 +22,13 @@ export interface RosterRow {
    * has been editing your files. */
   isolated: boolean;
   project: string;
+  /**
+   * The alias it was created on. Fixed for the life of the specialist - the
+   * CLI is holding a conversation started on that model - so it is a fact
+   * about the specialist rather than a setting, and worth seeing beside its
+   * name when half your bench is deliberately cheap.
+   */
+  model: string;
   status: SessionStatus;
   detail: string;
   latestReportSeq: number | null;

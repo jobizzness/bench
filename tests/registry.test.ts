@@ -48,6 +48,9 @@ describe("SessionRegistry.restore", () => {
     expect(rows[0].id).toBe(id);
     expect(rows[0].label).toBe("auth");
     expect(rows[0].detail).toBe("ready");
+    // The cockpit draws it on the row, and a restored specialist is still
+    // running on whatever it was made with.
+    expect(rows[0].model).toBe("opus");
   });
 
   it("spawns nothing until the specialist is prompted", async () => {

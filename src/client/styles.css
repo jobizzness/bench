@@ -436,6 +436,21 @@ button, input, textarea, select { font: inherit; color: inherit; }
    this specialist is editing the files you have open. */
 .meta-shared { color: var(--busy); }
 
+/* What it is running on. On a row it is pushed to the right edge, out of the
+   run of the sentence, so the models line up down the column - which is the
+   only way this reads when half a bench is deliberately cheap. */
+.badge-model { color: var(--faint); background: none; }
+/* The row only. In the header it is one badge among five and belongs beside
+   the role, not thrown to the far edge of the line. */
+.meta:not(.meta-badges) > .badge-model {
+  margin-left: auto;
+  padding: 1px 5px;
+  font-size: 9px;
+}
+/* The dot belongs between words. This is not one, and it needs air on its
+   left or it welds itself to whatever the specialist is doing. */
+.meta:not(.meta-badges) > .badge-model::before { content: ""; margin: 0 0 0 10px; }
+
 /* How full the conversation is. Furniture until three quarters, then amber,
    then red - the same three steps the rest of the cockpit uses for "fine",
    "watch this" and "broken", spent here on the one number you act on between
