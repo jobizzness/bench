@@ -234,6 +234,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 #open-settings:hover { color: var(--text); background: var(--hover); }
 #open-settings .gear { flex: none; }
+#hidden-count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
 
 /* Project groups. Never a flat list. */
 .group > summary {
@@ -265,6 +273,23 @@ button, input, textarea, select { font: inherit; color: inherit; }
   flex: none;
 }
 .group[open] > summary::before { transform: rotate(90deg); }
+
+/* Only under the pointer. Hiding a project is a tidy-up, not part of
+   reading the roster, and a control on every heading is a control read past
+   every time. Focus shows it too, so it is reachable without a mouse. */
+.hide-project {
+  font: inherit;
+  color: var(--faint);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms var(--ease), color 120ms var(--ease);
+}
+.group > summary:hover .hide-project,
+.hide-project:focus-visible { opacity: 1; }
+.hide-project:hover { color: var(--text); }
 
 .group .count { margin-left: auto; letter-spacing: 0.08em; }
 .group .count[data-waiting="true"] {
@@ -1053,6 +1078,50 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .sheet form input[aria-invalid="true"] { border-color: var(--broken); }
 
 .field-note { margin: 3px 0 18px; font-size: 12px; color: var(--faint); line-height: 1.5; }
+
+/* A section of the sheet that names a list rather than a field, so it reads
+   as one of the labels without pretending to be attached to a control. */
+.sheet form h3 {
+  margin: 0 0 7px;
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+#s-hidden-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+#s-hidden-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.s-hidden-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#s-hidden-list button {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--line-firm);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+#s-hidden-list button:hover { color: var(--text); border-color: var(--wants-dim); }
 
 .sheet form .check { display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
 .sheet form .check input { width: auto; margin: 0; accent-color: var(--wants); }

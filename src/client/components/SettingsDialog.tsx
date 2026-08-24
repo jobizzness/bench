@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { houseRules, NO_SETTINGS, type Settings } from "../../shared/settings.js";
 import { ServerLocation } from "./ServerLocation.js";
+import { HiddenProjects } from "./HiddenProjects.js";
 
 const PLACEHOLDER = {
   codingStyle:
@@ -103,6 +104,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         </details>
 
         <ServerLocation open={open} />
+
+        <HiddenProjects />
 
         {error && <p id="s-error" className="error">{error}</p>}
 

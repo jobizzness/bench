@@ -5,6 +5,7 @@ import { isWaiting } from "../waiting.js";
 import { projectName } from "../format.js";
 import { Meta } from "./Meta.js";
 import { recall, remember } from "../remembered.js";
+import { hideProject, useHiddenProjects } from "../hidden.js";
 
 /** Folded projects, by path. Named once so the reader and the writer cannot
  * drift apart. */
@@ -53,6 +54,9 @@ function Row({ row, selected }: { row: RosterRow; selected: boolean }) {
  */
 export function Roster() {
   const { rows, selectedId } = useBenchState();
+  // Kept out of this list by whoever is reading it. Not archived: see
+  // hidden.ts - the specialists in there are still working.
+  const hidden = useHiddenProjects();
   // Which groups the developer has folded away. Kept here rather than derived
   // from the rows, so a roster update does not spring them all open again -
   // and read from the browser on the way in, so neither does a refresh.
@@ -73,7 +77,7 @@ export function Roster() {
 
   return (
     <>
-      {[...groups.entries()].map(([project, all]) => {
+      {[...groups.entries()].filter(([project]) => !hidden.has(project)).map(([project, all]) => {
         // Specialists waiting on you come first: several can need you at
         // once, so ordering is what makes the next one findable.
         const sorted = [...all].sort((a, b) => Number(isWaiting(b)) - Number(isWaiting(a)));
@@ -94,6 +98,23 @@ export function Roster() {
           >
             <summary title={project}>
               <span>{projectName(project)}</span>
+              {/* On hover, in the gap the layout already leaves. A control
+                  that is always there is a control you read past every time,
+                  and this one is used about twice a month. */}
+              <button
+                type="button"
+                className="hide-project"
+                title={`Hide ${projectName(project)} from this roster`}
+                aria-label={`Hide ${projectName(project)}`}
+                onClick={(event) => {
+                  // Inside a summary, a click is a fold unless it is stopped.
+                  event.preventDefault();
+                  event.stopPropagation();
+                  hideProject(project);
+                }}
+              >
+                hide
+              </button>
               <span className="count" data-waiting={waiting > 0}>
                 {waiting > 0 ? `${waiting} waiting` : String(sorted.length)}
               </span>
