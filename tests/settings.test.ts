@@ -15,6 +15,7 @@ describe("what is on disk", () => {
     expect(await readSettings(dir)).toEqual({
       codingStyle: "comments say why",
       workflowRules: "run the tests",
+      reviewModel: "opus",
     });
   });
 
@@ -35,7 +36,7 @@ describe("what is on disk", () => {
     const dir = await home();
     await writeFile(join(dir, "settings.json"), JSON.stringify({ codingStyle: "terse" }));
 
-    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "" });
+    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus" });
   });
 
   it("refuses half a set rather than erasing the half it was not sent", async () => {
@@ -86,5 +87,38 @@ describe("what the specialist is told", () => {
     expect(both).toContain("standing");
     expect(both).toContain("not the task itself");
     expect(both.indexOf("Coding style:")).toBeLessThan(both.indexOf("Workflow:"));
+  });
+});
+
+describe("which model reviews", () => {
+  it("keeps the one that was chosen", async () => {
+    const dir = await home();
+    await writeSettings(dir, { codingStyle: "", workflowRules: "", reviewModel: "haiku" });
+
+    expect((await readSettings(dir)).reviewModel).toBe("haiku");
+  });
+
+  it("refuses a model this bench does not offer", async () => {
+    // The alias goes to the CLI unaltered. A typo saved here is a reviewer
+    // that fails to start, days later, from a button with no field on it.
+    await expect(
+      writeSettings(await home(), { codingStyle: "", workflowRules: "", reviewModel: "gpt-4" }),
+    ).rejects.toThrow();
+  });
+
+  it("takes rules from a client that has never heard of the field", async () => {
+    const dir = await home();
+    await writeSettings(dir, { codingStyle: "terse", workflowRules: "" });
+
+    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus" });
+  });
+
+  it("keeps a model written into the file by hand", async () => {
+    // The CLI takes full model names as well as aliases, and a file is a
+    // reasonable place to put one. Reading is lenient; only saving is fussy.
+    const dir = await home();
+    await writeFile(join(dir, "settings.json"), JSON.stringify({ reviewModel: "claude-fable-5" }));
+
+    expect((await readSettings(dir)).reviewModel).toBe("claude-fable-5");
   });
 });

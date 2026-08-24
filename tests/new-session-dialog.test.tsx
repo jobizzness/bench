@@ -201,3 +201,15 @@ describe("what kind of agent it opens", () => {
     expect(ui.$<HTMLSelectElement>("#f-role")!.value).toBe("specialist");
   });
 });
+
+describe("which model a specialist runs on", () => {
+  it("offers every model the CLI takes, not two of them", async () => {
+    const ui = await bootCockpit({ rows: [] });
+    await ui.click(ui.$("#new-session"));
+    await waitFor(() => ui.$("#f-model"), "the dialog");
+
+    expect(ui.$$("#f-model option").map((o) => o.getAttribute("value")))
+      .toEqual(["opus", "sonnet", "fable", "haiku"]);
+    ui.unmount();
+  });
+});

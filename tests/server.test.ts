@@ -11,13 +11,15 @@ const TOKEN = "test-token-abc";
 
 class StubRegistry extends EventEmitter {
   rows: RosterRow[] = [
-    { id: "s1", label: "auth", project: "/var/www/demo", status: "awaiting_decision", detail: "waiting", latestReportSeq: 1, startedAt: null, tokens: 0 },
+    { id: "s1", label: "auth", project: "/var/www/demo", branch: "bench/auth-abcd1234", status: "awaiting_decision", detail: "waiting", latestReportSeq: 1, startedAt: null, tokens: 0 },
   ];
   sent: Array<{ id: string; text: string }> = [];
   created: any[] = [];
   reportsDir = "";
 
   list() { return this.rows; }
+  settings = { codingStyle: "", workflowRules: "", reviewModel: "sonnet" };
+  getSettings() { return this.settings; }
   threadPathValue = "";
   aliveValue = true;
   revivableValue = false;
@@ -459,5 +461,27 @@ describe("renaming a specialist", () => {
       method: "POST", ...auth, body: JSON.stringify({ label: "hello" }),
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("who reviews", () => {
+  it("opens the reviewer on the model settings names", async () => {
+    // Nothing asks at the moment a review starts - the button has no field
+    // on it - so the standing answer is the only answer there is.
+    const res = await fetch(`${base}/api/sessions/s1/review`, {
+      method: "POST", ...auth, body: JSON.stringify({ seq: 1 }),
+    });
+    expect(res.status).toBe(200);
+
+    const opened = registry.created.at(-1);
+    expect(opened.model).toBe("sonnet");
+    expect(opened.role).toBe("reviewer");
+  });
+
+  it("lets the request name one instead", async () => {
+    await fetch(`${base}/api/sessions/s1/review`, {
+      method: "POST", ...auth, body: JSON.stringify({ seq: 1, model: "haiku" }),
+    });
+    expect(registry.created.at(-1).model).toBe("haiku");
   });
 });

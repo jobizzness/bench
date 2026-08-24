@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { houseRules, NO_SETTINGS, type Settings } from "../../shared/settings.js";
+import { ReviewModel } from "./ReviewModel.js";
 import { ServerLocation } from "./ServerLocation.js";
 import { HiddenProjects } from "./HiddenProjects.js";
 
@@ -43,7 +44,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
       // load has to look like - the alternative is an empty box that silently
       // overwrites rules you had.
       if (!res.ok) { setError("Could not read your settings."); return; }
-      setDraft((await res.json()).settings ?? NO_SETTINGS);
+      setDraft({ ...NO_SETTINGS, ...((await res.json()).settings ?? {}) });
     })();
   }, [open]);
 
@@ -102,6 +103,11 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
             {framing === "" ? "Nothing. With both boxes empty, no house rules are sent at all." : framing}
           </pre>
         </details>
+
+        <ReviewModel
+          value={draft.reviewModel}
+          onChange={(reviewModel) => setDraft({ ...draft, reviewModel })}
+        />
 
         <ServerLocation open={open} />
 

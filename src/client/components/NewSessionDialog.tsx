@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { asRole, DEFAULT_ROLE, ROLES, ROLE_NOTE, type Role } from "../../shared/roles.js";
+import { DEFAULT_MODEL, MODELS } from "../../shared/models.js";
 import { LABEL_MAX, labelIsUsable, slugify } from "../../shared/slug.js";
 import { useBenchActions } from "./context.js";
 import { showProject } from "../hidden.js";
@@ -39,7 +40,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState("");
   const [label, setLabel] = useState("");
-  const [model, setModel] = useState("opus");
+  const [model, setModel] = useState(DEFAULT_MODEL);
   const [role, setRole] = useState<Role>(DEFAULT_ROLE);
   const [isolated, setIsolated] = useState(true);
   const [error, setError] = useState("");
@@ -54,7 +55,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     setError("");
     setProject("");
     setLabel("");
-    setModel("opus");
+    setModel(DEFAULT_MODEL);
     setRole(DEFAULT_ROLE);
     setIsolated(true);
     dialog.showModal?.();
@@ -160,8 +161,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
 
         <label htmlFor="f-model">Model</label>
         <select id="f-model" value={model} onChange={(event) => setModel(event.target.value)}>
-          <option value="opus">Opus</option>
-          <option value="sonnet">Sonnet</option>
+          {MODELS.map((m) => <option value={m.id} key={m.id}>{m.label}</option>)}
         </select>
 
         <div className="check">
