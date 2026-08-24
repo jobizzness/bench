@@ -10,7 +10,10 @@
  * cockpit.
  */
 export function benchManifest(token: string): object {
-  const start = `/?token=${encodeURIComponent(token)}`;
+  // A hosted copy has no token to launch with: it is installed first and
+  // told which daemon it belongs to afterwards, and it remembers that in the
+  // browser rather than in its own address.
+  const start = token === "" ? "/" : `/?token=${encodeURIComponent(token)}`;
 
   return {
     // Fixed, and not the start_url: the id is how a browser recognises an

@@ -7,6 +7,7 @@ import type { BenchConfig } from "./config.js";
 import { findReport } from "./reports.js";
 import { readPlan } from "./plan.js";
 import { benchManifest } from "./manifest.js";
+import { corsHeaders, isPreflight } from "./cors.js";
 import { artifactPage } from "./artifact-page.js";
 import { shareMessage } from "./share.js";
 import { readThread } from "./thread.js";
@@ -165,6 +166,19 @@ export function createServer(opts: {
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const path = url.pathname;
+
+    // Set before anything answers, so every route carries them - including
+    // the ones that refuse. A 401 a browser cannot read is a cockpit that
+    // cannot tell a wrong token from an unreachable machine.
+    const origin = req.headers.origin;
+    for (const [name, value] of Object.entries(corsHeaders(origin))) res.setHeader(name, value);
+
+    // The browser asking whether it may, which it does before any request
+    // carrying a token. There is nothing to authorise yet and nothing to say.
+    if (isPreflight(req.method, origin)) {
+      res.writeHead(204).end();
+      return;
+    }
 
     // The shell bootstraps without a token; everything with data behind it
     // requires one, so nothing else on the machine can drive the agents.

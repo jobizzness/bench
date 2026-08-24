@@ -12,5 +12,5 @@ if (host) createRoot(host).render(<App />);
 
 // After the render, not before it: neither of these puts a pixel on screen,
 // and the cockpit should draw first.
-installManifest(document, token);
+installManifest(document, token());
 void registerWorker();

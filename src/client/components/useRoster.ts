@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { RosterRow } from "../../shared/types.js";
-import { linkIsStale, token } from "../api.js";
+import { eventsUrl, linkIsStale } from "../api.js";
 import { shouldReconnect } from "../reconnect.js";
 
 export interface Roster {
@@ -31,7 +31,11 @@ export function useRoster(): Roster {
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const connect = () => {
-      socket = new WebSocket(`ws://${location.host}/events?token=${encodeURIComponent(token)}`);
+      const where = eventsUrl();
+      // Nowhere to connect to: the page has not been told where its daemon
+      // is, and the setup dialog is what is in front of the developer.
+      if (where === null) return;
+      socket = new WebSocket(where);
 
       socket.onopen = () => { if (!disposed) setLive(true); };
 

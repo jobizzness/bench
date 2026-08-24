@@ -19,11 +19,11 @@ describe("the manifest link", () => {
     expect(manifestHref("a b&c")).toBe("/manifest.webmanifest?token=a%20b%26c");
   });
 
-  it("leaves the page without one when there is no token to put in it", () => {
-    // The manifest would 401, and an install whose start_url is unauthorised
-    // is worse than no install button.
+  it("falls back to the plain manifest, which is what hosted copies install", () => {
+    // A copy of the cockpit on static hosting has no token until it is told
+    // which daemon it belongs to, and it still has to be installable.
     installManifest(document, "");
-    expect(link()).toBeNull();
+    expect(link()!.getAttribute("href")).toBe("/manifest.webmanifest");
   });
 
   it("replaces its link rather than adding a second", () => {

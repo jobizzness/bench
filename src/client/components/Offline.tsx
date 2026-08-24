@@ -11,15 +11,25 @@
  * exceptional one: the app opens whether or not the machine it supervises is
  * awake.
  */
-export function Offline({ shown }: { shown: boolean }) {
+export function Offline({ shown, onChangeServer }: {
+  shown: boolean;
+  /** Offered only where the address is something the developer chose, and so
+   * something they can correct. */
+  onChangeServer: (() => void) | null;
+}) {
   if (!shown) return null;
 
   return (
     <div id="offline" role="status">
-      <strong>Not connected to Bench.</strong>
-      <span>
-        The daemon is not answering — this is the last it said. Reconnecting.
-      </span>
+      <div className="offline-said">
+        <strong>Not connected to Bench.</strong>
+        <span>
+          The daemon is not answering — this is the last it said. Reconnecting.
+        </span>
+      </div>
+      {onChangeServer && (
+        <button type="button" id="offline-change" onClick={onChangeServer}>Change server</button>
+      )}
     </div>
   );
 }

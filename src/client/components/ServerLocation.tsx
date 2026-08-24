@@ -30,7 +30,7 @@ export function ServerLocation({ open }: { open: boolean }) {
   // Links rather than buttons, because that is what they are: another address
   // for this page. The navigation is the refresh, and it comes free - along
   // with opening one in a new tab to have both in front of you.
-  const go = (origin: string) => targetUrl(origin, token, location.pathname);
+  const go = (origin: string) => targetUrl(origin, token(), location.pathname);
 
   const typedOrigin = toOrigin(typed);
   const elsewhere = known.origins.filter((origin) => !isHere(origin));

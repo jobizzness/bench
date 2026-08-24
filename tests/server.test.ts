@@ -104,6 +104,58 @@ describe("auth", () => {
   });
 });
 
+describe("a cockpit this daemon did not serve", () => {
+  const from = "https://bench-cockpit.web.app";
+
+  it("answers the browser's preflight, which is what carries no token", async () => {
+    const res = await fetch(`${base}/api/roster`, {
+      method: "OPTIONS",
+      headers: {
+        origin: from,
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "x-bench-token",
+      },
+    });
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe(from);
+    expect(res.headers.get("access-control-allow-headers")).toContain("x-bench-token");
+    // Chrome will not let a public page touch an address on your desk
+    // without this, which is the whole arrangement here.
+    expect(res.headers.get("access-control-allow-private-network")).toBe("true");
+  });
+
+  it("lets that origin read the answer once it presents a token", async () => {
+    const res = await fetch(`${base}/api/roster`, { headers: { ...auth.headers, origin: from } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBe(from);
+    expect(res.headers.get("vary")).toContain("Origin");
+  });
+
+  it("lets it read the refusal too, which is how a wrong token is named", async () => {
+    // A 401 the page cannot read looks exactly like a machine that is not
+    // there, and the two are fixed differently.
+    const res = await fetch(`${base}/api/roster`, { headers: { origin: from } });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("access-control-allow-origin")).toBe(from);
+  });
+
+  it("says nothing about origins to a request that named none", async () => {
+    const res = await fetch(`${base}/api/roster`, auth);
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("still refuses an unauthorised request from an allowed origin", async () => {
+    // Allowing an origin to ask is not allowing it in.
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { origin: from, "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello" }),
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("what an installed cockpit fetches", () => {
   it("keeps the manifest behind the token, since it contains one", async () => {
     // start_url carries the token. Served without auth, /manifest.webmanifest

@@ -1,0 +1,25 @@
+{
+  "hosting": {
+    "public": "dist/client",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {
+        "//": "A specialist has a URL, and the cockpit reads the id back out of the path. Static hosting has to be told that /s/<id> is the same document.",
+        "source": "/s/**",
+        "destination": "/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "//": "None of these carry a content hash in their name, so a cached copy is a cockpit that cannot be updated. They are a few kilobytes over a CDN; revalidating each load costs nothing worth keeping.",
+        "source": "/@(index.html|app.js|sw.js|styles.css|manifest.webmanifest)",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "//": "The mark changes about once a year.",
+        "source": "/@(icons/**|favicon.svg|icon.svg)",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }]
+      }
+    ]
+  }
+}

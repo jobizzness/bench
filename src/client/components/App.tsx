@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { postJson } from "../api.js";
+import { endpoint, isRemote, postJson } from "../api.js";
+import { shouldAskForServer } from "../endpoint.js";
 import { projectName } from "../format.js";
 import { intakePayload, pickOption, sendBar } from "../intake.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
@@ -13,6 +14,7 @@ import { IntakeSheet } from "./IntakeSheet.js";
 import { BrainMark } from "./BrainMark.js";
 import { Mark } from "./Mark.js";
 import { Offline } from "./Offline.js";
+import { ServerSetup } from "./ServerSetup.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
 import { Queue } from "./Queue.js";
 import { Progress } from "./Progress.js";
@@ -61,6 +63,10 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  // A copy of the cockpit on static hosting opens knowing nothing about any
+  // daemon, and the first thing it has to do is ask.
+  const [setupOpen, setSetupOpen] = useState(() => endpoint() === null);
+  const everConnected = useRef(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const note$ = useRef<HTMLTextAreaElement>(null);
 
@@ -88,6 +94,22 @@ export function App() {
   // Fetched once here and given to both the checklist and the working strip,
   // which draws a bar from it - two pollers on one file would drift.
   const steps = useSessionPlan(selectedId, row?.status === "working");
+
+  useEffect(() => { if (live === true) everConnected.current = true; }, [live]);
+
+  // Silence from a daemon that has answered before is a restart, and the
+  // banner says so. Silence from one that has never answered is usually the
+  // wrong address - and the address is only ours to correct when somebody
+  // typed it in the first place.
+  useEffect(() => {
+    const ask = shouldAskForServer({
+      known: endpoint() !== null,
+      live,
+      everConnected: everConnected.current,
+      remote: isRemote(),
+    });
+    if (ask) setSetupOpen(true);
+  }, [live]);
 
   // Where the installed app's one shortcut lands. The hash is cleared as it
   // is read, so reloading the page you were left on does not reopen it.
@@ -183,7 +205,10 @@ export function App() {
       <StaleLink />
       {/* One or the other: a refused socket is a stale link, and saying both
           would be describing the same silence twice. */}
-      <Offline shown={live === false} />
+      <Offline
+        shown={live === false && !setupOpen}
+        onChangeServer={isRemote() ? () => setSetupOpen(true) : null}
+      />
 
       <main id="app">
         <aside id="roster">
@@ -303,6 +328,11 @@ export function App() {
         onOpenSpecialist={select}
       />
       <NewSessionDialog open={creating} onClose={() => setCreating(false)} />
+      <ServerSetup
+        open={setupOpen}
+        // Nothing to go back to until this page knows where its daemon is.
+        onClose={endpoint() === null ? null : () => setSetupOpen(false)}
+      />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </BenchProvider>
   );

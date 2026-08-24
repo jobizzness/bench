@@ -7,3 +7,6 @@ dist/
 .DS_Store
 # Worktrees Bench creates when pointed at this repo
 .claude/worktrees/
+
+# The hosting deploy cache, which is a local record of what was uploaded
+.firebase/

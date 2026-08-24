@@ -1813,6 +1813,91 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 #offline strong { font-weight: 600; color: var(--text); }
 
+#offline { grid-template-columns: 1fr auto; align-items: center; }
+#offline .offline-said { display: grid; gap: 0.15rem; }
+
+#offline-change {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line-firm);
+  border-radius: 5px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+#offline-change:hover { background: var(--hover); }
+
+/* Asked once, on a cockpit that has nothing else it can usefully draw: a
+   copy of the client on static hosting knows every screen except which
+   machine it is for. It covers everything rather than sitting in a corner
+   because there is nothing behind it worth looking at yet. */
+#server-setup {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(9, 16, 14, 0.86);
+}
+
+.setup-card {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 0.85rem;
+  padding: 1.4rem 1.4rem 1.2rem;
+  background: var(--panel);
+  border: 1px solid var(--line-firm);
+  border-radius: 10px;
+}
+
+.setup-card h2 { margin: 0; font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
+.setup-card p { margin: 0; color: var(--muted); font-size: 0.88rem; }
+
+#server-setup-link {
+  font: 400 13px/1.5 var(--mono);
+  color: var(--text);
+  background: var(--sunk);
+  border: 1px solid var(--line-firm);
+  border-radius: 6px;
+  padding: 0.6rem 0.7rem;
+  width: 100%;
+}
+
+#server-setup-link:focus-visible { outline: 2px solid var(--wants-dim); outline-offset: 1px; }
+
+.setup-error { color: var(--broken) !important; }
+
+.setup-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+
+.setup-actions button {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--line-firm);
+  background: transparent;
+  color: var(--text);
+}
+
+#server-setup-connect {
+  background: var(--wants);
+  border-color: var(--wants);
+  color: #06120c;
+  font-weight: 600;
+}
+
+#server-setup-connect:disabled { opacity: 0.6; cursor: default; }
+
+.setup-note {
+  font-size: 0.78rem !important;
+  color: var(--faint) !important;
+  border-top: 1px solid var(--line);
+  padding-top: 0.7rem;
+}
+
 /* Markdown inside a bubble. Tuned tight: this is spoken text, so the
    blocks sit closer together than they would on a page, and the first and
    last of them lose their margin so the bubble's padding is the padding. */

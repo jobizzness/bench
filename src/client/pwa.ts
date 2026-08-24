@@ -17,15 +17,16 @@ export function manifestHref(token: string): string {
 /**
  * Replaces the link rather than adding one, so a page that somehow runs this
  * twice does not leave the browser choosing between two manifests.
+ *
+ * Without a token the link goes to the plain manifest instead. That is the
+ * copy of the cockpit on static hosting, which is installed first and told
+ * which daemon it belongs to afterwards - it has no token to carry, and it
+ * still has to be installable, since being installable is why it is hosted.
  */
 export function installManifest(doc: Document, token: string): void {
-  // Without a token the manifest is a 401, and an installed app whose
-  // start_url is unauthorised is worse than no install button.
-  if (token === "") return;
-
   const link = doc.querySelector<HTMLLinkElement>('link[rel="manifest"]')
     ?? doc.head.appendChild(Object.assign(doc.createElement("link"), { rel: "manifest" }));
-  link.href = manifestHref(token);
+  link.href = token === "" ? "/manifest.webmanifest" : manifestHref(token);
 }
 
 /**
