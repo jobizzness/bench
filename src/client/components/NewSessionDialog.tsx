@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { asRole, DEFAULT_ROLE, ROLES, ROLE_NOTE, type Role } from "../../shared/roles.js";
+import { LABEL_MAX, labelIsUsable, slugify } from "../../shared/slug.js";
 import { useBenchActions } from "./context.js";
+import { showProject } from "../hidden.js";
 
 interface Project { name: string; path: string }
 
-// Matches the daemon's own label rule, so a bad label is caught here with an
-// explanation instead of coming back as an opaque 400.
-const LABEL_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
 
 /** Accepts either a listed repo name or a full absolute path. */
 function resolveProject(projects: Project[], value: string): string | null {
@@ -75,8 +75,8 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
       projectRef.current?.focus();
       return;
     }
-    if (!LABEL_PATTERN.test(label.trim())) {
-      setError("Label must be lowercase letters, numbers and hyphens, starting with a letter or number.");
+    if (!labelIsUsable(label)) {
+      setError(`Give it a name - anything up to ${LABEL_MAX} characters.`);
       return;
     }
 
@@ -91,6 +91,10 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
         setError((await res.json()).error ?? "Could not create the specialist.");
         return;
       }
+      // Making a specialist somewhere is the end of hiding that project:
+      // otherwise the roster quietly refuses to show the thing you just made,
+      // and the only clue is a count at the foot of the pane.
+      showProject(path);
       // You made it to give it a job, so it is the one you want in front of
       // you. Leaving the old specialist on the stage meant finding the new
       // one in the roster yourself before you could say a word to it.
@@ -102,7 +106,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     }
   };
 
-  const labelIsBad = label !== "" && !LABEL_PATTERN.test(label);
+  const labelIsBad = label.trim() !== "" && !labelIsUsable(label);
 
   return (
     <dialog id="new-dialog" className="sheet" ref={ref} onClose={onClose}>
@@ -124,13 +128,20 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
         <label htmlFor="f-label">Label</label>
         <input
           id="f-label" autoComplete="off" required
-          placeholder="password-reset"
+          placeholder="Password reset"
+          maxLength={LABEL_MAX}
           aria-invalid={labelIsBad}
           value={label}
           onChange={(event) => setLabel(event.target.value)}
         />
-        <p className="field-note">
-          Lowercase letters, numbers and hyphens. Names the branch and worktree.
+        {/* What it is called is yours; what git can hold is derived. The
+            branch is shown rather than described, so the derivation is not a
+            surprise the first time you look at `git branch`. */}
+        <p className="field-note" id="f-label-note">
+          Call it whatever you would call it out loud.
+          {label.trim() !== "" && (
+            <> Its branch will be <code>bench/{slugify(label)}-…</code></>
+          )}
         </p>
 
         <label htmlFor="f-role">Role</label>

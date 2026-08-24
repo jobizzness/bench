@@ -159,6 +159,17 @@ export class SessionStore {
     });
   }
 
+  /** What it is called, which is not what its branch is called. */
+  async rename(id: string, label: string): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.label = label;
+      await this.write(all);
+    });
+  }
+
   async remove(id: string): Promise<void> {
     return this.change(async () => {
       await this.write((await this.all()).filter((r) => r.id !== id));

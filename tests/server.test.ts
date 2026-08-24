@@ -35,6 +35,12 @@ class StubRegistry extends EventEmitter {
     return this.closeResult;
   }
   stop() {}
+  renamed: Array<{ id: string; label: string }> = [];
+  rename(id: string, label: string) {
+    if (id !== "s1") return false;
+    this.renamed.push({ id, label });
+    return true;
+  }
   async create(input: any) { this.created.push(input); return "s2"; }
 }
 
@@ -535,5 +541,34 @@ describe("GET /api/projects", () => {
   it("requires a token", async () => {
     const res = await fetch(`${base}/api/projects`);
     expect(res.status).toBe(401);
+  });
+});
+
+describe("renaming a specialist", () => {
+  it("takes a new name and hands it to the registry trimmed", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/label`, {
+      method: "POST", ...auth, body: JSON.stringify({ label: "  session cookies on Safari  " }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ label: "session cookies on Safari" });
+    expect(registry.renamed.at(-1)).toEqual({ id: "s1", label: "  session cookies on Safari  " });
+  });
+
+  it("refuses a name that is empty or too long to be one", async () => {
+    const before = registry.renamed.length;
+    for (const label of ["", "   ", "x".repeat(200)]) {
+      const res = await fetch(`${base}/api/sessions/s1/label`, {
+        method: "POST", ...auth, body: JSON.stringify({ label }),
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(registry.renamed).toHaveLength(before);
+  });
+
+  it("refuses a specialist that is not on the bench", async () => {
+    const res = await fetch(`${base}/api/sessions/nobody/label`, {
+      method: "POST", ...auth, body: JSON.stringify({ label: "hello" }),
+    });
+    expect(res.status).toBe(404);
   });
 });

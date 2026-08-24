@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { artifactUrl } from "../api.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
 import { ShareReport } from "./ShareReport.js";
+import { StartReview } from "./StartReview.js";
 
 /**
  * A report is a page, so it opens as one.
@@ -12,11 +13,13 @@ import { ShareReport } from "./ShareReport.js";
  * rather than three.
  */
 export function ArtifactDialog({
-  open, sessionId, onClose,
+  open, sessionId, onClose, onReviewing,
 }: {
   open: ArtifactRef | null;
   sessionId: string | null;
   onClose: () => void;
+  /** A reviewer was opened on this work; it becomes the tab in front of you. */
+  onReviewing: (id: string) => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
 
@@ -39,6 +42,15 @@ export function ArtifactDialog({
       <header>
         <span id="artifact-kind">{open?.label ?? ""}</span>
         <span id="artifact-title">{open?.title ?? ""}</span>
+        {/* Only on a report. A reply is an answer to a question you asked;
+            there is nothing there for a second pair of eyes to argue with. */}
+        {open && sessionId && open.label === "report" && (
+          <StartReview
+            sessionId={sessionId}
+            seq={open.seq}
+            onOpened={(id) => { onReviewing(id); onClose(); }}
+          />
+        )}
         {open && sessionId && (
           <ShareReport
             sessionId={sessionId}

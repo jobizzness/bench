@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isRole, ROLES } from "../shared/roles.js";
+import { slugify } from "../shared/slug.js";
 
 /**
  * The bench, from inside it.
@@ -78,7 +79,11 @@ function ownProject(all: Row[]): string {
 /** Labels repeat across projects, so a name only resolves within one. */
 function resolve(all: Row[], project: string, name: string): Row {
   const here = all.filter((r) => r.project === project);
-  const found = here.find((r) => r.id === name) ?? here.find((r) => r.label === name);
+  // Labels are what a person writes now, so matching one from a command line
+  // cannot be exact: `bench tell cash-pickup` should find "Cash pickup".
+  const found = here.find((r) => r.id === name)
+    ?? here.find((r) => r.label === name)
+    ?? here.find((r) => slugify(r.label) === slugify(name));
   if (found) return found;
 
   const known = here.map((r) => r.label).join(", ") || "nobody";

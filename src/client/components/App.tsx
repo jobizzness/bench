@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { endpoint, isRemote, postJson } from "../api.js";
 import { shouldAskForServer } from "../endpoint.js";
+import { answersFor } from "../../shared/decisions.js";
 import { projectName } from "../format.js";
 import { intakePayload, pickOption, sendBar } from "../intake.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
@@ -35,6 +36,7 @@ import { useDecisionKeys } from "./useDecisionKeys.js";
 import { useRoster } from "./useRoster.js";
 import { useSelection } from "./useSelection.js";
 import { threadSignature, useThread } from "./useThread.js";
+import { useHiddenProjects } from "../hidden.js";
 import { isWaiting } from "../waiting.js";
 
 /**
@@ -67,6 +69,7 @@ export function App() {
   // daemon, and the first thing it has to do is ask.
   const [setupOpen, setSetupOpen] = useState(() => endpoint() === null);
   const everConnected = useRef(false);
+  const hiddenProjects = useHiddenProjects();
   const input = useRef<HTMLTextAreaElement>(null);
   const note$ = useRef<HTMLTextAreaElement>(null);
 
@@ -195,7 +198,7 @@ export function App() {
   // box and says so - the keys that drive the questionnaire are described in
   // the sheet, where the questions are.
   const hint = decision && !intake
-    ? (decision.options.length > 0 ? "options" as const : "reply" as const)
+    ? (answersFor(decision).length > 0 ? "options" as const : "reply" as const)
     : row && (row.status === "working" || row.status === "provisioning")
       ? "working" as const
       : "none" as const;
@@ -241,11 +244,19 @@ export function App() {
             <button
               id="open-settings"
               type="button"
-              title="House rules — how you want work done"
+              title={hiddenProjects.size > 0
+                ? `House rules, and ${hiddenProjects.size} hidden project${hiddenProjects.size === 1 ? "" : "s"}`
+                : "House rules — how you want work done"}
               onClick={() => setSettingsOpen(true)}
             >
               <Gear />
               <span>Settings</span>
+              {/* Said here rather than in a control of its own: a roster
+                  missing a project has to explain itself, and this is the
+                  door to putting it back. */}
+              {hiddenProjects.size > 0 && (
+                <span id="hidden-count">{hiddenProjects.size} hidden</span>
+              )}
             </button>
           </footer>
         </aside>
@@ -289,7 +300,7 @@ export function App() {
               disabled={!row}
               placeholder={placeholder}
               hint={hint}
-              optionCount={decision?.options.length ?? 0}
+              optionCount={decision ? answersFor(decision).length : 0}
               send={null}
               inputRef={input}
               error={error}
@@ -298,7 +309,12 @@ export function App() {
         </section>
       </main>
 
-      <ArtifactDialog open={artifact} sessionId={selectedId} onClose={() => setArtifact(null)} />
+      <ArtifactDialog
+        open={artifact}
+        sessionId={selectedId}
+        onClose={() => setArtifact(null)}
+        onReviewing={select}
+      />
       {decision && intake && bar && (
         <IntakeSheet
           open={sheetOpen}

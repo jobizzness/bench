@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { postJson } from "../api.js";
+import { answersFor } from "../../shared/decisions.js";
 import { projectName } from "../format.js";
 import { DecisionOptions } from "./DecisionOptions.js";
 import { isIntake } from "./DecisionPanel.js";
@@ -77,7 +78,9 @@ export function Queue({ items, open, onClose, onOpenSpecialist }: {
 
   // Read it, press one key - the same bargain the decision bar makes. A queue
   // you have to click through is a list.
-  const options = current?.decision?.options ?? [];
+  // The same list the buttons draw, or the numbers under them would mean
+  // something different from what they say.
+  const options = current?.decision ? answersFor(current.decision) : [];
   useEffect(() => {
     if (!open) return;
 
@@ -203,7 +206,7 @@ function Current({ item, choice, setChoice, text, setText, busy, onSend, onOpen 
               <input
                 id="queue-text"
                 autoComplete="off"
-                placeholder={decision.options.length > 0 ? "Or say it in your own words" : "Your answer"}
+                placeholder={answersFor(decision).length > 0 ? "Or say it in your own words" : "Your answer"}
                 value={text}
                 onChange={(event) => setText(event.target.value)}
                 onKeyDown={(event) => {
@@ -221,9 +224,9 @@ function Current({ item, choice, setChoice, text, setText, busy, onSend, onOpen 
                 Answer
               </button>
             </div>
-            {decision.options.length > 0 && (
+            {answersFor(decision).length > 0 && (
               <p id="queue-hint">
-                <kbd>1</kbd>–<kbd>{decision.options.length}</kbd>{" pick  "}
+                <kbd>1</kbd>–<kbd>{answersFor(decision).length}</kbd>{" pick  "}
                 <kbd>↵</kbd>{" send"}
               </p>
             )}

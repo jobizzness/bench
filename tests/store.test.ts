@@ -190,6 +190,26 @@ describe("SessionStore", () => {
       expect(readdirSync(dir)).toEqual(["sessions.json"]);
     });
 
+    it("keeps a rename that lands in the middle of a turn ending", async () => {
+      // Renaming arrived after the queue did, written against a store that
+      // did not have one. Outside it, the rename reads the record, the turn
+      // end reads the same record, and whichever writes second saves a copy
+      // that never heard of the other.
+      const dir = await home();
+      const store = new SessionStore(dir);
+
+      await Promise.all([
+        store.rename("a", "payouts"),
+        store.rememberContext("a", { used: 900, window: 200_000 }),
+        store.markResumable("a"),
+      ]);
+
+      const [saved] = await new SessionStore(dir).all();
+      expect(saved.label).toBe("payouts");
+      expect(saved.context).toEqual({ used: 900, window: 200_000 });
+      expect(saved.resumable).toBe(true);
+    });
+
     it("goes on writing after one of them fails", async () => {
       // A queue that stops at the first failure would silently stop
       // recording anything for the rest of the daemon's life.

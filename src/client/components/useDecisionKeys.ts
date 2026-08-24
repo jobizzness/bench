@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { Decision } from "../../shared/types.js";
+import { answersFor } from "../../shared/decisions.js";
 import { isAnswered, splitQuestions, type Answers } from "../intake.js";
 
 export interface KeyHandlers {
@@ -65,8 +66,11 @@ export function useDecisionKeys(handlers: KeyHandlers): void {
         return;
       }
 
-      if (Number.isInteger(number) && number >= 0 && number < decision.options.length) {
-        choose(decision.options[number].id);
+      // The list the buttons draw, which for a spec begins with approve and
+      // reject rather than with whatever the agent wrote.
+      const choices = answersFor(decision);
+      if (Number.isInteger(number) && number >= 0 && number < choices.length) {
+        choose(choices[number].id);
         return;
       }
       if (event.key === "Enter") { event.preventDefault(); submit(); }

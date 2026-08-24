@@ -107,7 +107,7 @@ describe("what it opens once the specialist exists", () => {
   it("stays where it is when the dialog refuses to send", async () => {
     await open();
     await ui.click(ui.$("#roster-list .row"));
-    await fill("Password Reset");
+    await fill("   ");
     await ui.click(ui.$("#f-create"));
 
     expect(location.pathname).toBe("/s/s1");
@@ -116,19 +116,31 @@ describe("what it opens once the specialist exists", () => {
 });
 
 describe("what it refuses to send", () => {
-  it("explains a bad label instead of letting the daemon 400", async () => {
+  it("takes a label a person would actually write", async () => {
+    // It used to refuse this and ask for lowercase and hyphens, which is a
+    // branch name wearing the word "label".
     await open();
-    await fill("Password Reset");
+    await fill("Password reset (v2)");
+    await ui.click(ui.$("#f-create"));
+
+    expect(created()!.body.label).toBe("Password reset (v2)");
+  });
+
+  it("says what the branch will be called, rather than demanding you type it", async () => {
+    await open();
+    await ui.type(ui.$("#f-label"), "Password reset (v2)");
+
+    expect(ui.$("#f-label-note")!.textContent).toContain("bench/password-reset-v2-");
+  });
+
+  it("refuses a label that is nothing at all", async () => {
+    await open();
+    await ui.type(ui.$("#f-project"), "teledoctor");
+    await ui.type(ui.$("#f-label"), "   ");
     await ui.click(ui.$("#f-create"));
 
     expect(created()).toBeUndefined();
-    expect(ui.$("#f-error")!.textContent).toContain("lowercase letters");
-  });
-
-  it("marks the label invalid as it is typed", async () => {
-    await open();
-    await ui.type(ui.$("#f-label"), "Nope");
-    expect(ui.$("#f-label")!.getAttribute("aria-invalid")).toBe("true");
+    expect(ui.$("#f-error")!.textContent).toContain("Give it a name");
   });
 
   it("refuses a project that is neither listed nor an absolute path", async () => {
