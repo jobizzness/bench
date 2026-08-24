@@ -15,6 +15,7 @@ import { resolveTurnOutcome } from "./turn-outcome.js";
 import { appendEntry, readThread } from "./thread.js";
 import { answeredReportSeq } from "./answered.js";
 import { asRole } from "../shared/roles.js";
+import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
 import type { RosterRow, SessionStatus } from "../shared/types.js";
 
@@ -446,6 +447,25 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * telling the developer that about something they just did themselves is
    * how a roster stops being believed.
    */
+  /**
+   * Rename a specialist.
+   *
+   * The label only; the branch and the worktree keep the names they were
+   * given. Renaming those means moving a checked-out worktree and a branch
+   * that may already be pushed, to change a string nobody reads except in
+   * `git branch` - and the stage head shows the branch, so the two drifting
+   * apart is visible rather than hidden.
+   */
+  rename(id: string, label: string): boolean {
+    const entry = this.entries.get(id);
+    if (!entry || !labelIsUsable(label)) return false;
+
+    entry.row.label = label.trim();
+    void this.store.rename(id, entry.row.label);
+    this.emit("roster");
+    return true;
+  }
+
   stop(id: string): void {
     const entry = this.entries.get(id);
     if (!entry?.session) return;

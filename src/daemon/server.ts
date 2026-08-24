@@ -25,6 +25,7 @@ export interface SessionRegistryLike {
   send(id: string, text: string): void;
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
   stop(id: string): void;
+  rename(id: string, label: string): boolean;
   create(input: {
     project: string; label: string; model: string; role?: string; isolated?: boolean;
   }): Promise<string>;
@@ -374,6 +375,24 @@ export function createServer(opts: {
       }));
 
       json(res, 200, { id });
+      return;
+    }
+
+    // What a specialist is called, changed from the header. The branch is
+    // not renamed with it: see the note in the registry.
+    const rename = path.match(/^\/api\/sessions\/([^/]+)\/label$/);
+    if (rename && req.method === "POST") {
+      const body = await readBody(req);
+      const label = typeof body.label === "string" ? body.label : "";
+      if (!labelIsUsable(label)) {
+        json(res, 400, { error: "that label is empty or too long to name anything" });
+        return;
+      }
+      if (!registry.rename(rename[1], label)) {
+        json(res, 404, { error: "no such session" });
+        return;
+      }
+      json(res, 200, { label: label.trim() });
       return;
     }
 

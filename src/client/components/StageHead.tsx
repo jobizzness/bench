@@ -1,6 +1,7 @@
 import { projectName } from "../format.js";
 import { GithubMark } from "./GithubMark.js";
 import { Meta } from "./Meta.js";
+import { StageLabel } from "./StageLabel.js";
 import { useBenchState } from "./context.js";
 
 /**
@@ -23,7 +24,7 @@ export function StageHead({ onGithub }: {
   return (
     <header id="stage-head">
       <div id="stage-title">
-        <span id="stage-label">{row.label}</span>
+        <StageLabel sessionId={row.id} label={row.label} />
         {/* Top right of the pane the specialist is on, because the project it
             lists is that specialist's. */}
         <button
