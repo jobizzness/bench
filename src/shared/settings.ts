@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_MODEL, isModelId } from "./models.js";
 
 /**
  * How the developer wants work done, said once instead of retyped into every
@@ -11,6 +12,13 @@ import { z } from "zod";
 export const settingsSchema = z.object({
   codingStyle: z.string().max(4000).default(""),
   workflowRules: z.string().max(4000).default(""),
+  /**
+   * The model a review session is opened on. Not the model specialists run
+   * on: that is chosen per specialist, when it is made, and reviewing is the
+   * one job Bench starts on your behalf - so it is the one that needs a
+   * standing answer.
+   */
+  reviewModel: z.string().default(DEFAULT_MODEL),
 });
 
 /**
@@ -22,11 +30,14 @@ export const settingsSchema = z.object({
 export const settingsInputSchema = z.object({
   codingStyle: z.string().max(4000),
   workflowRules: z.string().max(4000),
-});
+  // Absent means the client predates the field, which is not a reason to
+  // refuse the rules it did send.
+  reviewModel: z.string().refine(isModelId, "not a model this bench offers").optional(),
+}).transform((s) => ({ ...s, reviewModel: s.reviewModel ?? DEFAULT_MODEL }));
 
 export type Settings = z.infer<typeof settingsSchema>;
 
-export const NO_SETTINGS: Settings = { codingStyle: "", workflowRules: "" };
+export const NO_SETTINGS: Settings = { codingStyle: "", workflowRules: "", reviewModel: DEFAULT_MODEL };
 
 /**
  * What a specialist is actually told, assembled.

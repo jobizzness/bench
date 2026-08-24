@@ -64,7 +64,7 @@ describe("the house rules page", () => {
     await ui.type(ui.$("#s-workflow"), "verify first");
     await ui.click(ui.$("#s-save"));
 
-    expect(saved()!.body).toEqual({ codingStyle: "terse", workflowRules: "verify first" });
+    expect(saved()!.body).toEqual({ codingStyle: "terse", workflowRules: "verify first", reviewModel: "opus" });
   });
 
   it("keeps what was saved when it is reopened", async () => {
@@ -74,5 +74,36 @@ describe("the house rules page", () => {
 
     await waitFor(() => ui.$<HTMLTextAreaElement>("#s-style")?.value === "terse" || null, "the reload");
     expect(ui.$<HTMLTextAreaElement>("#s-style")!.value).toBe("terse");
+  });
+});
+
+/**
+ * Every other session is opened by a person looking at a dialog. The reviewer
+ * is opened by a button on a report, so its model is chosen here or nowhere.
+ */
+describe("which model reviews", () => {
+  const options = () => ui.$$("#s-review-model option").map((o) => o.textContent);
+
+  it("offers every model this bench knows about", async () => {
+    await open();
+    expect(options()).toEqual(["Opus 5", "Sonnet 5", "Fable 5", "Haiku 4.5"]);
+  });
+
+  it("opens on the one already saved", async () => {
+    await open({ codingStyle: "", workflowRules: "", reviewModel: "haiku" });
+    expect(ui.$<HTMLSelectElement>("#s-review-model")!.value).toBe("haiku");
+  });
+
+  it("says what the alias resolves to, so the choice is not a guess", async () => {
+    await open({ codingStyle: "", workflowRules: "", reviewModel: "fable" });
+    expect(ui.$("#s-review-note")!.textContent).toContain("claude-fable-5");
+  });
+
+  it("saves the choice with the rules", async () => {
+    await open();
+    await ui.pick(ui.$("#s-review-model"), "sonnet");
+    await ui.click(ui.$("#s-save"));
+
+    expect(saved()!.body.reviewModel).toBe("sonnet");
   });
 });

@@ -1515,6 +1515,23 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .gh-row[data-state="draft"] .gh-state { color: var(--muted); }
 .gh-row[data-kind="pull"] .gh-number { color: var(--muted); }
 
+/* ── Who reviews ────────────────────────────────────────────────────── */
+
+/* The form is a column and every field in it is a child of that column. A
+   section is not, so its own label and control need saying, or they set
+   side by side like words in a sentence. */
+#s-review {
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+/* Wide enough for the longest name, and no wider: a select stretched to the
+   measure of a paragraph reads as a text field. */
+#s-review select { align-self: flex-start; min-width: 190px; }
+#s-review-note code { font: 400 12px/1.5 var(--mono); color: var(--muted); }
+
 /* ── Where the cockpit is pointed ───────────────────────────────────── */
 
 #s-server {

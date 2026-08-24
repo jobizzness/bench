@@ -10,13 +10,14 @@ import { SessionStore } from "../src/daemon/store.js";
 import { RefIndex } from "../src/daemon/refs.js";
 
 /**
- * The whole chain a rename actually travels: the route, the registry, the
- * file the next daemon reads, and the socket the cockpit is listening on.
+ * The real registry, the real server, a real socket - for the changes whose
+ * failure mode is the wiring rather than the parts.
  *
- * The pieces each had a test and the feature still could have been broken -
- * a rename that never reaches the socket leaves the roster row saying the
- * old name until the page is reloaded, and nothing further down would have
- * noticed.
+ * Every piece of a rename had a test and the feature could still have been
+ * broken: one that never reaches the socket leaves the roster row saying the
+ * old name until the page is reloaded, and nothing further down notices. The
+ * same is true of a setting that saves but is not held in memory, or is held
+ * but never written.
  */
 const TOKEN = "rename-token";
 const NEW_NAME = "Safari drops the session cookie";
@@ -109,5 +110,35 @@ describe("renaming through the daemon", () => {
 
     const { rows } = await (await fetch(`${base}/api/roster`, { headers: { "x-bench-token": TOKEN } })).json();
     expect(rows[0].label).toBe(NEW_NAME);
+  });
+});
+
+/**
+ * The registry holds the settings in memory as well as on disk, because the
+ * framing is built synchronously at the instant a turn starts. A review model
+ * saved and then not held is a setting that works until the daemon restarts,
+ * or the other way round - so the round trip is the thing worth testing.
+ */
+describe("choosing who reviews", () => {
+  it("saves through the daemon and is still there on the next one", async () => {
+    const res = await fetch(`${base}/api/settings`, {
+      method: "POST",
+      headers: { "x-bench-token": TOKEN, "content-type": "application/json" },
+      body: JSON.stringify({ codingStyle: "", workflowRules: "", reviewModel: "haiku" }),
+    });
+    expect(res.status).toBe(200);
+
+    const next = new SessionRegistry(config);
+    await next.restore();
+    expect(next.getSettings().reviewModel).toBe("haiku");
+  });
+
+  it("refuses a model this bench does not offer", async () => {
+    const res = await fetch(`${base}/api/settings`, {
+      method: "POST",
+      headers: { "x-bench-token": TOKEN, "content-type": "application/json" },
+      body: JSON.stringify({ codingStyle: "", workflowRules: "", reviewModel: "gpt-4" }),
+    });
+    expect(res.status).toBe(400);
   });
 });

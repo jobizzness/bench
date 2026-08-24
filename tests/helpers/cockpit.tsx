@@ -27,7 +27,7 @@ export interface Fixtures {
   /** The id the daemon hands back from POST /api/sessions. */
   createdId?: string;
   /** House rules already on the daemon when the page opens. */
-  settings?: { codingStyle: string; workflowRules: string };
+  settings?: { codingStyle: string; workflowRules: string; reviewModel?: string };
   /** What GitHub says about the project the drawer is opened on. */
   github?: { slug: string | null; items: unknown[] };
   /** Where else this daemon answers. */
@@ -147,7 +147,7 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       };
     }
     if (url.includes("/settings")) {
-      const settings = fixtures.settings ?? { codingStyle: "", workflowRules: "" };
+      const settings = fixtures.settings ?? { codingStyle: "", workflowRules: "", reviewModel: "opus" };
       return { ok: true, status: 200, json: async () => ({ settings }) };
     }
     if (url.includes("/plan")) {

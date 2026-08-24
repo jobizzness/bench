@@ -16,6 +16,7 @@ import { houseRules, type Settings } from "./settings.js";
 import { RefIndex } from "./refs.js";
 import { reviewBrief, reviewLabel } from "./review.js";
 import { labelIsUsable } from "../shared/slug.js";
+import { DEFAULT_MODEL } from "../shared/models.js";
 import { cockpitOrigins, isLoopback } from "./urls.js";
 import type { IntakeAnswer, RosterRow } from "../shared/types.js";
 
@@ -283,7 +284,7 @@ export function createServer(opts: {
       const id = await registry.create({
         project: String(body.project),
         label: String(body.label),
-        model: String(body.model ?? "opus"),
+        model: String(body.model ?? DEFAULT_MODEL),
         role: typeof body.role === "string" ? body.role : undefined,
         // Absent means isolated. A caller that has not heard of the toggle
         // gets the safer of the two.
@@ -424,7 +425,9 @@ export function createServer(opts: {
       const id = await registry.create({
         project: subject.project,
         label: reviewLabel(subject.label),
-        model: String(body.model ?? "opus"),
+        // The developer's standing answer to "who reviews", since nothing
+        // asks them at the moment a reviewer is opened.
+        model: String(body.model ?? registry.getSettings().reviewModel),
         role: "reviewer",
         isolated: true,
       });
