@@ -1,4 +1,5 @@
 import { contextTone } from "../../shared/context-window.js";
+import { modelLabel } from "../../shared/models.js";
 import type { RosterRow } from "../../shared/types.js";
 import { ContextMeter } from "./ContextMeter.js";
 
@@ -28,6 +29,11 @@ export function Meta({ row, status = false, branch = false, badges = false }: {
   badges?: boolean;
 }) {
   const shared = !row.isolated && row.branch !== "";
+  // Absent on a row from a daemon that predates the field, and on nothing
+  // else. Better a line without it than a line with the word "undefined".
+  const model = row.model
+    ? <span className="badge badge-model">{modelLabel(row.model)}</span>
+    : null;
   const tone = contextTone(row.context);
   // On the stage it is always worth knowing; on a row it is worth the space
   // only once it is close.
@@ -47,6 +53,10 @@ export function Meta({ row, status = false, branch = false, badges = false }: {
         <span className="meta-role">{row.role}</span>
         <span className="meta-detail">{row.detail}</span>
         {fill && <ContextMeter context={row.context} />}
+        {/* Held to the right edge rather than set in the run of the line:
+            twenty rows put twenty of these in a column, and a column reads
+            at a glance in a way a mid-sentence word does not. */}
+        {model}
       </div>
     );
   }
@@ -54,6 +64,7 @@ export function Meta({ row, status = false, branch = false, badges = false }: {
   return (
     <div className="meta meta-badges">
       <span className="badge badge-role">{row.role}</span>
+      {model}
       {status && <span className="badge">{row.status.replace(/_/g, " ")}</span>}
       {/* The only raised voice here, and the only one warranted: this
           specialist is editing the files you have open. */}

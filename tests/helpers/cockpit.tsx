@@ -66,7 +66,7 @@ export interface Cockpit {
 
 export const row = (over: Partial<RosterRow> = {}): RosterRow => ({
   id: "s1", label: "auth", role: "specialist", branch: "bench/auth-abcd1234", isolated: true,
-  project: "/var/www/demo", status: "awaiting_decision",
+  project: "/var/www/demo", model: "opus", status: "awaiting_decision",
   detail: "ready", latestReportSeq: null, answeredReportSeq: null,
   startedAt: null, tokens: 0, context: null, activity: [], ...over,
 });
