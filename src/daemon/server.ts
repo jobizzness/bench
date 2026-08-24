@@ -1,4 +1,4 @@
-import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer as createHttpServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -130,6 +130,12 @@ function readIntakeAnswers(value: unknown): IntakeAnswer[] | null {
     });
   }
   return answers;
+}
+
+/** The http server, plus the one thing shutting down needs from it. */
+export interface BenchServer extends HttpServer {
+  /** Drop every connection, so `close()` can actually finish. */
+  closeSockets(): void;
 }
 
 export function createServer(opts: {
@@ -485,6 +491,29 @@ export function createServer(opts: {
   }
 
   const wss = new WebSocketServer({ server, path: "/events" });
+
+  /**
+   * The cockpit holds its roster socket open for as long as the tab is, and
+   * `server.close()` waits for every connection to end before it calls back.
+   * So Ctrl-C did nothing visible: the daemon stayed up holding the port,
+   * the developer killed it, and the next one started beside a specialist
+   * that was still running. Twice that ended with two daemons writing one
+   * index.
+   *
+   * Stopping is not a negotiation. The sockets are told, then dropped.
+   */
+  (server as BenchServer).closeSockets = () => {
+    for (const socket of wss.clients) {
+      // A code the page reads as "gone, try again" rather than "refused",
+      // so an open cockpit reconnects when the daemon comes back.
+      socket.close(1001, "bench is stopping");
+      socket.terminate();
+    }
+    wss.close();
+    // Keep-alive connections with nothing in flight are the same problem
+    // with a shorter fuse.
+    server.closeAllConnections();
+  };
   wss.on("connection", (socket, req) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     if (url.searchParams.get("token") !== config.token) { socket.close(1008, "unauthorized"); return; }
@@ -497,5 +526,5 @@ export function createServer(opts: {
     });
   });
 
-  return server;
+  return server as BenchServer;
 }

@@ -3,6 +3,7 @@ import { createServer } from "./server.js";
 import { HomeInUse, takeHomeLock } from "./lock.js";
 import { SessionRegistry } from "./registry.js";
 import { CorruptIndex } from "./store.js";
+import { onStopKey } from "./stop-key.js";
 import { cockpitUrls, isLoopback } from "./urls.js";
 
 const config = loadConfig();
@@ -54,14 +55,49 @@ server.listen(config.port, config.host, () => {
       + " standing in front of a shell on this machine.\n",
     );
   }
+
+  // Last, because it is the only line here that is an instruction rather
+  // than a fact - and because it is the one you look for when you are done.
+  process.stdout.write("bench: press q or ctrl-c to stop.\n");
 });
 
 // Children are killed deliberately so no orphaned claude processes survive
 // the daemon.
+let stopping = false;
+
 const shutdown = () => {
+  // A second press means the first one did not work, and arguing about it is
+  // how a daemon ends up killed with -9 while it still holds the port.
+  if (stopping) { releaseHome(); process.exit(1); }
+  stopping = true;
+  process.stdout.write("bench: stopping.\n");
+
+  restoreTerminal();
   for (const row of registry.list()) registry.stop(row.id);
-  releaseHome();
-  server.close(() => process.exit(0));
+  server.closeSockets();
+
+  // The sockets are gone by here in every case we know of. The timer is
+  // because stopping is not a negotiation: a daemon that will not stop is
+  // one that gets killed, and a killed daemon is how two of them ended up
+  // writing one index.
+  const giveUp = setTimeout(done, 2000);
+  giveUp.unref();
+  server.close(done);
 };
+
+/**
+ * The lock goes last, at the moment of exit.
+ *
+ * Released at the top of a shutdown that then hung, it was worse than no
+ * lock at all: the daemon was still there, still holding a roster, and had
+ * already told the next one the home was free. Two processes, one index.
+ */
+function done(): void {
+  releaseHome();
+  process.exit(0);
+}
+
+const restoreTerminal = onStopKey(shutdown);
+
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
