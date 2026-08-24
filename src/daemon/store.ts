@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
@@ -99,9 +99,33 @@ export class SessionStore {
     }
   }
 
+  /**
+   * Changes run one at a time.
+   *
+   * Every one of them is a read, a small modification and a write of the
+   * whole file, and two of those overlapping lose one of the two changes -
+   * the second read happens before the first write, so it modifies a copy
+   * that is already out of date. The daemon does exactly this at the end of
+   * every turn: the context number and the resumable flag are written from
+   * the same tick.
+   */
+  private pending: Promise<unknown> = Promise.resolve();
+  /** Counts writes, so no two temp files in this process share a name. */
+  private writes = 0;
+
+  private change<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.pending.then(work, work);
+    // The chain has to survive a failure, or one bad write stops every write
+    // after it for the life of the daemon.
+    this.pending = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
   async put(record: SessionRecord): Promise<void> {
-    const rest = (await this.all()).filter((r) => r.id !== record.id);
-    await this.write([...rest, record]);
+    return this.change(async () => {
+      const rest = (await this.all()).filter((r) => r.id !== record.id);
+      await this.write([...rest, record]);
+    });
   }
 
   /**
@@ -110,11 +134,13 @@ export class SessionStore {
    * "there is something to resume", not "we tried".
    */
   async markResumable(id: string): Promise<void> {
-    const all = await this.all();
-    const record = all.find((r) => r.id === id);
-    if (!record || record.resumable) return;
-    record.resumable = true;
-    await this.write(all);
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record || record.resumable) return;
+      record.resumable = true;
+      await this.write(all);
+    });
   }
 
   /**
@@ -124,15 +150,19 @@ export class SessionStore {
    * question you should have to prompt it to answer.
    */
   async rememberContext(id: string, context: { used: number; window: number }): Promise<void> {
-    const all = await this.all();
-    const record = all.find((r) => r.id === id);
-    if (!record) return;
-    record.context = context;
-    await this.write(all);
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.context = context;
+      await this.write(all);
+    });
   }
 
   async remove(id: string): Promise<void> {
-    await this.write((await this.all()).filter((r) => r.id !== id));
+    return this.change(async () => {
+      await this.write((await this.all()).filter((r) => r.id !== id));
+    });
   }
 
   /**
@@ -146,10 +176,20 @@ export class SessionStore {
    */
   private async write(records: SessionRecord[]): Promise<void> {
     await mkdir(this.home, { recursive: true });
-    // Named for this process, so two daemons cannot collide in the temp file
-    // either - which would only move the problem one step along.
-    const temp = `${this.path}.${process.pid}.tmp`;
+    // Named for this process and this write. Naming it for the process alone
+    // moved the collision rather than fixing it: two writes from one daemon
+    // opened the same temp file, interleaved inside it, and the winner then
+    // renamed that mess into place - atomically, which is the one thing that
+    // made it worse. The loser found nothing left to rename and took the
+    // daemon down with it.
+    const temp = `${this.path}.${process.pid}.${++this.writes}.tmp`;
     await writeFile(temp, JSON.stringify(records, null, 2) + "\n");
-    await rename(temp, this.path);
+    try {
+      await rename(temp, this.path);
+    } catch (error) {
+      // Nothing landed, so nothing should be left lying beside the index.
+      await rm(temp, { force: true });
+      throw error;
+    }
   }
 }

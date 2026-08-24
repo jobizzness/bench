@@ -69,6 +69,20 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * nothing until it is prompted, and the developer may only want to read
    * what an old one already wrote.
    */
+  /**
+   * A write to the index that nobody is waiting on.
+   *
+   * Nobody waiting is not nobody watching: an unawaited promise that rejects
+   * is an unhandled rejection, and node ends the process for one of those.
+   * A turn's context number failing to save is worth a line on stderr. It is
+   * not worth six specialists.
+   */
+  private remember(work: Promise<unknown>): void {
+    void work.catch((error) => {
+      process.stderr.write(`bench: could not update the specialist index: ${String(error)}\n`);
+    });
+  }
+
   async restore(): Promise<void> {
     this.settings = await readSettings(this.config.home);
 
@@ -276,14 +290,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       const context = session.contextUsed;
       if (context) {
         entry.row.context = context;
-        void this.store.rememberContext(id, context);
+        this.remember(this.store.rememberContext(id, context));
       }
 
       // A turn has ended, so the CLI has written a conversation and the next
       // process can pick it up.
       if (!entry.resumable) {
         entry.resumable = true;
-        void this.store.markResumable(id);
+        this.remember(this.store.markResumable(id));
       }
 
       syncProgress();

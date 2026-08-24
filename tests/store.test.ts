@@ -124,6 +124,88 @@ describe("SessionStore", () => {
     expect(readdirSync(home)).toEqual(["sessions.json"]);
   });
 
+  // What the daemon does at the end of every single turn: the context number
+  // and the resumable flag, from the same tick, neither of them awaited.
+  describe("two changes at once", () => {
+    const home = async () => {
+      const dir = await mkdtemp(join(tmpdir(), "bench-store-"));
+      await new SessionStore(dir).put(record("a"));
+      return dir;
+    };
+
+    it("keeps both of them", async () => {
+      // Overlapping, the second reads before the first has written, so it
+      // saves a copy of the record that never had the first change on it.
+      const dir = await home();
+      const store = new SessionStore(dir);
+
+      await Promise.all([
+        store.rememberContext("a", { used: 1234, window: 200_000 }),
+        store.markResumable("a"),
+      ]);
+
+      const [saved] = await new SessionStore(dir).all();
+      expect(saved.context).toEqual({ used: 1234, window: 200_000 });
+      expect(saved.resumable).toBe(true);
+    });
+
+    it("does not leave the index unreadable", async () => {
+      // Writing both to one temp file named after the process, they
+      // interleaved inside it - and the rename then put that atomically in
+      // place of a perfectly good index.
+      const dir = await home();
+      const store = new SessionStore(dir);
+
+      await Promise.all([
+        store.rememberContext("a", { used: 500, window: 200_000 }),
+        store.markResumable("a"),
+        store.put(record("b")),
+        store.put(record("c")),
+      ]);
+
+      const saved = await new SessionStore(dir).all();
+      expect(saved.map((r) => r.id).sort()).toEqual(["a", "b", "c"]);
+    });
+
+    it("does not crash on the second one", async () => {
+      // The first rename moved the shared temp file away, so the second
+      // found nothing to rename - and an unawaited rejection ends the
+      // process, which is how stopping one turn took down a whole bench.
+      const dir = await home();
+      const store = new SessionStore(dir);
+
+      const both = [store.markResumable("a"), store.rememberContext("a", { used: 1, window: 2 })];
+      await expect(Promise.all(both)).resolves.toBeDefined();
+    });
+
+    it("leaves nothing beside the index", async () => {
+      const dir = await home();
+      const store = new SessionStore(dir);
+      await Promise.all([
+        store.rememberContext("a", { used: 1, window: 2 }),
+        store.markResumable("a"),
+        store.put(record("b")),
+      ]);
+
+      expect(readdirSync(dir)).toEqual(["sessions.json"]);
+    });
+
+    it("goes on writing after one of them fails", async () => {
+      // A queue that stops at the first failure would silently stop
+      // recording anything for the rest of the daemon's life.
+      const dir = await home();
+      const store = new SessionStore(dir);
+
+      const corrupt = join(dir, "sessions.json");
+      await writeFile(corrupt, "{ not json");
+      await expect(store.markResumable("a")).rejects.toThrow(CorruptIndex);
+
+      await writeFile(corrupt, JSON.stringify([record("a")]));
+      await store.rememberContext("a", { used: 7, window: 9 });
+      expect((await store.all())[0].context).toEqual({ used: 7, window: 9 });
+    });
+  });
+
   it("ignores entries that are not shaped like a session", async () => {
     const home = await mkdtemp(join(tmpdir(), "bench-store-"));
     await writeFile(join(home, "sessions.json"), JSON.stringify([record("a"), { nonsense: true }, null]));
