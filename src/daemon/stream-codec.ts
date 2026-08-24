@@ -71,9 +71,24 @@ export function contextFrom(event: ClaudeEvent): Context | null {
   const number = (value: unknown) =>
     (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
-  const used = number(usage.input_tokens)
-    + number(usage.cache_creation_input_tokens)
-    + number(usage.cache_read_input_tokens);
+  /** What one request put in front of the model. */
+  const inputOf = (entry: Record<string, unknown>) =>
+    number(entry.input_tokens)
+    + number(entry.cache_creation_input_tokens)
+    + number(entry.cache_read_input_tokens);
+
+  // The top-level usage is every request the turn made, added together. A
+  // turn with sixty tool calls re-sends the conversation sixty times, so that
+  // sum is sixty conversations and pins at the window - which is why this
+  // read a hundred per cent on any turn that did real work.
+  //
+  // What the conversation actually occupies is what the last request carried.
+  // `iterations` lists them; the final one is the state the turn ended in.
+  const iterations = Array.isArray(usage.iterations) ? usage.iterations : [];
+  const last = iterations.at(-1);
+  if (!last || typeof last !== "object") return null;
+
+  const used = inputOf(last as Record<string, unknown>);
 
   let window = 0;
   let most = -1;
