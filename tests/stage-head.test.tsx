@@ -38,11 +38,12 @@ describe("StageHead", () => {
   it("names the specialist and what it is doing", () => {
     const host = render([row()], "s1");
     expect(host.querySelector("#stage-label")!.textContent).toBe("auth");
-    // One line under the name, in reading order: what kind of agent, what it
-    // is doing, and where. The detail is the useful half - "awaiting
-    // decision" alone says nothing about whether there is anything to read.
+    // Badges under the name, then the prose: what kind of agent, what state,
+    // which branch - then what it is actually doing. The detail is the useful
+    // half; "awaiting decision" alone says nothing about whether there is
+    // anything to read.
     expect([...host.querySelectorAll(".meta > *")].map((s) => s.textContent))
-      .toEqual(["specialist", "awaiting decision", "waiting on you", "bench/auth-abcd1234"]);
+      .toEqual(["specialist", "awaiting decision", "bench/auth-abcd1234", "waiting on you"]);
   });
 
   it("renders nothing when no specialist is selected", () => {

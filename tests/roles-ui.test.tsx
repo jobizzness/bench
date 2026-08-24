@@ -53,8 +53,11 @@ describe("what kind of agent each one is", () => {
     ] });
     await ui.open("payouts");
 
+    // Badges first, then the prose. The header sets its facts as things you
+    // can see rather than clauses you have to read; the detail stays prose
+    // because it is a sentence the specialist wrote.
     expect(metaOf(ui.$("#stage-head")!))
-      .toEqual(["implementer", "working", "Bash pnpm test", "bench/auth-abcd1234"]);
+      .toEqual(["implementer", "working", "bench/auth-abcd1234", "Bash pnpm test"]);
   });
 });
 
@@ -69,20 +72,27 @@ describe("where a specialist is working", () => {
     expect(metaOf(ui.$(".row")!)).not.toContain("bench/auth-abcd1234");
   });
 
-  it("says in your checkout, in both places, when that is where it is", async () => {
-    // The one thing on the line that is a warning rather than a fact.
+  it("says in your checkout in the header, and not on the row", async () => {
+    // It is a standing fact about how the specialist was made, not something
+    // that changes or that you act on from the roster - and on a 276px row it
+    // took the space the detail needed. The header has room to say it
+    // properly, as a badge.
     ui = await bootCockpit({ rows: [row({ label: "quick-look", branch: "main", isolated: false })] });
     await ui.open("quick-look");
 
-    expect(metaOf(ui.$(".row")!)).toContain("in your checkout");
-    expect(ui.$(".row .meta-shared")).not.toBeNull();
+    expect(metaOf(ui.$(".row")!)).not.toContain("in your checkout");
+    expect(ui.$(".row .badge-shared")).toBeNull();
+
     expect(metaOf(ui.$("#stage-head")!)).toContain("in your checkout");
+    expect(ui.$("#stage-head .badge-shared")).not.toBeNull();
   });
 
   it("says nothing about where when it has its own worktree", async () => {
-    // The normal case. A line that says it on every row says nothing.
+    // The normal case, and the header stays quiet about it too.
     ui = await bootCockpit({ rows: [row({ label: "auth" })] });
-    expect(ui.$(".row .meta-shared")).toBeNull();
+    await ui.open("auth");
+    expect(ui.$(".row .badge-shared")).toBeNull();
+    expect(ui.$("#stage-head .badge-shared")).toBeNull();
   });
 
   it("says nothing at all while the worktree is still being made", async () => {

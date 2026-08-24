@@ -358,6 +358,38 @@ button, input, textarea, select { font: inherit; color: inherit; }
    and the most replaceable, and the role and the warning beside it are not. */
 .meta-detail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .meta-branch { color: var(--muted); }
+
+/* Badges, in the header only. The separator dots belong to the line version;
+   a row of pills does not need punctuation between them. */
+.meta-badges { align-items: center; gap: 6px; flex-wrap: wrap; }
+.meta-badges > * + *::before { content: none; margin: 0; }
+
+.badge {
+  flex: none;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--muted);
+  font: 500 10px/1.2 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* The role is what the bench is made of, so it is the one badge that reads
+   as a label rather than as a note. */
+.badge-role { color: var(--text); border-color: var(--line-firm); }
+
+/* Not uppercase: it is a branch name and has to be read as written. */
+.badge-branch { text-transform: none; letter-spacing: 0; color: var(--muted); }
+
+/* This specialist is editing the files you have open. */
+.badge-shared {
+  color: var(--busy);
+  border-color: var(--busy-dim);
+  background: var(--busy-dim);
+}
 /* The only raised voice on the line, and the only place it is warranted:
    this specialist is editing the files you have open. */
 .meta-shared { color: var(--busy); }

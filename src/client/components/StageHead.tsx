@@ -6,9 +6,11 @@ import { useBenchState } from "./context.js";
 /**
  * Who is on the stage: their name, and one line of everything else.
  *
- * The line is the same one the roster row carries, with the two facts a row
- * has no room for - the status word, which on a row is read off the rail, and
- * the branch.
+ * The roster carries a line; this carries badges. A column of twenty rows in
+ * chips is noise, which is why the row is a line - but there is one specialist
+ * here and room to let a fact be a thing you can see rather than a clause you
+ * have to read. It also says the two the row has no room for: the status word,
+ * read off the rail on a row, and the branch.
  */
 export function StageHead({ onGithub }: {
   /** Opens the drawer of what has been happening on this project. */
@@ -33,7 +35,7 @@ export function StageHead({ onGithub }: {
           <GithubMark />
         </button>
       </div>
-      <Meta row={row} status branch />
+      <Meta row={row} status branch badges />
     </header>
   );
 }
