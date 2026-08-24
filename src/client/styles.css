@@ -355,6 +355,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
    this specialist is editing the files you have open. */
 .meta-shared { color: var(--busy); }
 
+/* How full the conversation is. Furniture until three quarters, then amber,
+   then red - the same three steps the rest of the cockpit uses for "fine",
+   "watch this" and "broken", spent here on the one number you act on between
+   turns rather than during one. */
+.meta-context[data-tone="high"] { color: var(--busy); }
+.meta-context[data-tone="full"] { color: var(--broken); }
+
 /* ── Stage ──────────────────────────────────────────────────────────── */
 
 #stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }

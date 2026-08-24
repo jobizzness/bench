@@ -113,6 +113,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           answeredReportSeq: answeredReportSeq(thread),
           startedAt: null,
           tokens: 0,
+          context: rec.context ?? null,
           activity: [],
         },
       });
@@ -269,6 +270,15 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         });
       }
 
+      // How full the conversation is now. Kept on disk as well as on the row:
+      // a cockpit that has just started should be able to say whether a cold
+      // specialist is worth reviving without prompting it first.
+      const context = session.contextUsed;
+      if (context) {
+        entry.row.context = context;
+        void this.store.rememberContext(id, context);
+      }
+
       // A turn has ended, so the CLI has written a conversation and the next
       // process can pick it up.
       if (!entry.resumable) {
@@ -330,6 +340,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         answeredReportSeq: null,
         startedAt: new Date().toISOString(),
         tokens: 0,
+        context: null,
         activity: [],
       },
     });

@@ -95,3 +95,39 @@ describe("where a specialist is working", () => {
       .toEqual(["specialist", "provisioning", "creating worktree"]);
   });
 });
+
+describe("how full a conversation is", () => {
+  const context = { used: 150_000, window: 200_000 };
+
+  it("says so on the stage, where you are looking at one specialist", async () => {
+    ui = await bootCockpit({ rows: [row({ label: "auth", context: { used: 20_000, window: 200_000 } })] });
+    await ui.open("auth");
+
+    expect(metaOf(ui.$("#stage-head")!)).toContain("10% context");
+  });
+
+  it("stays off a roster row until it is close", async () => {
+    // Every row carrying a percentage is a column of numbers nobody reads.
+    ui = await bootCockpit({ rows: [
+      row({ id: "a", label: "early", context: { used: 20_000, window: 200_000 } }),
+      row({ id: "b", label: "late", context }),
+    ] });
+
+    expect(metaOf(ui.$$(".row")[0])).not.toContain("10% context");
+    expect(metaOf(ui.$$(".row")[1])).toContain("75% context");
+  });
+
+  it("colours it only once it is worth acting on", async () => {
+    ui = await bootCockpit({ rows: [row({ label: "late", context })] });
+    await ui.open("late");
+
+    expect(ui.$(".meta-context")!.getAttribute("data-tone")).toBe("high");
+  });
+
+  it("says nothing at all for a specialist that has never taken a turn", async () => {
+    ui = await bootCockpit({ rows: [row({ label: "fresh", context: null })] });
+    await ui.open("fresh");
+
+    expect(ui.$(".meta-context")).toBeNull();
+  });
+});

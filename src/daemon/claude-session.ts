@@ -2,7 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { LineDecoder, userMessageLine, isResultEvent, activityLine, replyText } from "./stream-codec.js";
+import { LineDecoder, userMessageLine, isResultEvent, activityLine, replyText, contextFrom } from "./stream-codec.js";
+import type { Context } from "../shared/context-window.js";
 import { buildSettings } from "./gates/settings.js";
 
 /** Enough for a refusal and a stack trace, not enough to hold a log file. */
@@ -64,11 +65,17 @@ export class ClaudeSession extends EventEmitter {
     return this.tokens;
   }
 
+  /** How full the conversation is, as of the last turn that finished. */
+  get contextUsed(): Context | null {
+    return this.context;
+  }
+
   /** Prompts waiting for the running turn to end. */
   private queued: string[] = [];
   private running = false;
   private startedAt: number | null = null;
   private tokens = 0;
+  private context: Context | null = null;
   private lastStderr = "";
 
   /** Spawn the process and wait. A specialist with nothing to do costs
@@ -241,6 +248,9 @@ export class ClaudeSession extends EventEmitter {
         // reply before turn-end, so a listener appending to the thread sees
         // the reply before the roster flips to awaiting-decision.
         const reply = replyText(event);
+        // How full the conversation is now. Kept rather than emitted on its
+        // own: it changes once a turn, and turn-end is that moment.
+        this.context = contextFrom(event) ?? this.context;
 
         // The turn that just finished releases the markers to the next
         // queued turn, which only now becomes the running one.

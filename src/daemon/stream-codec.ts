@@ -1,3 +1,5 @@
+import type { Context } from "../shared/context-window.js";
+
 export interface ResultEvent {
   type: "result";
   subtype: string;
@@ -45,6 +47,44 @@ export class LineDecoder {
     }
     return events;
   }
+}
+
+/**
+ * How full the conversation is, off the result event.
+ *
+ * The used figure is what the last request actually sent - fresh input, plus
+ * the cache it wrote and the cache it read. Cached tokens still occupy the
+ * window, and counting `input_tokens` alone reports a long conversation as
+ * two tokens.
+ *
+ * The window comes from the CLI rather than from a table of ours: it differs
+ * per model and changes without us. Where several models appear - a subagent
+ * on a cheaper one - the conversation belongs to whichever did the most work.
+ */
+export function contextFrom(event: ClaudeEvent): Context | null {
+  if (!isResultEvent(event)) return null;
+
+  const usage = (event as { usage?: Record<string, unknown> }).usage;
+  const models = (event as { modelUsage?: Record<string, Record<string, unknown>> }).modelUsage;
+  if (!usage || !models) return null;
+
+  const number = (value: unknown) =>
+    (typeof value === "number" && Number.isFinite(value) ? value : 0);
+
+  const used = number(usage.input_tokens)
+    + number(usage.cache_creation_input_tokens)
+    + number(usage.cache_read_input_tokens);
+
+  let window = 0;
+  let most = -1;
+  for (const entry of Object.values(models)) {
+    const worked = number(entry.inputTokens)
+      + number(entry.cacheCreationInputTokens)
+      + number(entry.cacheReadInputTokens);
+    if (worked > most) { most = worked; window = number(entry.contextWindow); }
+  }
+
+  return used > 0 && window > 0 ? { used, window } : null;
 }
 
 export function isResultEvent(event: ClaudeEvent): event is ResultEvent {
