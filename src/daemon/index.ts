@@ -1,15 +1,45 @@
 import { loadConfig } from "./config.js";
 import { createServer } from "./server.js";
+import { HomeInUse, takeHomeLock } from "./lock.js";
 import { SessionRegistry } from "./registry.js";
+import { CorruptIndex } from "./store.js";
 import { cockpitUrls, isLoopback } from "./urls.js";
 
 const config = loadConfig();
+
+// Before anything reads or writes this home. A second daemon on one home is
+// two rosters and two writers, and it is how an index got corrupted and a
+// cockpit came up empty.
+let releaseHome: () => void;
+try {
+  releaseHome = takeHomeLock(config.home);
+} catch (error) {
+  if (!(error instanceof HomeInUse)) throw error;
+  process.stderr.write(`bench: ${error.message}\n`);
+  process.exit(1);
+}
+
 const registry = new SessionRegistry(config);
 const server = createServer({ config, registry });
 
 // Specialists outlive the daemon: the roster comes back from disk before
 // anyone can ask for it.
-await registry.restore();
+try {
+  await registry.restore();
+} catch (error) {
+  if (!(error instanceof CorruptIndex)) throw error;
+  // Starting anyway would show an empty cockpit and then write that emptiness
+  // over the file on the first new specialist. Every specialist in there is
+  // still recoverable while nothing has written to it, so nothing does.
+  releaseHome();
+  process.stderr.write(
+    `bench: ${error.message}\n`
+    + "  Your specialists are still on disk. Bench will not start rather than\n"
+    + "  write over an index it could not read.\n"
+    + `  Move ${error.path} aside to start with an empty bench.\n`,
+  );
+  process.exit(1);
+}
 
 server.listen(config.port, config.host, () => {
   const urls = cockpitUrls({ host: config.host, port: config.port, token: config.token });
@@ -30,6 +60,7 @@ server.listen(config.port, config.host, () => {
 // the daemon.
 const shutdown = () => {
   for (const row of registry.list()) registry.stop(row.id);
+  releaseHome();
   server.close(() => process.exit(0));
 };
 process.on("SIGINT", shutdown);

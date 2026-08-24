@@ -1,5 +1,17 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+
+/**
+ * The index is on disk but unreadable. Thrown rather than swallowed: every
+ * specialist is still there, and the one thing that could lose them for good
+ * is writing over a file we could not parse.
+ */
+export class CorruptIndex extends Error {
+  constructor(readonly path: string, readonly detail: string) {
+    super(`the specialist index at ${path} could not be read: ${detail}`);
+    this.name = "CorruptIndex";
+  }
+}
 
 /**
  * What has to survive the daemon. Threads and reports already live with the
@@ -65,16 +77,25 @@ export class SessionStore {
     try {
       raw = await readFile(this.path, "utf8");
     } catch {
+      // No index yet. An empty bench is the truth on a first run.
       return [];
     }
 
-    // A corrupt index must never stop the daemon starting. Losing the roster
-    // is recoverable; refusing to boot is not.
     try {
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter(isRecord) : [];
-    } catch {
-      return [];
+      if (!Array.isArray(parsed)) throw new Error("the index is not a list");
+      return parsed.filter(isRecord);
+    } catch (error) {
+      // This used to return an empty list, on the grounds that a corrupt
+      // index must never stop the daemon starting. That was the wrong trade
+      // and it cost a developer their whole roster: every specialist vanished
+      // from the cockpit, and the next write would have overwritten the file
+      // with one record and made it permanent.
+      //
+      // An index that cannot be read is not an index that says nothing. It
+      // throws, and `put` and `remove` therefore refuse rather than write over
+      // what they could not read.
+      throw new CorruptIndex(this.path, String(error));
     }
   }
 
@@ -114,8 +135,21 @@ export class SessionStore {
     await this.write((await this.all()).filter((r) => r.id !== id));
   }
 
+  /**
+   * Written to one side and renamed into place.
+   *
+   * `writeFile` truncates and then writes, so two daemons sharing a home can
+   * interleave inside that gap: one file ended up as a short array followed
+   * by the tail of a longer one, which parsed as nothing and emptied a whole
+   * cockpit. A rename is atomic - a reader sees the old file or the new one,
+   * and two writers cannot produce a third thing that is neither.
+   */
   private async write(records: SessionRecord[]): Promise<void> {
     await mkdir(this.home, { recursive: true });
-    await writeFile(this.path, JSON.stringify(records, null, 2));
+    // Named for this process, so two daemons cannot collide in the temp file
+    // either - which would only move the problem one step along.
+    const temp = `${this.path}.${process.pid}.tmp`;
+    await writeFile(temp, JSON.stringify(records, null, 2) + "\n");
+    await rename(temp, this.path);
   }
 }
