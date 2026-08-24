@@ -2,10 +2,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { labelIsUsable, slugify } from "../shared/slug.js";
 
 const exec = promisify(execFile);
-
-const LABEL_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -22,7 +21,7 @@ export async function createWorktree(
   label: string,
   sessionId: string,
 ): Promise<{ worktree: string; branch: string }> {
-  if (!LABEL_PATTERN.test(label)) {
+  if (!labelIsUsable(label)) {
     throw new Error(`invalid label: ${label}`);
   }
   if (!SESSION_ID_PATTERN.test(sessionId)) {
@@ -30,7 +29,10 @@ export async function createWorktree(
   }
 
   // The label leads so `git branch` stays readable; the id makes it unique.
-  const name = `${label}-${sessionId.slice(0, 8)}`;
+  // Slugged here rather than demanded of the developer: "Cash pickup" is what
+  // a person calls a specialist, and `cash-pickup-abcd1234` is what git can
+  // hold. Both are true at once, and only one of them should have to be typed.
+  const name = `${slugify(label)}-${sessionId.slice(0, 8)}`;
   const worktree = join(repo, ".claude", "worktrees", name);
   const branch = `bench/${name}`;
 

@@ -44,9 +44,21 @@ describe("createWorktree", () => {
     await expect(createWorktree(repo, "ok", "../../etc")).rejects.toThrow(/invalid session/i);
   });
 
-  it("rejects a label that would escape the worktrees directory", async () => {
+  it("cannot be walked out of the worktrees directory by a label", async () => {
+    // A label is what a person writes now, so this is no longer refused - it
+    // is defanged. The slug that names the branch has no slashes and no dots
+    // in it by construction, so there is nothing left to traverse with.
     const repo = await makeScratchRepo();
-    await expect(createWorktree(repo, "../../etc", ID_A)).rejects.toThrow(/invalid label/i);
+    const { worktree, branch } = await createWorktree(repo, "../../etc", ID_A);
+
+    expect(worktree).toContain(join(repo, ".claude", "worktrees"));
+    expect(worktree).not.toContain("..");
+    expect(branch).toBe("bench/etc-" + ID_A.slice(0, 8));
+  });
+
+  it("still refuses a label that is nothing at all", async () => {
+    const repo = await makeScratchRepo();
+    await expect(createWorktree(repo, "   ", ID_A)).rejects.toThrow(/invalid label/i);
   });
 
   it("never returns a Windows or UNC path", async () => {
