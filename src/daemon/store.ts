@@ -12,6 +12,9 @@ export interface SessionRecord {
   /** Absent on every record written before roles existed; those are
    * specialists, which is what they have always been. */
   role?: string;
+  /** How full the conversation was when it last finished a turn. Kept so a
+   * cold specialist can still say whether it is worth reviving. */
+  context?: { used: number; window: number };
   project: string;
   worktree: string;
   /** Recorded rather than derived: the branch name is not recoverable from
@@ -90,6 +93,20 @@ export class SessionStore {
     const record = all.find((r) => r.id === id);
     if (!record || record.resumable) return;
     record.resumable = true;
+    await this.write(all);
+  }
+
+  /**
+   * How full the conversation was at the end of a turn. Written every turn
+   * rather than at close, because the case it exists for is a cold specialist
+   * on a cockpit that has just started: whether it is worth reviving is not a
+   * question you should have to prompt it to answer.
+   */
+  async rememberContext(id: string, context: { used: number; window: number }): Promise<void> {
+    const all = await this.all();
+    const record = all.find((r) => r.id === id);
+    if (!record) return;
+    record.context = context;
     await this.write(all);
   }
 

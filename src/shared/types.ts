@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Context } from "./context-window.js";
 import type { Role } from "./roles.js";
 
 export type SessionStatus =
@@ -31,6 +32,9 @@ export interface RosterRow {
   startedAt: string | null;
   /** Rough token estimate for the running turn, from the CLI's own counter. */
   tokens: number;
+  /** How full the conversation is, as of its last finished turn. Null until
+   * it has taken one. */
+  context: Context | null;
   /** The last few things the specialist actually did, oldest first. Derived
    * from tool calls, so unlike a plan it cannot drift from the truth. */
   activity: Array<{ at: string; text: string }>;
