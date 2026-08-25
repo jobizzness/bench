@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { bootCockpit, entry, row, type Cockpit } from "./helpers/cockpit.js";
+import { setTheme } from "../src/client/theme.js";
 
 /**
  * A report is a page: clicking it opens one. The sandbox on the frame is the
@@ -20,7 +21,10 @@ const ENTRIES = [
 ];
 
 let ui: Cockpit;
-afterEach(() => ui?.unmount());
+afterEach(() => {
+  ui?.unmount();
+  setTheme("bench");
+});
 
 async function open(): Promise<Cockpit> {
   ui = await bootCockpit({ rows: [DONE], entries: ENTRIES, decision: null });
@@ -54,7 +58,7 @@ describe("artifact cards in the thread", () => {
     await open();
     const preview = cards()[1].querySelector("iframe")!;
     expect(cards()[1].querySelector(".kind")!.textContent).toBe("answer");
-    expect(preview.getAttribute("src")).toBe(`${DAEMON}/r/s1/5/reply.html?token=t%2Bok`);
+    expect(preview.getAttribute("src")).toBe(`${DAEMON}/r/s1/5/reply.html?token=t%2Bok&theme=bench`);
   });
 
   it("sandboxes a preview to a same-origin document and nothing else", async () => {
@@ -83,7 +87,19 @@ describe("opening one", () => {
     expect(dialog().open).toBe(true);
     expect(ui.$("#artifact-kind")!.textContent).toBe("report");
     expect(ui.$("#artifact-title")!.textContent).toBe("Token expiry strategy");
-    expect(frame()!.getAttribute("src")).toBe(`${DAEMON}/r/s1/4/report.html?token=t%2Bok`);
+    expect(frame()!.getAttribute("src")).toBe(`${DAEMON}/r/s1/4/report.html?token=t%2Bok&theme=bench`);
+  });
+
+  it("is drawn in the theme the cockpit is on", async () => {
+    // Nothing cascades into a sandboxed frame, so the palette rides on the
+    // URL and the daemon draws the page in it. That also means the src has to
+    // change when the theme does, or a report left open stays in the old one.
+    await open();
+    await ui.click(doorOf(0));
+    expect(frame()!.getAttribute("src")).toContain("theme=bench");
+
+    await ui.run(() => setTheme("paper"));
+    expect(frame()!.getAttribute("src")).toContain("theme=paper");
   });
 
   it("sandboxes the dialog's frame the same way", async () => {
@@ -99,7 +115,7 @@ describe("opening one", () => {
     // The token is url-encoded rather than pasted in raw, or a "+" in it
     // silently becomes a space and the tab 401s.
     const tab = ui.$<HTMLAnchorElement>("#artifact-tab")!;
-    expect(tab.getAttribute("href")).toBe(`${DAEMON}/r/s1/4/report.html?token=t%2Bok`);
+    expect(tab.getAttribute("href")).toBe(`${DAEMON}/r/s1/4/report.html?token=t%2Bok&theme=bench`);
     expect(tab.target).toBe("_blank");
   });
 
@@ -128,7 +144,7 @@ describe("opening one", () => {
     await ui.click(doorOf(1));
 
     expect(ui.$("#artifact-kind")!.textContent).toBe("answer");
-    expect(frame()!.getAttribute("src")).toBe(`${DAEMON}/r/s1/5/reply.html?token=t%2Bok`);
+    expect(frame()!.getAttribute("src")).toBe(`${DAEMON}/r/s1/5/reply.html?token=t%2Bok&theme=bench`);
   });
 
   it("clears the frame when Esc closes it, not only the button", async () => {

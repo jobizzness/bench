@@ -1,4 +1,5 @@
 import { currentEndpoint, saveEndpoint, socketUrl, type Endpoint } from "./endpoint.js";
+import { currentTheme } from "./theme.js";
 
 /**
  * The daemon this page is talking to, resolved once on load.
@@ -65,8 +66,15 @@ export async function authFetch(path: string, init?: RequestInit): Promise<Respo
  * An artifact is loaded by the browser into a frame, which cannot carry a
  * header - so this one URL wears the token in its query string.
  */
+/**
+ * A report is a separate document in a sandboxed frame, so no palette reaches
+ * it by cascade. The theme rides on the URL and the daemon draws the page in
+ * it - which is also why changing theme with a report open needs the frame to
+ * reload, and it does, because the src changes.
+ */
 export const artifactUrl = (sessionId: string, seq: number, file: string): string =>
-  apiUrl(`/r/${sessionId}/${seq}/${file}?token=${encodeURIComponent(token())}`);
+  apiUrl(`/r/${sessionId}/${seq}/${file}?token=${encodeURIComponent(token())}`
+    + `&theme=${encodeURIComponent(currentTheme())}`);
 
 export const postJson = (path: string, body: unknown): Promise<Response> =>
   authFetch(path, {

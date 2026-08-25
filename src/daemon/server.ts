@@ -340,8 +340,9 @@ export function createServer(opts: {
         "content-type": "text/html; charset=utf-8",
         "content-security-policy": REPORT_CSP,
       });
-      // The skills ask for a fragment; the frame supplies the page it sits in.
-      res.end(artifactPage(body));
+      // The skills ask for a fragment; the frame supplies the page it sits in,
+      // drawn in whichever theme the cockpit that asked for it is on.
+      res.end(artifactPage(body, url.searchParams.get("theme") ?? undefined));
       return;
     }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { artifactUrl } from "../api.js";
+import { useTheme } from "../theme.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
 import { ShareReport } from "./ShareReport.js";
 import { StartReview } from "./StartReview.js";
@@ -30,6 +31,10 @@ export function ArtifactDialog({
     if (!open && dialog.open) dialog.close?.();
   }, [open]);
 
+  // The theme rides on the artifact URL, so a report left open through a
+  // theme change has to be asked for again to be redrawn. Subscribing here is
+  // what makes the src change; the frame reloads itself off the back of it.
+  useTheme();
   const src = open && sessionId ? artifactUrl(sessionId, open.seq, open.file) : null;
 
   return (

@@ -1,3 +1,6 @@
+import { DEFAULT_THEME, isThemeId } from "../shared/themes.js";
+import { palettes } from "./palettes.js";
+
 /**
  * The page an agent's fragment is rendered into.
  *
@@ -14,23 +17,25 @@
  * still wins.
  */
 const GROUND = `
+  /* The palettes arrive above this, lifted out of the cockpit's stylesheet,
+     and they bring --text, --muted, --faint and --line with the names this
+     page already used. Four more are the frame's own vocabulary and are
+     aliased here, so the whole of theming a report is these four lines plus
+     an attribute on <html>.
+
+     --ground is the cockpit's --raised rather than its --bg: a report is a
+     sheet lifted off the page, not the page. */
   :root {
-    --ground: #16211c;
-    --raised: rgba(255,255,255,0.035);
-    --line: rgba(255,255,255,0.09);
-    --firm: rgba(255,255,255,0.17);
-    --text: #e8efe9;
-    --muted: #8ba396;
-    --faint: #5f7a6c;
-    --accent: #4fd18b;
+    --ground: var(--raised);
+    --fill: var(--hover);
+    --firm: var(--line-firm);
+    --accent: var(--wants);
     /* The only second hue, spent on the one section that earns it. */
-    --unverified: #e0b155;
+    --unverified: var(--busy);
 
     --prose: "Iowan Old Style", Georgia, ui-serif, serif;
     --label: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
-
-    color-scheme: dark;
   }
 
   /* A report is long by nature, so its scrollbar is always on screen. The same
@@ -72,7 +77,7 @@ const GROUND = `
     font-weight: 600;
     letter-spacing: -0.012em;
     margin: 0 0 18px;
-    color: #f4faf5;
+    color: var(--text);
   }
 
   /* The paragraph after the title is the ask. It carries the decision, so
@@ -100,15 +105,24 @@ const GROUND = `
     font-size: 15.5px;
     font-weight: 600;
     margin: 22px 0 6px;
-    color: #f0f6f1;
+    color: var(--text);
   }
 
   h4 { font-size: 14px; font-weight: 600; margin: 18px 0 4px; color: var(--text); }
 
   p { margin: 0 0 14px; }
-  strong { font-weight: 600; color: #f4faf5; }
+  /* Size and weight carry the hierarchy, not a brighter ink. A heading a
+     notch whiter than the text is only louder on a dark theme; on Paper the
+     same move has to go the other way, and there is no one value that does
+     both. The cockpit's own headings settled this the same way. */
+  strong { font-weight: 600; color: var(--text); }
   em { font-style: italic; color: var(--text); }
-  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(79,209,139,0.35); }
+  a {
+    color: var(--accent);
+    text-decoration: none;
+    /* Was the accent written out again in rgba. It is the accent. */
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  }
   a:hover { border-bottom-color: var(--accent); }
 
   ul, ol { margin: 0 0 16px; padding-left: 1.35em; }
@@ -120,10 +134,10 @@ const GROUND = `
   code {
     font-family: var(--mono);
     font-size: 0.855em;
-    background: rgba(255,255,255,0.07);
+    background: var(--line);
     padding: 0.12em 0.36em;
     border-radius: 3px;
-    color: #d7e6da;
+    color: var(--text);
   }
 
   /* Quoted from the machine rather than written by it: an inset ground and
@@ -132,14 +146,14 @@ const GROUND = `
     font-family: var(--mono);
     font-size: 12.5px;
     line-height: 1.55;
-    background: rgba(0,0,0,0.28);
+    background: var(--sunk);
     border-left: 2px solid var(--firm);
     border-radius: 0 4px 4px 0;
     padding: 13px 15px;
     margin: 0 0 18px;
     overflow-x: auto;
   }
-  pre code { background: none; padding: 0; font-size: inherit; color: #cfe2d4; }
+  pre code { background: none; padding: 0; font-size: inherit; color: var(--text); }
 
   blockquote {
     margin: 0 0 18px;
@@ -211,7 +225,7 @@ const GROUND = `
     margin: 0 0 22px;
     padding: 14px 16px;
     border-left: 2px solid var(--accent);
-    background: var(--raised);
+    background: var(--fill);
     border-radius: 3px 8px 8px 3px;
     font-family: var(--label);
     font-size: 15px;
@@ -251,7 +265,7 @@ const GROUND = `
   details {
     margin: 0 0 18px;
     padding: 11px 14px;
-    background: var(--raised);
+    background: var(--fill);
     border: 1px solid var(--line);
     border-radius: 5px;
   }
@@ -286,7 +300,7 @@ const GROUND = `
   }
   [data-bench="unverified"] h2 {
     color: var(--unverified);
-    border-bottom-color: rgba(224,177,85,0.28);
+    border-bottom-color: color-mix(in srgb, var(--unverified) 28%, transparent);
   }
   [data-bench="unverified"] li::marker { color: var(--unverified); }
 
@@ -296,8 +310,18 @@ const GROUND = `
   }
 `;
 
-export function artifactPage(fragment: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">`
+/**
+ * @param theme Which palette to draw it in. The cockpit puts its own on the
+ * artifact URL; a shared link carries none and gets the default, because a
+ * report opened by someone else is not being read next to a cockpit.
+ */
+export function artifactPage(fragment: string, theme?: string): string {
+  // Unknown names are dropped rather than written into the attribute. The
+  // value is client-supplied and lands in markup, and the only safe list is
+  // the one the stylesheet actually has blocks for.
+  const chosen = isThemeId(theme) ? theme : DEFAULT_THEME;
+
+  return `<!doctype html><html lang="en" data-theme="${chosen}"><head><meta charset="utf-8">`
     + `<meta name="viewport" content="width=device-width,initial-scale=1">`
-    + `<style>${GROUND}</style></head><body>${fragment}</body></html>`;
+    + `<style>${palettes()}${GROUND}</style></head><body>${fragment}</body></html>`;
 }
