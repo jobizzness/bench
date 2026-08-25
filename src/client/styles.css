@@ -1056,6 +1056,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
   /* Two text areas and a preview outgrow a laptop screen, and a Save button
      below the fold of a modal is a Save button that does not exist. */
   max-height: 88vh;
+  /* One scroller, and the sheet is not it. Every dialog gets overflow:auto
+     from the browser, so when the form inside carried the same 88vh the
+     dialog's own box was two pixels shorter than it - the width of its
+     border - and put up a second scrollbar beside the first to scroll those
+     two pixels. Sizing the sheet by the form instead leaves it nothing to
+     scroll. */
+  display: flex;
+  flex-direction: column;
 }
 .sheet::backdrop { background: rgba(4, 8, 6, 0.72); }
 
@@ -1063,7 +1071,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
   padding: 26px 28px 22px;
   display: flex;
   flex-direction: column;
-  max-height: 88vh;
+  /* min-height:0 is what lets it scroll: a flex item refuses to shrink below
+     its content without it, and the form would push the sheet past 88vh
+     instead of scrolling inside it. */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
 .sheet form h2 {
@@ -1641,11 +1653,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 #s-preview[open] > summary::before { transform: rotate(90deg); }
 
+/* No cap and no scroller of its own. It is already inside one, and a 150px
+   window onto your own house rules is a box in a box - you scroll the sheet
+   to reach it and then scroll it to read it. It is as long as the rules you
+   wrote, and you opened it deliberately. */
 #s-framing {
   margin: 11px 0 0;
   padding: 12px 13px;
-  max-height: 150px;
-  overflow-y: auto;
   background: var(--sunk);
   border-radius: 8px;
   font: 400 12px/1.6 var(--mono);
