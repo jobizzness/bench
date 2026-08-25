@@ -62,7 +62,7 @@ export function AnthropicKey({ open }: { open: boolean }) {
 
   return (
     <section id="s-key">
-      <label htmlFor="s-key-input">Anthropic API key</label>
+      <label htmlFor="s-key-input">Anthropic API key or setup token</label>
 
       <p className="field-note" id="s-key-state">{describe(held)}</p>
 
@@ -88,8 +88,10 @@ export function AnthropicKey({ open }: { open: boolean }) {
       {error && <p id="s-key-error" className="error">{error}</p>}
 
       <p className="field-note" id="s-key-note">
-        Optional. A key here takes precedence over this machine's claude.ai
-        login and bills the API instead. It is held in memory only — a daemon
+        Optional. Either a console API key, which bills the API, or a token
+        from <code>claude setup-token</code>, which bills the subscription it
+        was minted from. Whichever is here takes precedence over this
+        machine's claude.ai login. It is held in memory only — a daemon
         restart forgets it — and it reaches specialists started after it, not
         the ones already running.
       </p>

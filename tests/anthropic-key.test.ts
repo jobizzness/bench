@@ -55,3 +55,38 @@ describe("checking a key before it is kept", () => {
     expect(await checkKey("sk-ant-unknown", answer(500) as unknown as typeof fetch)).toBe("unreachable");
   });
 });
+
+describe("checking a token minted by `claude setup-token`", () => {
+  const OAT = "sk-ant-oat01-abcdefgh1234";
+
+  const spyOn = async (key: string) => {
+    let sent: Headers | undefined;
+    const spy = (async (_url: string, init: RequestInit) => {
+      sent = new Headers(init.headers);
+      return new Response("", { status: 200 });
+    }) as unknown as typeof fetch;
+    await checkKey(key, spy);
+    return sent;
+  };
+
+  it("presents an oauth token as a bearer token, not as an API key", async () => {
+    // The API only reads `x-api-key` as an API key. A setup-token is an
+    // OAuth token, and sending it there is a 401 - the same 401 a typo
+    // gives, which is why a good token read as a bad one.
+    const sent = await spyOn(OAT);
+
+    expect(sent?.get("authorization")).toBe(`Bearer ${OAT}`);
+    expect(sent?.has("x-api-key")).toBe(false);
+  });
+
+  it("asks in the beta the oauth tokens are answered under", async () => {
+    expect((await spyOn(OAT))?.get("anthropic-beta")).toBe("oauth-2025-04-20");
+  });
+
+  it("still presents an API key as an API key", async () => {
+    const sent = await spyOn("sk-ant-api03-abcdefgh1234");
+
+    expect(sent?.get("x-api-key")).toBe("sk-ant-api03-abcdefgh1234");
+    expect(sent?.has("authorization")).toBe(false);
+  });
+});

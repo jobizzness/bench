@@ -92,6 +92,27 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
+/** Echoes both credential variables, so a test can assert which one a
+ * setup-token lands in. */
+const OAUTH_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "fake",
+      result: "oat:" + (process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "none")
+        + " key:" + (process.env.ANTHROPIC_API_KEY ?? "none"),
+    }) + "\\n");
+  }
+});
+`;
+
 /** Dies the way the real CLI does when asked to resume a session that is
  * not there: one line on stderr, exit 1, nothing on stdout. */
 const DYING_CLI = `#!/usr/bin/env node
@@ -413,6 +434,24 @@ describe("ClaudeSession", () => {
     } finally {
       if (before === undefined) delete process.env.ANTHROPIC_API_KEY;
       else process.env.ANTHROPIC_API_KEY = before;
+    }
+  });
+  it("carries a setup-token to the CLI as an oauth token, not as an API key", async () => {
+    // `claude setup-token` mints an OAuth token. The CLI reads those from
+    // CLAUDE_CODE_OAUTH_TOKEN; handed over as ANTHROPIC_API_KEY it is a key
+    // the API has never issued, and every turn fails to authenticate.
+    const before = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      const session = await makeSession(OAUTH_CLI, { apiKey: () => "sk-ant-oat01-from-settings" });
+      const replied = once(session, "reply");
+      session.open();
+      session.send("go");
+
+      expect((await replied)[0]).toBe("oat:sk-ant-oat01-from-settings key:none");
+      session.stop();
+    } finally {
+      if (before !== undefined) process.env.ANTHROPIC_API_KEY = before;
     }
   });
 });

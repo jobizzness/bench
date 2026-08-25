@@ -17,6 +17,26 @@ export function keyHint(key: string): string {
 }
 
 /**
+ * Whether this is a token from `claude setup-token` rather than a key from
+ * the console.
+ *
+ * The two are told apart by prefix because that is how the API tells them
+ * apart: `sk-ant-oat…` is an OAuth token, answered only on the Authorization
+ * header, and `sk-ant-api…` is a key, answered only on x-api-key. Sent the
+ * wrong way round either one comes back 401 - indistinguishable from a typo.
+ */
+export function isOauthToken(key: string): boolean {
+  return key.startsWith("sk-ant-oat");
+}
+
+/** How to present a credential so the API reads it as what it is. */
+function authHeaders(key: string): Record<string, string> {
+  return isOauthToken(key)
+    ? { authorization: `Bearer ${key}`, "anthropic-beta": "oauth-2025-04-20" }
+    : { "x-api-key": key };
+}
+
+/**
  * What the API says about a key.
  *
  * Not a boolean, because "wrong" and "could not ask" call for different
@@ -35,7 +55,7 @@ export type KeyCheck = "ok" | "refused" | "unreachable";
 export async function checkKey(key: string, fetchImpl: typeof fetch = fetch): Promise<KeyCheck> {
   try {
     const res = await fetchImpl("https://api.anthropic.com/v1/models?limit=1", {
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
+      headers: { ...authHeaders(key), "anthropic-version": "2023-06-01" },
     });
     if (res.ok) return "ok";
     return res.status === 401 || res.status === 403 ? "refused" : "unreachable";
@@ -44,4 +64,16 @@ export async function checkKey(key: string, fetchImpl: typeof fetch = fetch): Pr
     // the key.
     return "unreachable";
   }
+}
+
+/**
+ * The environment a child `claude` should inherit to authenticate as this
+ * credential.
+ *
+ * One variable or the other, never both: the CLI reads a setup-token from
+ * CLAUDE_CODE_OAUTH_TOKEN and a console key from ANTHROPIC_API_KEY, and
+ * neither will do for the other.
+ */
+export function credentialEnv(key: string): Record<string, string> {
+  return isOauthToken(key) ? { CLAUDE_CODE_OAUTH_TOKEN: key } : { ANTHROPIC_API_KEY: key };
 }

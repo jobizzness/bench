@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { LineDecoder, userMessageLine, isResultEvent, activityLine, replyText, contextFrom } from "./stream-codec.js";
 import type { Context } from "../shared/context-window.js";
 import { buildSettings } from "./gates/settings.js";
+import { credentialEnv } from "./anthropic-key.js";
 
 /** Enough for a refusal and a stack trace, not enough to hold a log file. */
 const STDERR_KEPT = 4000;
@@ -126,7 +127,10 @@ export class ClaudeSession extends EventEmitter {
         // Only when there is one. Spreading nothing leaves whatever the
         // daemon was started with intact - a bench that has no key of its
         // own must not take away the one already in the environment.
-        ...(apiKey ? { ANTHROPIC_API_KEY: apiKey } : {}),
+        // A setup-token is an OAuth token and the CLI reads those from their
+        // own variable; put one in ANTHROPIC_API_KEY and it is a key the API
+        // has never issued.
+        ...(apiKey ? credentialEnv(apiKey) : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
