@@ -2128,29 +2128,46 @@ button, input, textarea, select { font: inherit; color: inherit; }
    It sits above the thread rather than below it because it should not move
    while a turn runs - the thread scrolls underneath, and the answer to
    "where has this got to" stays where you last looked for it. */
-/* The checklist gets the top of the stage. It is the answer to the question
-   the cockpit exists to ask, and it was being rendered as a footnote: a
-   cramped strip in small grey type, wedged between the thread and the
-   composer, with the trail eating what room it had.
+/* The cap is on the panel, not on the lists inside it.
 
-   It sits above the thread rather than below it because it should not move
-   while a turn runs - the thread scrolls underneath, and the answer to
-   "where has this got to" stays where you last looked for it. */
+   A plan can be fifty steps by schema and a trail is however many tools a
+   turn has reached for, and each of those used to carry its own max-height.
+   Two scrollers stacked inside one panel is two scrollbars, two places a
+   wheel does something different, and a budget that adds up to more than
+   half the stage before either one of them is full. One scroller spends a
+   single budget: whatever the plan does not use, the trail can.
+
+   clamp rather than a plain vh, at both ends. On a laptop 26vh is about six
+   steps, which is the current one with context either side of it. The floor
+   keeps three of them on a short window; the ceiling stops a big monitor
+   from handing a checklist four hundred pixels it does not need. */
 #progress {
   flex: none;
+  max-height: clamp(120px, 26vh, 300px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px 32px 15px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--text) 2%, transparent), transparent);
+
+  /* Scroll shadows, the same way the intake does them: a cover that scrolls
+     with the content, over a shadow that does not. At rest the cover hides
+     the shadow; scroll, and the cover moves off and the shadow says there is
+     more in that direction. A clipped checklist that does not look clipped
+     is worse than one that overgrows, because the steps you cannot see are
+     the ones you do not know about. */
+  background:
+    linear-gradient(var(--bg) 45%, transparent) top / 100% 24px no-repeat,
+    linear-gradient(transparent, var(--bg) 55%) bottom / 100% 24px no-repeat,
+    radial-gradient(farthest-side at 50% 0, var(--shadow), transparent) top / 100% 10px no-repeat,
+    radial-gradient(farthest-side at 50% 100%, var(--shadow), transparent) bottom / 100% 10px no-repeat,
+    linear-gradient(180deg, color-mix(in srgb, var(--text) 2%, transparent), transparent);
+  background-attachment: local, local, scroll, scroll, scroll;
 }
 
 #plan {
   list-style: none;
   margin: 0;
   padding: 0;
-  /* A plan can be fifty steps by schema. Almost none are, but the panel
-     cannot be allowed to push the thread off the screen if one is. */
-  max-height: 32vh;
-  overflow-y: auto;
 }
 
 .step {
@@ -2238,12 +2255,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
 #trail-fold .when { flex: none; }
 #trail-fold .more { flex: none; margin-left: auto; opacity: 0.75; }
 
+/* No cap of its own: it scrolls with the panel now. Opening the trail on a
+   long plan pushes the plan up rather than splitting the panel in two. */
 #trail {
   list-style: none;
   margin: 9px 0 0;
   padding: 0 0 0 14px;
-  max-height: 26vh;
-  overflow-y: auto;
 }
 
 .trail-item {
