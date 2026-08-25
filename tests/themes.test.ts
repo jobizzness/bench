@@ -43,10 +43,45 @@ describe("the token contract", () => {
   });
 
   it("leaves nothing but colour to the themes", () => {
-    // Type, spacing and easing live in :root and are the same everywhere. A
-    // theme that could move them would be a redesign wearing a palette's name.
+    // Type, spacing, easing and the shape of the background figure live in
+    // :root and are the same everywhere. A theme that could move them would be
+    // a redesign wearing a palette's name. The figure is here rather than in
+    // the themes for the same reason: it is a mask, so it carries no colour,
+    // and five copies of an eight-kilobyte path is five chances to drift.
     const shared = tokens(":root {");
-    expect(shared).toEqual(["--ease", "--mono", "--sans", "--step"]);
+    expect(shared).toEqual(["--ease", "--figure-mask", "--mono", "--sans", "--step"]);
+  });
+});
+
+describe("the background figure", () => {
+  const mask = css.match(/--figure-mask: (url\("data:image\/svg\+xml,[\s\S]*?"\));/)?.[1] ?? "";
+
+  it("is there at all", () => {
+    expect(mask).not.toBe("");
+    expect(mask).toContain("<svg");
+    expect(mask).toContain("</svg>");
+  });
+
+  it("carries no double quote, which would end the CSS string early", () => {
+    // How this went wrong once: the paths were written with d="..." inside a
+    // url("...") and the declaration was dropped on the floor. No error, no
+    // warning - mask-image simply computed to none and the ground was blank.
+    // Every attribute in there is single-quoted for this reason alone.
+    const inner = mask.slice('url("'.length, -'")'.length);
+    expect(inner).not.toContain('"');
+  });
+
+  it("escapes the two characters a data URI cannot carry raw", () => {
+    expect(mask).not.toMatch(/[^%]#/);
+    expect(mask.match(/%(?![0-9a-f]{2})/gi)).toBeNull();
+  });
+
+  it("carries no colour of its own", () => {
+    // It is a mask. Anything it painted would be painted over by --figure,
+    // and a fill or stroke in here that read as a colour would be a promise
+    // the themes cannot keep.
+    const inner = mask.slice('url("'.length, -'")'.length);
+    expect(inner.match(/%23[0-9a-f]{3,6}/gi) ?? []).toEqual(["%23000"]);
   });
 });
 
