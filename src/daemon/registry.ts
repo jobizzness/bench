@@ -17,6 +17,7 @@ import { answeredReportSeq } from "./answered.js";
 import { asRole } from "../shared/roles.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
+import { keyHint } from "./anthropic-key.js";
 import type { RosterRow, SessionStatus } from "../shared/types.js";
 
 interface Entry {
@@ -50,6 +51,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * ones already running.
    */
   private settings: Settings = NO_SETTINGS;
+  /**
+   * The developer's own Anthropic key, when they have given one.
+   *
+   * In memory and nowhere else. It overrides a login the daemon already has,
+   * and an override that survives a restart is one you stop knowing about -
+   * so it lasts exactly as long as the daemon that was told it.
+   */
+  private apiKey: string | null = null;
 
   constructor(private readonly config: ReturnType<typeof loadConfig>) {
     super();
@@ -58,6 +67,26 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   getSettings(): Settings {
     return this.settings;
+  }
+
+  /** What may be said about the key: that there is one, and which one. Never
+   * the key - it goes to the daemon and does not come back. */
+  apiKeyState(): { present: boolean; hint: string } {
+    return this.apiKey === null
+      ? { present: false, hint: "" }
+      : { present: true, hint: keyHint(this.apiKey) };
+  }
+
+  getApiKey(): string | null {
+    return this.apiKey;
+  }
+
+  setApiKey(key: string): void {
+    this.apiKey = key;
+  }
+
+  clearApiKey(): void {
+    this.apiKey = null;
   }
 
   async saveSettings(input: unknown): Promise<Settings> {
@@ -192,6 +221,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       claudeBin: this.config.claudeBin,
       startTurn: opts.startTurn,
       rules: () => houseRules(this.settings),
+      apiKey: () => this.apiKey,
     });
 
     const syncProgress = () => {

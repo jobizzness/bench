@@ -1875,6 +1875,34 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .s-theme[aria-pressed="true"] .s-theme-name { color: var(--text); }
 
+/* ── The developer's own API key ────────────────────────────────────── */
+
+#s-key {
+  display: block;
+  margin: 2px 0 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+/* Its own buttons rather than the sheet's: .actions is pinned to the bottom
+   of the form, and a Save that follows you down the page belongs to the
+   whole page, not to one field in it. */
+#s-key .s-key-buttons { display: flex; gap: 9px; margin: 6px 0 4px; }
+#s-key .s-key-buttons button {
+  border: 1px solid var(--line-firm);
+  border-radius: 8px;
+  padding: 7px 14px;
+  cursor: pointer;
+  background: var(--raised);
+  font: 500 12px/1 var(--sans);
+  transition: background 120ms var(--ease), border-color 120ms var(--ease);
+}
+#s-key .s-key-buttons button:hover:not(:disabled) { background: var(--hover); }
+#s-key .s-key-buttons button:disabled { opacity: 0.45; cursor: default; }
+#s-key-state { margin-bottom: 8px; }
+/* An input keeps the width of its `size` attribute unless told otherwise,
+   and a key is longer than twenty characters. */
+#s-key-input { width: 100%; font: 400 13px/1 var(--mono); }
+
 /* ── Where the cockpit is pointed ───────────────────────────────────── */
 
 #s-server {

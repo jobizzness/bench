@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtemp, mkdir, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, chmod, readdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -681,5 +681,51 @@ describe("a specialist whose process has gone", () => {
 
     expect(entry.session).toBeNull();
     expect(entry.alive).toBe(false);
+  });
+});
+
+describe("the developer's own API key", () => {
+  const KEY = "sk-ant-api03-typed-into-the-cockpit-4f2a";
+
+  it("is nothing at all until one is set", async () => {
+    const { config } = await setup();
+
+    expect(new SessionRegistry(config as any).apiKeyState()).toEqual({ present: false, hint: "" });
+  });
+
+  it("shows only its last four characters once set", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry(config as any);
+
+    registry.setApiKey(KEY);
+
+    expect(registry.apiKeyState()).toEqual({ present: true, hint: "…4f2a" });
+    expect(registry.getApiKey()).toBe(KEY);
+  });
+
+  it("goes back to nothing when it is cleared", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry(config as any);
+    registry.setApiKey(KEY);
+
+    registry.clearApiKey();
+
+    expect(registry.apiKeyState()).toEqual({ present: false, hint: "" });
+    expect(registry.getApiKey()).toBeNull();
+  });
+
+  it("is forgotten when the daemon restarts", async () => {
+    // Session-only, deliberately. A key kept in a file is one you forget you
+    // set, and the bench it overrides already has a working login.
+    const { home, config } = await setup();
+    new SessionRegistry(config as any).setApiKey(KEY);
+
+    const restarted = new SessionRegistry(config as any);
+    await restarted.restore();
+
+    expect(restarted.apiKeyState().present).toBe(false);
+    for (const file of await readdir(home)) {
+      expect(await readFile(join(home, file), "utf8")).not.toContain(KEY);
+    }
   });
 });

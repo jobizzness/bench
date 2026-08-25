@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { EventEmitter } from "node:events";
 import { cp, mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { createServer, formatIntake } from "../src/daemon/server.js";
+import { keyHint, type KeyCheck } from "../src/daemon/anthropic-key.js";
 import type { IntakeAnswer, RosterRow } from "../src/shared/types.js";
 
 const TOKEN = "test-token-abc";
@@ -20,6 +21,13 @@ class StubRegistry extends EventEmitter {
   list() { return this.rows; }
   settings = { codingStyle: "", workflowRules: "", reviewModel: "sonnet" };
   getSettings() { return this.settings; }
+  key: string | null = null;
+  apiKeyState() {
+    return this.key === null ? { present: false, hint: "" } : { present: true, hint: keyHint(this.key) };
+  }
+  getApiKey() { return this.key; }
+  setApiKey(key: string) { this.key = key; }
+  clearApiKey() { this.key = null; }
   threadPathValue = "";
   aliveValue = true;
   revivableValue = false;
@@ -51,6 +59,9 @@ let base: string;
 let registry: StubRegistry;
 let projectsRoot: string;
 let clientDir: string;
+/** What the API is pretending to say about a key. The tests must not reach
+ * Anthropic any more than they reach GitHub. */
+let verdict: KeyCheck = "ok";
 
 beforeAll(async () => {
   registry = new StubRegistry();
@@ -85,6 +96,7 @@ beforeAll(async () => {
     config: { home: "/tmp/bench", port: 0, token: TOKEN, pluginDir: "/tmp/plugin", hookCommand: "node hook.js", projectsRoot },
     registry: registry as any,
     clientDir,
+    checkKey: async () => verdict,
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -594,5 +606,85 @@ describe("who reviews", () => {
       method: "POST", ...auth, body: JSON.stringify({ seq: 1, model: "haiku" }),
     });
     expect(registry.created.at(-1).model).toBe("haiku");
+  });
+});
+
+describe("the developer's own API key", () => {
+  const KEY = "sk-ant-api03-typed-into-the-cockpit-4f2a";
+
+  const put = (body: unknown) =>
+    fetch(`${base}/api/anthropic-key`, { method: "POST", ...auth, body: JSON.stringify(body) });
+
+  beforeEach(() => { verdict = "ok"; registry.key = null; });
+
+  it("says there is no key when none has been given", async () => {
+    const res = await fetch(`${base}/api/anthropic-key`, auth);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ present: false, hint: "", verified: true });
+  });
+
+  it("keeps a key the API vouches for", async () => {
+    const res = await put({ key: KEY });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ present: true, hint: "…4f2a", verified: true });
+    expect(registry.getApiKey()).toBe(KEY);
+  });
+
+  it("never says the key back, only which one it is", async () => {
+    // It goes to the daemon and does not come out. Anything that can read
+    // the cockpit could otherwise read the key.
+    registry.key = KEY;
+
+    const body = await (await fetch(`${base}/api/anthropic-key`, auth)).text();
+
+    expect(body).not.toContain(KEY);
+    expect(body).toContain("…4f2a");
+  });
+
+  it("refuses a key the API turns away", async () => {
+    // Refusing here is the whole point: the CLI retries a bad key ten times
+    // before it gives up, so a typo kept now is a specialist that hangs.
+    verdict = "refused";
+
+    const res = await put({ key: "sk-ant-wrong" });
+
+    expect(res.status).toBe(400);
+    expect(registry.getApiKey()).toBeNull();
+  });
+
+  it("keeps a key it could not check, and admits it did not", async () => {
+    verdict = "unreachable";
+
+    const res = await put({ key: KEY });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ present: true, hint: "…4f2a", verified: false });
+    expect(registry.getApiKey()).toBe(KEY);
+  });
+
+  it("refuses an empty key rather than storing one", async () => {
+    const res = await put({ key: "   " });
+
+    expect(res.status).toBe(400);
+    expect(registry.getApiKey()).toBeNull();
+  });
+
+  it("forgets the key when asked to", async () => {
+    registry.key = KEY;
+
+    const res = await fetch(`${base}/api/anthropic-key`, { method: "DELETE", ...auth });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ present: false, hint: "", verified: true });
+    expect(registry.getApiKey()).toBeNull();
+  });
+
+  it("takes no key at all from someone without the token", async () => {
+    const res = await fetch(`${base}/api/anthropic-key`, { method: "POST", body: JSON.stringify({ key: KEY }) });
+
+    expect(res.status).toBe(401);
+    expect(registry.getApiKey()).toBeNull();
   });
 });

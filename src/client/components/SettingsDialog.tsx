@@ -5,6 +5,7 @@ import { ReviewModel } from "./ReviewModel.js";
 import { ServerLocation } from "./ServerLocation.js";
 import { HiddenProjects } from "./HiddenProjects.js";
 import { ThemePicker } from "./ThemePicker.js";
+import { AnthropicKey } from "./AnthropicKey.js";
 
 const PLACEHOLDER = {
   codingStyle:
@@ -109,6 +110,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           value={draft.reviewModel}
           onChange={(reviewModel) => setDraft({ ...draft, reviewModel })}
         />
+
+        <AnthropicKey open={open} />
 
         <ThemePicker />
 

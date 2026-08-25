@@ -33,6 +33,12 @@ export interface SessionOptions {
    * running, and the framing is the only thing said again each turn.
    */
   rules?: () => string;
+  /**
+   * The developer's own Anthropic key, if the cockpit has one. Read at spawn
+   * rather than captured: env is fixed for the life of a process, so a key
+   * saved now reaches the specialists started after it and no others.
+   */
+  apiKey?: () => string | null;
 }
 
 /**
@@ -85,6 +91,7 @@ export class ClaudeSession extends EventEmitter {
 
     const bin = this.opts.claudeBin ?? "claude";
     const settings = JSON.stringify(buildSettings({ hookCommand: this.opts.hookCommand }));
+    const apiKey = this.opts.apiKey?.();
 
     // --verbose is not optional: claude -p with stream-json exits without it.
     const args = [
@@ -116,6 +123,10 @@ export class ClaudeSession extends EventEmitter {
         // it never has to appear on a command line, where `ps` would show it
         // to everything else on the machine.
         BENCH_URL: this.opts.cockpitUrl,
+        // Only when there is one. Spreading nothing leaves whatever the
+        // daemon was started with intact - a bench that has no key of its
+        // own must not take away the one already in the environment.
+        ...(apiKey ? { ANTHROPIC_API_KEY: apiKey } : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });

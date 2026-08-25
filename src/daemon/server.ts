@@ -13,6 +13,7 @@ import { shareMessage } from "./share.js";
 import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
+import { checkKey, type KeyCheck } from "./anthropic-key.js";
 import { RefIndex } from "./refs.js";
 import { reviewBrief, reviewLabel } from "./review.js";
 import { labelIsUsable } from "../shared/slug.js";
@@ -24,6 +25,11 @@ export interface SessionRegistryLike {
   list(): RosterRow[];
   getSettings(): Settings;
   saveSettings(input: unknown): Promise<Settings>;
+  apiKeyState(): { present: boolean; hint: string };
+  // No reader. The key goes to the daemon for the CLI's benefit, and a
+  // server that cannot ask for it is a server that cannot serve it back.
+  setApiKey(key: string): void;
+  clearApiKey(): void;
   get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null;
   send(id: string, text: string): void;
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
@@ -150,10 +156,13 @@ export function createServer(opts: {
   /** Where the built shell is. Injected by the tests, which run from source
    * and so have no bundle beside index.html. */
   clientDir?: string;
+  /** Injected by the tests, which must not reach Anthropic. */
+  checkKey?: (key: string) => Promise<KeyCheck>;
 }) {
   const { config, registry } = opts;
   const index = opts.refs ?? new RefIndex();
   const clientDir = opts.clientDir ?? CLIENT_DIR;
+  const verify = opts.checkKey ?? checkKey;
 
   /**
    * A throw inside an async request handler is not caught by anything: node
@@ -250,6 +259,45 @@ export function createServer(opts: {
         // settings - and half a set would erase the half it left out.
         json(res, 400, { error: "settings must arrive whole, and short enough to send every turn" });
       }
+      return;
+    }
+
+    /**
+     * The developer's own Anthropic key. Held by the daemon for as long as it
+     * runs and never written down, so these three routes are the whole of its
+     * life: what there is, one to give, one to take away.
+     */
+    if (path === "/api/anthropic-key" && req.method === "GET") {
+      json(res, 200, { ...registry.apiKeyState(), verified: true });
+      return;
+    }
+
+    if (path === "/api/anthropic-key" && req.method === "POST") {
+      const key = String((await readBody(req))?.key ?? "").trim();
+      if (key === "") {
+        json(res, 400, { error: "no key was sent" });
+        return;
+      }
+
+      const verdict = await verify(key);
+      if (verdict === "refused") {
+        // Said now rather than discovered later. The CLI retries a rejected
+        // key ten times with a doubling delay, so a typo kept here does not
+        // look like a typo - it looks like a specialist that hangs.
+        json(res, 400, { error: "The API turned that key away. Check it and try again." });
+        return;
+      }
+
+      registry.setApiKey(key);
+      // "unreachable" is not "wrong": an offline machine should still be able
+      // to hold a key, as long as it is told the key is unproven.
+      json(res, 200, { ...registry.apiKeyState(), verified: verdict === "ok" });
+      return;
+    }
+
+    if (path === "/api/anthropic-key" && req.method === "DELETE") {
+      registry.clearApiKey();
+      json(res, 200, { ...registry.apiKeyState(), verified: true });
       return;
     }
 

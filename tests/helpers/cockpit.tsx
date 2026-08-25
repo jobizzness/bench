@@ -32,6 +32,10 @@ export interface Fixtures {
   github?: { slug: string | null; items: unknown[] };
   /** Where else this daemon answers. */
   addresses?: { origins: string[]; loopbackOnly: boolean };
+  /** The Anthropic key the daemon is already holding, if any. */
+  apiKey?: { present: boolean; hint: string };
+  /** What the daemon says when a key is offered to it. */
+  keyReply?: { status: number; body: unknown };
 }
 
 export interface Cockpit {
@@ -108,6 +112,28 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
 
   (globalThis as any).fetch = async (url: string, init?: RequestInit) => {
     fetched.push(url);
+
+    // Its own branch above the rest: the key has a route per verb, and what
+    // comes back from a save is what the page shows.
+    if (url.includes("/anthropic-key")) {
+      const method = init?.method ?? "GET";
+      if (method !== "GET") sent.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (method === "DELETE") {
+        return { ok: true, status: 200, json: async () => ({ present: false, hint: "", verified: true }) };
+      }
+      if (method === "POST") {
+        const reply = fixtures.keyReply;
+        const key = String(JSON.parse(String(init?.body)).key ?? "");
+        return {
+          ok: (reply?.status ?? 200) < 400,
+          status: reply?.status ?? 200,
+          json: async () => reply?.body ?? { present: true, hint: "…" + key.slice(-4), verified: true },
+        };
+      }
+      const held = fixtures.apiKey ?? { present: false, hint: "" };
+      return { ok: true, status: 200, json: async () => ({ ...held, verified: true }) };
+    }
+
     if (init?.method === "POST") {
       sent.push({ url, body: JSON.parse(String(init.body)) });
       // Creating a specialist answers with its id, and the cockpit acts on it.

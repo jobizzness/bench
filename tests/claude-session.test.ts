@@ -74,6 +74,24 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
+/** Echoes the API key it was launched with, so a test can assert on auth. */
+const ENV_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "fake", result: "key:" + (process.env.ANTHROPIC_API_KEY ?? "none"),
+    }) + "\\n");
+  }
+});
+`;
+
 /** Dies the way the real CLI does when asked to resume a session that is
  * not there: one line on stderr, exit 1, nothing on stdout. */
 const DYING_CLI = `#!/usr/bin/env node
@@ -365,5 +383,36 @@ describe("ClaudeSession", () => {
     expect(seen[1]).toContain("why?");
 
     session.stop();
+  });
+  it("carries the developer's key to the CLI as the API key", async () => {
+    // The one thing a key in the cockpit has to do: be the key the CLI
+    // authenticates with. Passed in the environment rather than on the
+    // command line, where ps would show it to everything on the machine.
+    const session = await makeSession(ENV_CLI, { apiKey: () => "sk-ant-from-settings" });
+    const replied = once(session, "reply");
+    session.open();
+    session.send("go");
+
+    expect((await replied)[0]).toBe("key:sk-ant-from-settings");
+    session.stop();
+  });
+
+  it("leaves the environment as it found it when no key is set", async () => {
+    // A bench with nothing set is a bench that changes nothing: a daemon
+    // started with a key already in its environment keeps using it.
+    const before = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-from-the-shell";
+    try {
+      const session = await makeSession(ENV_CLI, { apiKey: () => null });
+      const replied = once(session, "reply");
+      session.open();
+      session.send("go");
+
+      expect((await replied)[0]).toBe("key:sk-ant-from-the-shell");
+      session.stop();
+    } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = before;
+    }
   });
 });

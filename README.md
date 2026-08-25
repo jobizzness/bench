@@ -99,6 +99,13 @@ Settings holds the house rules every specialist is given, and the address this
 tab is talking to — point it at another machine's daemon and the same page
 loads from there.
 
+It also takes an Anthropic API key, if you would rather bill the API than the
+claude.ai login this machine already has. The key is checked against the API
+before it is kept — the CLI retries a bad one ten times before it gives up, so
+a typo is worth catching here — and it is held in memory only: a daemon
+restart forgets it, and it reaches specialists started after it rather than
+the ones already running.
+
 ![Settings: house rules, and the address this tab is talking to](docs/screenshots/settings.png)
 
 Nothing hot-reloads yet: `pnpm build` before `pnpm start`, and run it from the
