@@ -4,6 +4,7 @@ import { houseRules, NO_SETTINGS, type Settings } from "../../shared/settings.js
 import { ReviewModel } from "./ReviewModel.js";
 import { ServerLocation } from "./ServerLocation.js";
 import { HiddenProjects } from "./HiddenProjects.js";
+import { ThemePicker } from "./ThemePicker.js";
 
 const PLACEHOLDER = {
   codingStyle:
@@ -108,6 +109,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           value={draft.reviewModel}
           onChange={(reviewModel) => setDraft({ ...draft, reviewModel })}
         />
+
+        <ThemePicker />
 
         <ServerLocation open={open} />
 
