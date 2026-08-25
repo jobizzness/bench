@@ -27,6 +27,23 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
   <link rel="stylesheet" href="/styles.css" />
+
+  <!-- The theme, before anything is drawn.
+
+       The bundle knows which palette this browser chose, but it is a deferred
+       module: by the time it runs the page has already been painted once, in
+       whatever the stylesheet's default is. On a Paper cockpit that is a
+       black flash on every single load. So the attribute is set here, inline
+       and blocking, off the same key theme.ts reads - a duplicated string,
+       which is the price of the flash never happening. -->
+  <script>
+    try {
+      var t = JSON.parse(localStorage.getItem("bench:theme"));
+      if (typeof t === "string") document.documentElement.dataset.theme = t;
+    } catch (e) {
+      // No storage, or nothing saved. The stylesheet's default stands.
+    }
+  </script>
 </head>
 <body>
   <div id="root"></div>
