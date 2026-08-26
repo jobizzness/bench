@@ -690,7 +690,7 @@ describe("the developer's own API key", () => {
   it("is nothing at all until one is set", async () => {
     const { config } = await setup();
 
-    expect(new SessionRegistry(config as any).apiKeyState()).toEqual({ present: false, hint: "" });
+    expect(new SessionRegistry(config as any).apiKeyState()).toEqual({ present: false, hint: "", enabled: true });
   });
 
   it("shows only its last four characters once set", async () => {
@@ -699,7 +699,7 @@ describe("the developer's own API key", () => {
 
     registry.setApiKey(KEY);
 
-    expect(registry.apiKeyState()).toEqual({ present: true, hint: "…4f2a" });
+    expect(registry.apiKeyState()).toEqual({ present: true, hint: "…4f2a", enabled: true });
     expect(registry.getApiKey()).toBe(KEY);
   });
 
@@ -710,8 +710,66 @@ describe("the developer's own API key", () => {
 
     registry.clearApiKey();
 
-    expect(registry.apiKeyState()).toEqual({ present: false, hint: "" });
+    expect(registry.apiKeyState()).toEqual({ present: false, hint: "", enabled: true });
     expect(registry.getApiKey()).toBeNull();
+  });
+
+  it("is in use the moment it is set", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry(config as any);
+
+    registry.setApiKey(KEY);
+
+    expect(registry.apiKeyState().enabled).toBe(true);
+  });
+
+  it("stops being handed out while it is switched off, without being forgotten", async () => {
+    // Parked, not removed. A developer switching between their own key and
+    // the machine's login should not have to paste the key again each time.
+    const { config } = await setup();
+    const registry = new SessionRegistry(config as any);
+    registry.setApiKey(KEY);
+
+    registry.setApiKeyEnabled(false);
+
+    expect(registry.getApiKey()).toBeNull();
+    expect(registry.apiKeyState()).toEqual({ present: true, hint: "…4f2a", enabled: false });
+  });
+
+  it("hands it out again when it is switched back on", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry(config as any);
+    registry.setApiKey(KEY);
+    registry.setApiKeyEnabled(false);
+
+    registry.setApiKeyEnabled(true);
+
+    expect(registry.getApiKey()).toBe(KEY);
+  });
+
+  it("takes a newly saved key as one to use, whatever the last one was", async () => {
+    // Saving a key is asking for it to be used. Inheriting "off" from a key
+    // that is gone would be a key that silently does nothing.
+    const { config } = await setup();
+    const registry = new SessionRegistry(config as any);
+    registry.setApiKey(KEY);
+    registry.setApiKeyEnabled(false);
+
+    registry.setApiKey("sk-ant-api03-another-key-9c1d");
+
+    expect(registry.apiKeyState().enabled).toBe(true);
+    expect(registry.getApiKey()).toBe("sk-ant-api03-another-key-9c1d");
+  });
+
+  it("is switched on again once a parked key is thrown away", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry(config as any);
+    registry.setApiKey(KEY);
+    registry.setApiKeyEnabled(false);
+
+    registry.clearApiKey();
+
+    expect(registry.apiKeyState()).toEqual({ present: false, hint: "", enabled: true });
   });
 
   it("is forgotten when the daemon restarts", async () => {

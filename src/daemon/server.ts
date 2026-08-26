@@ -14,6 +14,7 @@ import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
 import { checkKey, type KeyCheck } from "./anthropic-key.js";
+import { usageSource, type Usage } from "./usage.js";
 import { RefIndex } from "./refs.js";
 import { reviewBrief, reviewLabel } from "./review.js";
 import { labelIsUsable } from "../shared/slug.js";
@@ -25,10 +26,11 @@ export interface SessionRegistryLike {
   list(): RosterRow[];
   getSettings(): Settings;
   saveSettings(input: unknown): Promise<Settings>;
-  apiKeyState(): { present: boolean; hint: string };
+  apiKeyState(): { present: boolean; hint: string; enabled: boolean };
   // No reader. The key goes to the daemon for the CLI's benefit, and a
   // server that cannot ask for it is a server that cannot serve it back.
   setApiKey(key: string): void;
+  setApiKeyEnabled(on: boolean): void;
   clearApiKey(): void;
   get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null;
   send(id: string, text: string): void;
@@ -158,11 +160,16 @@ export function createServer(opts: {
   clientDir?: string;
   /** Injected by the tests, which must not reach Anthropic. */
   checkKey?: (key: string) => Promise<KeyCheck>;
+  /** Where the usage panel's numbers come from. Injected by the tests, and
+   * by index.ts with the key the registry is holding - the server itself is
+   * deliberately unable to read that key. */
+  usage?: () => Promise<Usage>;
 }) {
   const { config, registry } = opts;
   const index = opts.refs ?? new RefIndex();
   const clientDir = opts.clientDir ?? CLIENT_DIR;
   const verify = opts.checkKey ?? checkKey;
+  const spent = opts.usage ?? usageSource({ benchKey: () => null });
 
   /**
    * A throw inside an async request handler is not caught by anything: node
@@ -292,6 +299,39 @@ export function createServer(opts: {
       // "unreachable" is not "wrong": an offline machine should still be able
       // to hold a key, as long as it is told the key is unproven.
       json(res, 200, { ...registry.apiKeyState(), verified: verdict === "ok" });
+      return;
+    }
+
+    /**
+     * The key, parked or in use.
+     *
+     * Its own route rather than a field on the save, because the key does
+     * not go up with it: switching a held key off must not require the
+     * developer to have it to hand.
+     */
+    if (path === "/api/anthropic-key/enabled" && req.method === "POST") {
+      const enabled = (await readBody(req))?.enabled;
+      if (typeof enabled !== "boolean") {
+        json(res, 400, { error: "say true or false" });
+        return;
+      }
+
+      registry.setApiKeyEnabled(enabled);
+      // Verified stands: this is the same key the API already vouched for,
+      // and parking it proves nothing new either way.
+      json(res, 200, { ...registry.apiKeyState(), verified: true });
+      return;
+    }
+
+    /**
+     * What the credential behind this bench has spent.
+     *
+     * Nothing here is secret in the way the key is - it is percentages of
+     * the developer's own windows - but it is theirs, so it goes out behind
+     * the same token as everything else.
+     */
+    if (path === "/api/usage" && req.method === "GET") {
+      json(res, 200, await spent());
       return;
     }
 

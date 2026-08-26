@@ -99,12 +99,21 @@ Settings holds the house rules every specialist is given, and the address this
 tab is talking to — point it at another machine's daemon and the same page
 loads from there.
 
-It also takes an Anthropic API key, if you would rather bill the API than the
-claude.ai login this machine already has. The key is checked against the API
-before it is kept — the CLI retries a bad one ten times before it gives up, so
-a typo is worth catching here — and it is held in memory only: a daemon
-restart forgets it, and it reaches specialists started after it rather than
-the ones already running.
+It also takes an Anthropic credential, if you would rather not spend the
+claude.ai login this machine already has: either a console API key, which
+bills the API, or a token from `claude setup-token`, which bills the
+subscription it was minted from. Whichever you give it is checked against the
+API before it is kept — the CLI retries a bad one ten times before it gives
+up, so a typo is worth catching here — and it is held in memory only: a
+daemon restart forgets it, and it reaches specialists started after it rather
+than the ones already running. A switch beside it parks the key without
+throwing it away, for the afternoons you want the work back on the machine's
+own login.
+
+When the bench is running on an OAuth credential — its own setup token, or
+this machine's login — a small mark at the end of the composer opens what has
+been spent: a bar per window, five-hour and seven-day, with what is left in
+each.
 
 ![Settings: house rules, and the address this tab is talking to](docs/screenshots/settings.png)
 

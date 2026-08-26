@@ -108,3 +108,43 @@ describe("the API key field", () => {
     expect(ui.$("#s-key-note")!.textContent).toContain("restart");
   });
 });
+
+describe("parking the key", () => {
+  const toggle = () => ui.$<HTMLInputElement>("#s-key-enabled");
+  const sentToggle = () => ui.sent.find((s) => s.url.includes("/enabled"));
+
+  it("offers nothing to switch when there is no key to switch off", async () => {
+    await open();
+
+    expect(toggle()).toBeNull();
+  });
+
+  it("shows a held key as in use", async () => {
+    await open({ apiKey: { present: true, hint: "…4f2a", enabled: true } });
+
+    expect(toggle()!.checked).toBe(true);
+  });
+
+  it("tells the daemon to park it", async () => {
+    await open({ apiKey: { present: true, hint: "…4f2a", enabled: true } });
+
+    await ui.click(toggle());
+
+    expect(sentToggle()!.body).toEqual({ enabled: false });
+  });
+
+  it("says which login the work is going to once it is parked", async () => {
+    // The switch alone does not say what happens instead, and that is the
+    // whole question a developer is asking when they reach for it.
+    await open({ apiKey: { present: true, hint: "…4f2a", enabled: false } });
+
+    expect(state()).toMatch(/login/i);
+    expect(toggle()!.checked).toBe(false);
+  });
+
+  it("keeps showing which key is parked, so it need not be typed again", async () => {
+    await open({ apiKey: { present: true, hint: "…4f2a", enabled: false } });
+
+    expect(ui.$("#s-key")!.textContent).toContain("…4f2a");
+  });
+});

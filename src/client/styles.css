@@ -1281,8 +1281,19 @@ button, input, textarea, select { font: inherit; color: inherit; }
 #composer-text:focus { outline: none; border-color: var(--wants-dim); }
 #composer-text:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* The hint and the usage mark share one line. The hint takes the room and
+   the mark sits at the end of it, so the composer keeps the height it had. */
+#composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 9px;
+}
+
 #composer-hint {
-  margin: 9px 0 0;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
   font: 400 11px/1.4 var(--mono);
   letter-spacing: 0.04em;
   color: var(--faint);
@@ -1559,6 +1570,88 @@ button, input, textarea, select { font: inherit; color: inherit; }
   font: 600 11px/1 var(--mono);
   letter-spacing: 0.02em;
 }
+
+/* What is left, a hover away, at the right end of the composer's hint line.
+   The button is chrome until it is pointed at: this is a glance, not a
+   control, and the line it sits on is already saying what the keys do. */
+.usage { position: relative; display: flex; flex: none; }
+#open-usage {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 4px 5px;
+  /* Pulled back out of the line so its padding does not make the hint row -
+     and with it the whole composer - taller than it was. */
+  margin: -5px -5px -5px 0;
+  color: var(--faint);
+  cursor: default;
+  transition: color 120ms var(--ease), background 120ms var(--ease);
+}
+.usage:hover #open-usage { color: var(--text); background: var(--hover); }
+#open-usage .usage-mark { display: block; }
+
+/* Hung from the button rather than placed in the flow, so opening it moves
+   nothing. Upward and right-aligned, into the stage: the button is in the
+   bottom right corner of the window, which is the one corner where a panel
+   dropped below and to the right has nowhere to be drawn. */
+#usage-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  width: 246px;
+  padding: 11px 12px 9px;
+  background: var(--raised);
+  border: 1px solid var(--line-firm);
+  border-radius: 7px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+}
+#usage-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+
+/* Label over the bar rather than beside it. Beside it, the longest label
+   ("7-day Sonnet") sets the indent for every row and the bars start halfway
+   across the panel - which is the half that carries the reading. */
+.usage-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.usage-label { font: 500 11.5px/1.4 var(--mono); color: var(--muted); }
+.usage-percent { font: 600 11.5px/1.4 var(--mono); color: var(--text); }
+.usage-track {
+  grid-column: 1 / -1;
+  margin-top: 1px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--sunk);
+  overflow: hidden;
+}
+/* Rounded at the leading end only: a bar rounded at the baseline reads as
+   floating, and at 5px the two ends would meet and turn a low number into a
+   lozenge that looks the same at 3% as at 8%. */
+.usage-fill {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--wants);
+  transition: width 200ms var(--ease);
+}
+/* The three steps the context ring uses, in the same tokens - a theme that
+   moves its hues moves this with it, and neither has to be told. */
+.usage-row[data-tone="high"] .usage-fill { background: var(--busy); }
+.usage-row[data-tone="full"] .usage-fill { background: var(--broken); }
+.usage-row[data-tone="high"] .usage-percent { color: var(--busy); }
+.usage-row[data-tone="full"] .usage-percent { color: var(--broken); }
+.usage-reset {
+  grid-column: 1 / -1;
+  font: 400 10.5px/1.5 var(--mono);
+  color: var(--faint);
+}
+.usage-note { margin: 0; font: 400 11.5px/1.55 var(--sans); color: var(--muted); }
 
 /* Wider than the other sheets: it holds a list and the thing being answered,
    and a decision squeezed into a column reads as an afterthought. */
@@ -1886,6 +1979,22 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* Its own buttons rather than the sheet's: .actions is pinned to the bottom
    of the form, and a Save that follows you down the page belongs to the
    whole page, not to one field in it. */
+/* Above the buttons, because it is the thing you reach for most and the
+   buttons either side of it are the two you reach for least. */
+#s-key .s-key-switch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 9px 0 2px;
+  font: 400 12.5px/1.4 var(--sans);
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+#s-key .s-key-switch input { accent-color: var(--wants); cursor: pointer; }
+#s-key .s-key-switch input:disabled { cursor: default; }
+#s-key .s-key-switch:hover { color: var(--text); }
+
 #s-key .s-key-buttons { display: flex; gap: 9px; margin: 6px 0 4px; }
 #s-key .s-key-buttons button {
   border: 1px solid var(--line-firm);

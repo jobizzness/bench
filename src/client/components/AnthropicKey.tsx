@@ -1,9 +1,27 @@
 import { useEffect, useState } from "react";
 import { authFetch, postJson } from "../api.js";
+import { KeyToggle } from "./KeyToggle.js";
 
-interface Held { present: boolean; hint: string; verified: boolean }
+interface Held { present: boolean; hint: string; verified: boolean; enabled: boolean }
 
-const NONE: Held = { present: false, hint: "", verified: true };
+const NONE: Held = { present: false, hint: "", verified: true, enabled: true };
+
+/**
+ * What the daemon said, as a state this component can draw.
+ *
+ * Only an explicit false parks a key. A reply that says nothing about it is
+ * an older daemon or a route with no opinion, and defaulting those to "off"
+ * would show a working key as switched off - the one reading that would send
+ * a developer looking for a fault that is not there.
+ */
+function asHeld(body: Partial<Held> | null | undefined): Held {
+  return {
+    present: body?.present === true,
+    hint: body?.hint ?? "",
+    verified: body?.verified !== false,
+    enabled: body?.enabled !== false,
+  };
+}
 
 /**
  * The developer's own Anthropic key, for a bench that should bill somewhere
@@ -28,7 +46,7 @@ export function AnthropicKey({ open }: { open: boolean }) {
     void (async () => {
       const res = await authFetch("/api/anthropic-key");
       if (!live || !res.ok) return;
-      setHeld(await res.json());
+      setHeld(asHeld(await res.json()));
     })();
     return () => { live = false; };
   }, [open]);
@@ -40,9 +58,24 @@ export function AnthropicKey({ open }: { open: boolean }) {
       const res = await postJson("/api/anthropic-key", { key: typed.trim() });
       const body = await res.json();
       if (!res.ok) { setError(body.error ?? "Could not keep that key."); return; }
-      setHeld(body);
+      setHeld(asHeld(body));
       // Typed once and gone. Leaving it in the box is leaving it on a screen.
       setTyped("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Park it, or take it out of the car park. The key does not go up with
+   * this: the daemon already has it, and asking for it again would mean a
+   * developer cannot switch back on a key they no longer have to hand. */
+  const park = async (enabled: boolean) => {
+    setError("");
+    setBusy(true);
+    try {
+      const res = await postJson("/api/anthropic-key/enabled", { enabled });
+      if (!res.ok) { setError("Could not change which login is used."); return; }
+      setHeld(asHeld(await res.json()));
     } finally {
       setBusy(false);
     }
@@ -54,7 +87,7 @@ export function AnthropicKey({ open }: { open: boolean }) {
     try {
       const res = await authFetch("/api/anthropic-key", { method: "DELETE" });
       if (!res.ok) { setError("Could not let go of that key."); return; }
-      setHeld(await res.json());
+      setHeld(asHeld(await res.json()));
     } finally {
       setBusy(false);
     }
@@ -75,6 +108,10 @@ export function AnthropicKey({ open }: { open: boolean }) {
         value={typed}
         onChange={(event) => setTyped(event.target.value)}
       />
+
+      {held.present && (
+        <KeyToggle enabled={held.enabled} busy={busy} onChange={(on) => void park(on)} />
+      )}
 
       <div className="s-key-buttons">
         <button type="button" id="s-key-save" disabled={busy || typed.trim() === ""} onClick={() => void save()}>
@@ -102,6 +139,13 @@ export function AnthropicKey({ open }: { open: boolean }) {
 /** What may be said about a key that is now the daemon's. */
 function describe(held: Held): string {
   if (!held.present) return "None set. Specialists use this machine's Claude login.";
+  // Parked is neither of the other two states: the key is known good and is
+  // deliberately not being spent, and saying which login is being spent
+  // instead is the whole reason to look at this line.
+  if (!held.enabled) {
+    return `Holding the key ending ${held.hint}, switched off. `
+      + "Specialists use this machine's Claude login.";
+  }
   return held.verified
     ? `Using the key ending ${held.hint}, which the API answered for.`
     : `Using the key ending ${held.hint}. I could not reach the API to check it, ` +

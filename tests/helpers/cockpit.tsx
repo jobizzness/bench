@@ -33,9 +33,12 @@ export interface Fixtures {
   /** Where else this daemon answers. */
   addresses?: { origins: string[]; loopbackOnly: boolean };
   /** The Anthropic key the daemon is already holding, if any. */
-  apiKey?: { present: boolean; hint: string };
+  apiKey?: { present: boolean; hint: string; enabled?: boolean };
   /** What the daemon says when a key is offered to it. */
   keyReply?: { status: number; body: unknown };
+  /** What the credential behind the bench has spent. Undefined is a daemon
+   * with no oauth credential to ask, which is the ordinary case. */
+  usage?: unknown;
 }
 
 export interface Cockpit {
@@ -60,6 +63,11 @@ export interface Cockpit {
     modifiers?: { shiftKey?: boolean },
   ) => Promise<void>;
   click: (element: Element | null | undefined) => Promise<void>;
+  /** A pointer arriving on something, and leaving it again. React listens for
+   * the "enter" pair, which do not bubble - they are dispatched on the
+   * element itself, the way a real pointer delivers them. */
+  hover: (element: Element | null | undefined) => Promise<void>;
+  unhover: (element: Element | null | undefined) => Promise<void>;
   type: (input: Element | null | undefined, value: string) => Promise<void>;
   /** Choose an option in a <select>, which React tracks separately. */
   pick: (select: Element | null | undefined, value: string) => Promise<void>;
@@ -121,6 +129,11 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       if (method === "DELETE") {
         return { ok: true, status: 200, json: async () => ({ present: false, hint: "", verified: true }) };
       }
+      if (method === "POST" && url.includes("/enabled")) {
+        const on = JSON.parse(String(init?.body)).enabled === true;
+        const held = fixtures.apiKey ?? { present: false, hint: "" };
+        return { ok: true, status: 200, json: async () => ({ ...held, enabled: on, verified: true }) };
+      }
       if (method === "POST") {
         const reply = fixtures.keyReply;
         const key = String(JSON.parse(String(init?.body)).key ?? "");
@@ -131,7 +144,7 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
         };
       }
       const held = fixtures.apiKey ?? { present: false, hint: "" };
-      return { ok: true, status: 200, json: async () => ({ ...held, verified: true }) };
+      return { ok: true, status: 200, json: async () => ({ enabled: true, ...held, verified: true }) };
     }
 
     if (init?.method === "POST") {
@@ -148,6 +161,13 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
         ok: fixtures.decision != null,
         status: fixtures.decision != null ? 200 : 404,
         json: async () => ({ seq: 1, decision: fixtures.decision, malformed: false }),
+      };
+    }
+    if (url.includes("/api/usage")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => fixtures.usage ?? { available: false, reason: "none" },
       };
     }
     if (url.includes("/projects")) {
@@ -244,6 +264,22 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
     click: async (element) => {
       if (!element) throw new Error("nothing to click");
       await act(async () => { (element as HTMLElement).click(); });
+      await settle();
+    },
+    hover: async (element) => {
+      if (!element) throw new Error("nothing to hover");
+      await act(async () => {
+        element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        element.dispatchEvent(new MouseEvent("mouseenter"));
+      });
+      await settle();
+    },
+    unhover: async (element) => {
+      if (!element) throw new Error("nothing to leave");
+      await act(async () => {
+        element.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+        element.dispatchEvent(new MouseEvent("mouseleave"));
+      });
       await settle();
     },
     type: async (input, value) => {

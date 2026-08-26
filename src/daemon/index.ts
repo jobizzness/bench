@@ -2,6 +2,7 @@ import { loadConfig } from "./config.js";
 import { createServer } from "./server.js";
 import { HomeInUse, takeHomeLock } from "./lock.js";
 import { SessionRegistry } from "./registry.js";
+import { usageSource } from "./usage.js";
 import { CorruptIndex } from "./store.js";
 import { onStopKey } from "./stop-key.js";
 import { cockpitUrls, isLoopback } from "./urls.js";
@@ -21,7 +22,14 @@ try {
 }
 
 const registry = new SessionRegistry(config);
-const server = createServer({ config, registry });
+// The registry holds the key; the server may not read it. Composed here,
+// where both are in scope, so the usage panel can be asked as that key
+// without the key itself ever crossing into the server.
+const server = createServer({
+  config,
+  registry,
+  usage: usageSource({ benchKey: () => registry.getApiKey() }),
+});
 
 // Specialists outlive the daemon: the roster comes back from disk before
 // anyone can ask for it.

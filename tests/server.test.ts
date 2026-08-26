@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { createServer, formatIntake } from "../src/daemon/server.js";
 import { keyHint, type KeyCheck } from "../src/daemon/anthropic-key.js";
+import type { Usage } from "../src/daemon/usage.js";
 import type { IntakeAnswer, RosterRow } from "../src/shared/types.js";
 
 const TOKEN = "test-token-abc";
@@ -22,12 +23,16 @@ class StubRegistry extends EventEmitter {
   settings = { codingStyle: "", workflowRules: "", reviewModel: "sonnet" };
   getSettings() { return this.settings; }
   key: string | null = null;
+  keyOn = true;
   apiKeyState() {
-    return this.key === null ? { present: false, hint: "" } : { present: true, hint: keyHint(this.key) };
+    return this.key === null
+      ? { present: false, hint: "", enabled: this.keyOn }
+      : { present: true, hint: keyHint(this.key), enabled: this.keyOn };
   }
-  getApiKey() { return this.key; }
-  setApiKey(key: string) { this.key = key; }
-  clearApiKey() { this.key = null; }
+  getApiKey() { return this.keyOn ? this.key : null; }
+  setApiKey(key: string) { this.key = key; this.keyOn = true; }
+  setApiKeyEnabled(on: boolean) { this.keyOn = on; }
+  clearApiKey() { this.key = null; this.keyOn = true; }
   threadPathValue = "";
   aliveValue = true;
   revivableValue = false;
@@ -62,6 +67,7 @@ let clientDir: string;
 /** What the API is pretending to say about a key. The tests must not reach
  * Anthropic any more than they reach GitHub. */
 let verdict: KeyCheck = "ok";
+let usage: Usage = { available: false, reason: "none" };
 
 beforeAll(async () => {
   registry = new StubRegistry();
@@ -97,6 +103,7 @@ beforeAll(async () => {
     registry: registry as any,
     clientDir,
     checkKey: async () => verdict,
+    usage: async () => usage,
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -615,20 +622,20 @@ describe("the developer's own API key", () => {
   const put = (body: unknown) =>
     fetch(`${base}/api/anthropic-key`, { method: "POST", ...auth, body: JSON.stringify(body) });
 
-  beforeEach(() => { verdict = "ok"; registry.key = null; });
+  beforeEach(() => { verdict = "ok"; registry.key = null; registry.keyOn = true; });
 
   it("says there is no key when none has been given", async () => {
     const res = await fetch(`${base}/api/anthropic-key`, auth);
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ present: false, hint: "", verified: true });
+    expect(await res.json()).toEqual({ present: false, hint: "", enabled: true, verified: true });
   });
 
   it("keeps a key the API vouches for", async () => {
     const res = await put({ key: KEY });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ present: true, hint: "…4f2a", verified: true });
+    expect(await res.json()).toEqual({ present: true, hint: "…4f2a", enabled: true, verified: true });
     expect(registry.getApiKey()).toBe(KEY);
   });
 
@@ -660,7 +667,7 @@ describe("the developer's own API key", () => {
     const res = await put({ key: KEY });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ present: true, hint: "…4f2a", verified: false });
+    expect(await res.json()).toEqual({ present: true, hint: "…4f2a", enabled: true, verified: false });
     expect(registry.getApiKey()).toBe(KEY);
   });
 
@@ -677,7 +684,7 @@ describe("the developer's own API key", () => {
     const res = await fetch(`${base}/api/anthropic-key`, { method: "DELETE", ...auth });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ present: false, hint: "", verified: true });
+    expect(await res.json()).toEqual({ present: false, hint: "", enabled: true, verified: true });
     expect(registry.getApiKey()).toBeNull();
   });
 
@@ -686,5 +693,89 @@ describe("the developer's own API key", () => {
 
     expect(res.status).toBe(401);
     expect(registry.getApiKey()).toBeNull();
+  });
+});
+
+describe("what has been spent", () => {
+  const WINDOWS: Usage = {
+    available: true,
+    windows: [
+      { key: "five_hour", label: "5-hour", percent: 41, resetsAt: "2026-08-25T14:20:00Z" },
+      { key: "seven_day", label: "7-day", percent: 68, resetsAt: null },
+    ],
+  };
+
+  it("serves every window it was given", async () => {
+    usage = WINDOWS;
+
+    const res = await fetch(`${base}/api/usage`, auth);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(WINDOWS);
+  });
+
+  it("says there is nothing to show rather than failing", async () => {
+    // A bench with no oauth credential is the ordinary case, not an error.
+    // The cockpit hides the icon on this answer; a 500 would light it red.
+    usage = { available: false, reason: "none" };
+
+    const res = await fetch(`${base}/api/usage`, auth);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ available: false, reason: "none" });
+  });
+
+  it("tells nobody without the token what has been spent", async () => {
+    usage = WINDOWS;
+
+    expect((await fetch(`${base}/api/usage`)).status).toBe(401);
+  });
+});
+
+describe("parking the key without throwing it away", () => {
+  const KEY = "sk-ant-api03-typed-into-the-cockpit-4f2a";
+  const set = (enabled: boolean) =>
+    fetch(`${base}/api/anthropic-key/enabled`, { method: "POST", ...auth, body: JSON.stringify({ enabled }) });
+
+  beforeEach(() => { registry.key = KEY; registry.keyOn = true; });
+
+  it("stops handing the key out, and says so", async () => {
+    const res = await set(false);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ present: true, hint: "…4f2a", enabled: false, verified: true });
+    expect(registry.getApiKey()).toBeNull();
+  });
+
+  it("keeps the key itself, so it need not be typed again", async () => {
+    await set(false);
+
+    expect(registry.key).toBe(KEY);
+  });
+
+  it("hands it out again when switched back on", async () => {
+    await set(false);
+
+    await set(true);
+
+    expect(registry.getApiKey()).toBe(KEY);
+  });
+
+  it("refuses anything that is not an answer to the question", async () => {
+    const res = await fetch(`${base}/api/anthropic-key/enabled`, {
+      method: "POST", ...auth, body: JSON.stringify({ enabled: "yes please" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(registry.getApiKey()).toBe(KEY);
+  });
+
+  it("lets nobody without the token park the key", async () => {
+    const res = await fetch(`${base}/api/anthropic-key/enabled`, {
+      method: "POST", body: JSON.stringify({ enabled: false }),
+    });
+
+    expect(res.status).toBe(401);
+    expect(registry.getApiKey()).toBe(KEY);
   });
 });

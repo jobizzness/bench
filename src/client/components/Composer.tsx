@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
 import { ComposerHint } from "./ComposerHint.js";
+import { UsagePopover } from "./UsagePopover.js";
 import { useAutoGrow } from "./useAutoGrow.js";
 
 /**
@@ -65,7 +66,15 @@ export function Composer({
           </button>
         )}
       </form>
-      {error ? <p id="composer-hint">{error}</p> : <ComposerHint kind={hint} optionCount={optionCount} />}
+      {/* What the keys do, and at the far end what the login has left — the
+          two things you want at the moment you are deciding to send more
+          work. It lives here rather than in the roster header because the
+          panel it opens is wider than that column and was being cut off by
+          it. */}
+      <div id="composer-foot">
+        {error ? <p id="composer-hint">{error}</p> : <ComposerHint kind={hint} optionCount={optionCount} />}
+        <UsagePopover />
+      </div>
     </>
   );
 }

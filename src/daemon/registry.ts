@@ -60,6 +60,15 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    */
   private apiKey: string | null = null;
 
+  /**
+   * Whether that key is the one being handed out.
+   *
+   * Off is parked, not gone: switching between your own key and the machine's
+   * login is a thing you do several times in an afternoon, and a switch that
+   * forgets the key makes you paste it again every time.
+   */
+  private apiKeyOn = true;
+
   constructor(private readonly config: ReturnType<typeof loadConfig>) {
     super();
     this.store = new SessionStore(config.home);
@@ -71,22 +80,33 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   /** What may be said about the key: that there is one, and which one. Never
    * the key - it goes to the daemon and does not come back. */
-  apiKeyState(): { present: boolean; hint: string } {
+  apiKeyState(): { present: boolean; hint: string; enabled: boolean } {
     return this.apiKey === null
-      ? { present: false, hint: "" }
-      : { present: true, hint: keyHint(this.apiKey) };
+      ? { present: false, hint: "", enabled: this.apiKeyOn }
+      : { present: true, hint: keyHint(this.apiKey), enabled: this.apiKeyOn };
   }
 
+  /** The key to authenticate with, which is nothing at all while it is
+   * switched off - callers should see a parked key exactly as they see no
+   * key, and fall back to whatever the machine already has. */
   getApiKey(): string | null {
-    return this.apiKey;
+    return this.apiKeyOn ? this.apiKey : null;
   }
 
   setApiKey(key: string): void {
     this.apiKey = key;
+    // Saving a key is asking for it to be used. Inheriting "off" from the key
+    // it replaced would be a key that quietly does nothing.
+    this.apiKeyOn = true;
+  }
+
+  setApiKeyEnabled(on: boolean): void {
+    this.apiKeyOn = on;
   }
 
   clearApiKey(): void {
     this.apiKey = null;
+    this.apiKeyOn = true;
   }
 
   async saveSettings(input: unknown): Promise<Settings> {
