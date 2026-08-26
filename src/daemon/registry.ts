@@ -14,7 +14,8 @@ import { appendActivity } from "./activity.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
 import { appendEntry, readThread } from "./thread.js";
 import { answeredReportSeq } from "./answered.js";
-import { asRole } from "../shared/roles.js";
+import { asRole, type Role } from "../shared/roles.js";
+import { modelForRole } from "../shared/role-models.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
 import { keyHint } from "./anthropic-key.js";
@@ -22,7 +23,11 @@ import { catalogue, isOpenRouterModel, type Listed } from "./openrouter.js";
 import { describeOrigin, type Origin } from "./env-file.js";
 import { writeParked } from "./key-park.js";
 import { isModelId, modelLabel } from "../shared/models.js";
-import type { RosterRow, SessionStatus } from "../shared/types.js";
+import type { RosterRow, SessionStatus, Spend } from "../shared/types.js";
+import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
+import { costFrom, shapeFrom } from "./stream-codec.js";
+import type { ResultEvent } from "./stream-codec.js";
+import { TurnLog } from "./turns.js";
 
 interface Entry {
   row: RosterRow;
@@ -56,6 +61,9 @@ interface Entry {
 export class SessionRegistry extends EventEmitter implements SessionRegistryLike {
   private entries = new Map<string, Entry>();
   private readonly store: SessionStore;
+  /** The shape of the last twenty turns, whoever ran them. What makes "a turn
+   * like yours" a claim about this bench rather than about a brochure. */
+  private readonly turns: TurnLog;
   /**
    * Held in memory as well as on disk because the framing is built
    * synchronously, at the instant a turn starts. Saving updates both, so a
@@ -105,6 +113,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   constructor(private readonly config: ReturnType<typeof loadConfig>) {
     super();
     this.store = new SessionStore(config.home);
+    this.turns = new TurnLog(config.home);
 
     // Both keys, if the developer already wrote them down somewhere. Found
     // by loadConfig(), which is the file allowed to read the world - so a
@@ -147,6 +156,32 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     const listed = (await this.catalogue().catch(() => [] as Listed[]))
       .find((m) => m.id === model);
     return { key: this.routerKey, contextLength: listed?.contextLength ?? null };
+  }
+
+  /**
+   * The turn to price a model against, and how many real ones it came from.
+   *
+   * The count travels with it because a mean of two turns and a mean of
+   * twenty are different claims, and the page drawing it has to be able to
+   * say which one it is holding.
+   */
+  async typicalTurn(): Promise<{ shape: TurnShape | null; turns: number }> {
+    return this.turns.typical();
+  }
+
+  /**
+   * What a new specialist of this role runs on.
+   *
+   * The developer's own answer if they have given one, the built-in table
+   * otherwise - and whichever of the two this bench can actually reach. A
+   * role whose model needs OpenRouter runs on its direct fallback when there
+   * is no key, rather than silently on Opus at twenty times the price.
+   */
+  modelFor(role: Role): string {
+    return modelForRole(role, {
+      chosen: this.settings.roleModels[role],
+      viaRouter: this.routerKey !== null,
+    });
   }
 
   /** Every model OpenRouter serves, fetched once. */
@@ -276,6 +311,50 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * A turn's context number failing to save is worth a line on stderr. It is
    * not worth six specialists.
    */
+  /**
+   * What the turn that just ended cost, added to what the specialist has run
+   * up, and its shape kept for pricing other models against.
+   *
+   * Two accounts, and they are not interchangeable. A turn that went straight
+   * to Anthropic is paid for by a subscription already bought, and the CLI's
+   * own `total_cost_usd` is what it would have cost at list price - worth
+   * knowing, not a bill. A turn answered by OpenRouter is money out of the
+   * developer's balance today, and the CLI cannot price it: its table is
+   * Anthropic's, and this model is not in it. That one is costed from the
+   * catalogue, which is the same arithmetic the picker shows.
+   */
+  private async bill(entry: Entry, result: ResultEvent | undefined): Promise<void> {
+    const shape = result ? shapeFrom(result) : null;
+    if (shape === null) return;
+
+    // Every turn on the bench, whoever answered it. The picker prices a model
+    // against the work this developer actually does, and a bench that only
+    // sampled its cheap specialists would price everything against those.
+    await this.turns.record(shape);
+
+    const proxied = isOpenRouterModel(entry.row.model);
+    const dollars = proxied
+      ? costOfTurn(shape, await this.priceOf(entry.row.model))
+      : costFrom(result!);
+    if (dollars === null) return;
+
+    const before = entry.row.spend;
+    const spend: Spend = {
+      dollars: (before?.dollars ?? 0) + dollars,
+      turns: (before?.turns ?? 0) + 1,
+      billed: proxied ? "account" : "plan",
+    };
+    entry.row.spend = spend;
+    await this.store.rememberSpend(entry.row.id, spend);
+  }
+
+  /** What the catalogue says this model charges. Unknown prices all round for
+   * one it cannot reach, which costs a turn nothing rather than guessing. */
+  private async priceOf(model: string): Promise<Price> {
+    const listed = (await this.catalogue().catch(() => [] as Listed[])).find((m) => m.id === model);
+    return listed?.price ?? { fresh: null, cacheWrite: null, cacheRead: null, out: null };
+  }
+
   private remember(work: Promise<unknown>): void {
     void work.catch((error) => {
       process.stderr.write(`bench: could not update the specialist index: ${String(error)}\n`);
@@ -346,6 +425,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           tokens: 0,
           context: rec.context ?? null,
           activity: [],
+          spend: rec.spend ?? null,
         },
       });
     }
@@ -493,7 +573,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       this.emit("roster");
     });
 
-    session.on("turn-end", async (result: { is_error?: boolean; subtype?: string }) => {
+    session.on("turn-end", async (result: ResultEvent) => {
       const entry = this.entries.get(id);
       if (!entry) return;
 
@@ -518,6 +598,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         entry.row.context = context;
         this.remember(this.store.rememberContext(id, context));
       }
+
+      // What the turn moved, and what that came to. Recorded here rather than
+      // in the session because this is the only place that knows which
+      // account answered - and the two are not the same kind of money.
+      this.remember(this.bill(entry, result));
 
       // A turn has ended, so the CLI has written a conversation and the next
       // process can pick it up.
@@ -544,6 +629,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   async create(input: {
     project: string;
     label: string;
+    /** Empty means "whatever this role runs on" - see modelForRole. Every
+     * caller that has an opinion sends one; the CLI, which has only a role,
+     * does not. */
     model: string;
     /** What kind of agent this is. Anything unrecognised is a specialist. */
     role?: string;
@@ -552,12 +640,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   }): Promise<string> {
     const isolated = input.isolated ?? true;
     const role = asRole(input.role);
+    const model = input.model === "" ? this.modelFor(role) : input.model;
 
     // Before anything is created. A model that needs an OpenRouter key and
     // has none is the developer's problem while they are still looking at the
     // dialog they asked from - not a row on the roster that provisioned a
     // worktree and then died on its first turn.
-    const via = await this.viaFor(input.model);
+    const via = await this.viaFor(model);
 
     const id = randomUUID();
     const reportsDir = join(input.project, ".bench", "reports", id);
@@ -572,7 +661,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       isolated,
       resumable: false,
       turnsTaken: 0,
-      model: input.model,
+      model,
       port: 0,
       row: {
         id,
@@ -581,7 +670,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         branch: "",
         isolated,
         project: input.project,
-        model: input.model,
+        model,
         status: "provisioning",
         detail: isolated ? "creating worktree" : "opening the checkout",
         latestReportSeq: null,
@@ -590,6 +679,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         tokens: 0,
         context: null,
         activity: [],
+        spend: null,
       },
     });
     this.emit("roster");
@@ -622,7 +712,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       this.attach(id, {
         label: input.label,
         worktree,
-        model: input.model,
+        model,
         port,
         via,
       });
@@ -630,7 +720,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       // by being created.
       await this.store.put({
         id, label: input.label, role, project: input.project, worktree, branch, reportsDir,
-        model: input.model, port, createdAt: new Date().toISOString(), isolated,
+        model, port, createdAt: new Date().toISOString(), isolated,
       });
       this.update(id, "awaiting_decision", "ready");
     } catch (error) {

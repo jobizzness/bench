@@ -21,7 +21,14 @@ class StubRegistry extends EventEmitter {
   reportsDir = "";
 
   list() { return this.rows; }
-  settings = { codingStyle: "", workflowRules: "", reviewModel: "sonnet" };
+  /** The turn the picker prices models against. Empty until a bench has run
+   * some, which is what a test bench has done. */
+  turnShape: { shape: unknown; turns: number } = { shape: null, turns: 0 };
+  async typicalTurn() { return this.turnShape; }
+  /** What the real registry answers from the role table. The stub only has to
+   * be asked, so it says the one thing these tests care about. */
+  modelFor(role: string) { return this.settings.roleModels[role] ?? "openai/gpt-5.1-codex-mini"; }
+  settings = { codingStyle: "", workflowRules: "", reviewModel: "sonnet", roleModels: {} as Record<string, string> };
   getSettings() { return this.settings; }
   key: string | null = null;
   keyOn = true;
@@ -1035,5 +1042,36 @@ describe("what a specialist runs on", () => {
 
     expect(res.status).toBe(401);
     expect(registry.remodelled).toEqual([]);
+  });
+});
+
+describe("the turn every model is priced against", () => {
+  it("is served from what the bench has actually run", async () => {
+    registry.turnShape = {
+      shape: { freshIn: 10, cacheWrite: 20, cacheRead: 30, out: 40 },
+      turns: 7,
+    };
+
+    const res = await fetch(`${base}/api/turn-shape`, { headers: { "x-bench-token": TOKEN } });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      shape: { freshIn: 10, cacheWrite: 20, cacheRead: 30, out: 40 },
+      turns: 7,
+    });
+  });
+
+  it("says it has none rather than inventing one", async () => {
+    registry.turnShape = { shape: null, turns: 0 };
+
+    const res = await fetch(`${base}/api/turn-shape`, { headers: { "x-bench-token": TOKEN } });
+
+    expect(await res.json()).toEqual({ shape: null, turns: 0 });
+  });
+
+  it("is behind the token, like everything else about this developer's work", async () => {
+    const res = await fetch(`${base}/api/turn-shape`);
+
+    expect(res.status).toBe(401);
   });
 });

@@ -1,4 +1,5 @@
 import type { Context } from "../shared/context-window.js";
+import { turnTokens, type TurnShape } from "../shared/cost.js";
 
 export interface ResultEvent {
   type: "result";
@@ -100,6 +101,66 @@ export function contextFrom(event: ClaudeEvent): Context | null {
   }
 
   return used > 0 && window > 0 ? { used, window } : null;
+}
+
+/**
+ * What the whole turn put through the model, off the same result event.
+ *
+ * The opposite reading to `contextFrom`, and deliberately so. The context
+ * meter wants the last request - what the conversation now occupies. A bill
+ * wants every request the turn made: a turn with sixty tool calls re-sent the
+ * conversation sixty times and was charged sixty times for it.
+ *
+ * The CLI's top-level `usage` is already that sum. Iterations are added up
+ * only when it is missing, which is a shape of event we have not seen but
+ * would rather survive than drop.
+ */
+export function shapeFrom(event: ClaudeEvent): TurnShape | null {
+  if (!isResultEvent(event)) return null;
+  const usage = (event as { usage?: Record<string, unknown> }).usage;
+  if (!usage) return null;
+
+  const total = readShape(usage);
+  if (turnTokens(total) > 0) return total;
+
+  const iterations = Array.isArray(usage.iterations) ? usage.iterations : [];
+  const summed = iterations.reduce<TurnShape>((sum, entry) => {
+    const one = readShape(entry as Record<string, unknown>);
+    return {
+      freshIn: sum.freshIn + one.freshIn,
+      cacheWrite: sum.cacheWrite + one.cacheWrite,
+      cacheRead: sum.cacheRead + one.cacheRead,
+      out: sum.out + one.out,
+    };
+  }, { freshIn: 0, cacheWrite: 0, cacheRead: 0, out: 0 });
+
+  return turnTokens(summed) > 0 ? summed : null;
+}
+
+function readShape(from: Record<string, unknown>): TurnShape {
+  const number = (value: unknown) =>
+    (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
+
+  return {
+    freshIn: number(from.input_tokens),
+    cacheWrite: number(from.cache_creation_input_tokens),
+    cacheRead: number(from.cache_read_input_tokens),
+    out: number(from.output_tokens),
+  };
+}
+
+/**
+ * What the CLI says the turn cost, in dollars.
+ *
+ * Its own arithmetic against its own price table, which is Anthropic's. A
+ * turn answered by OpenRouter is not in that table, so this is trusted only
+ * for a turn that went to Anthropic - see registry.ts, which is the only
+ * place that knows which of the two happened.
+ */
+export function costFrom(event: ClaudeEvent): number | null {
+  if (!isResultEvent(event)) return null;
+  const cost = (event as ResultEvent).total_cost_usd;
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null;
 }
 
 export function isResultEvent(event: ClaudeEvent): event is ResultEvent {

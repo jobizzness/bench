@@ -116,7 +116,9 @@ async function main(): Promise<void> {
     const project = ownProject(all);
     const { id } = await call("/api/sessions", {
       method: "POST",
-      body: JSON.stringify({ label, project, role, model: process.env.BENCH_MODEL ?? "opus" }),
+      // No model unless one was asked for: the daemon fills it from the role,
+      // which is what knows that a researcher should not be opened on Opus.
+      body: JSON.stringify({ label, project, role, model: process.env.BENCH_MODEL }),
     });
 
     // It opens empty on purpose: what it is for is the first thing you tell

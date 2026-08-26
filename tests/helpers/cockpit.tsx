@@ -48,8 +48,12 @@ export interface Fixtures {
    * refusing to answer, which the picker has to open through. */
   models?: Array<{
     id: string; name: string; vendor: string;
-    contextLength: number | null; dollarsPerMillion: number | null;
+    contextLength: number | null;
+    price: { fresh: number | null; cacheWrite: number | null; cacheRead: number | null; out: number | null };
   }> | "unreachable";
+  /** The turn the picker prices every model against. Undefined is a daemon
+   * that has recorded none, which is the ordinary case in a test. */
+  turnShape?: { shape: unknown; turns: number };
 }
 
 export interface Cockpit {
@@ -166,6 +170,11 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       if (method !== "GET") sent.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
       const held = fixtures.routerKey ?? { present: false, hint: "" };
       return { ok: true, status: 200, json: async () => ({ ...held, verified: true }) };
+    }
+
+    if (url.includes("/api/turn-shape")) {
+      const shape = fixtures.turnShape ?? { shape: null, turns: 0 };
+      return { ok: true, status: 200, json: async () => shape };
     }
 
     if (url.includes("/api/openrouter/models")) {

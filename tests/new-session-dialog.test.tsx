@@ -225,3 +225,49 @@ describe("which model a specialist runs on", () => {
     ui.unmount();
   });
 });
+
+describe("the model a role starts on", () => {
+  it("follows the kind of work, not one default for everything", async () => {
+    // Every specialist used to open on Opus, whatever it was for: a
+    // researcher reading docs cost the same as a planner deciding what to
+    // build.
+    await open();
+
+    await ui.pick(ui.$("#f-role"), "researcher");
+    expect(ui.$("#f-model")!.textContent).toBe("deepseek-v4-flash");
+
+    await ui.pick(ui.$("#f-role"), "planner");
+    expect(ui.$("#f-model")!.textContent).toBe("Opus 5");
+  });
+
+  it("says why it is on that one", async () => {
+    await open();
+    await ui.pick(ui.$("#f-role"), "reviewer");
+
+    expect(ui.$("#f-model-why")!.textContent).toContain("Reads a diff");
+  });
+
+  it("keeps a model you picked when you change the role", async () => {
+    // An inherited model should follow the role; a chosen one is a decision
+    // and has to survive.
+    await open();
+    await waitFor(() => ui.$("#f-model"), "the model button");
+    await ui.click(ui.$("#f-model"));
+    await waitFor(() => ui.$("#f-model-dialog-search"), "the picker");
+    await ui.click(ui.$("#f-model-dialog .model-option[data-model='haiku']"));
+
+    await ui.pick(ui.$("#f-role"), "researcher");
+
+    expect(ui.$("#f-model")!.textContent).toBe("Haiku 4.5");
+    expect(ui.$("#f-model-why")).toBeNull();
+  });
+
+  it("sends the role's model when nothing was picked", async () => {
+    await open();
+    await ui.pick(ui.$("#f-role"), "assessor");
+    await fill("audit");
+    await ui.click(ui.$("#f-create"));
+
+    expect(created()!.body.model).toBe("google/gemini-3.1-pro-preview");
+  });
+});

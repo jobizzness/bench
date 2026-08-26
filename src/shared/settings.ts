@@ -19,6 +19,16 @@ export const settingsSchema = z.object({
    * standing answer.
    */
   reviewModel: z.string().default(DEFAULT_MODEL),
+  /**
+   * The developer's own answer to "what does this kind of work run on",
+   * overriding the built-in table in role-models.ts.
+   *
+   * Only what has been changed is kept. A copy of all five written into the
+   * file is a copy that stops following the built-in table the first time a
+   * model is renamed or a role is added - and every bench that ever opened
+   * Settings would have one.
+   */
+  roleModels: z.record(z.string(), z.string()).default({}),
 });
 
 /**
@@ -33,11 +43,18 @@ export const settingsInputSchema = z.object({
   // Absent means the client predates the field, which is not a reason to
   // refuse the rules it did send.
   reviewModel: z.string().refine(isModelId, "not a model this bench offers").optional(),
-}).transform((s) => ({ ...s, reviewModel: s.reviewModel ?? DEFAULT_MODEL }));
+  roleModels: z.record(z.string(), z.string().refine(isModelId, "not a model this bench offers")).optional(),
+}).transform((s) => ({
+  ...s,
+  reviewModel: s.reviewModel ?? DEFAULT_MODEL,
+  roleModels: s.roleModels ?? {},
+}));
 
 export type Settings = z.infer<typeof settingsSchema>;
 
-export const NO_SETTINGS: Settings = { codingStyle: "", workflowRules: "", reviewModel: DEFAULT_MODEL };
+export const NO_SETTINGS: Settings = {
+  codingStyle: "", workflowRules: "", reviewModel: DEFAULT_MODEL, roleModels: {},
+};
 
 /**
  * What a specialist is actually told, assembled.

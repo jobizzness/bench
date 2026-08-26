@@ -14,6 +14,8 @@ import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
 import { checkKey, type KeyCheck } from "./anthropic-key.js";
+import type { TurnShape } from "../shared/cost.js";
+import type { Role } from "../shared/roles.js";
 import { checkKey as checkRouterKey, creditSource, type Listed } from "./openrouter.js";
 import type { Credit } from "../shared/credit.js";
 import { usageSource, type Usage } from "./usage.js";
@@ -41,6 +43,9 @@ export interface SessionRegistryLike {
   clearRouterKey(): void;
   /** Every model OpenRouter serves, for the picker. */
   catalogue(): Promise<Listed[]>;
+  /** What a new specialist of this role should run on. */
+  modelFor(role: Role): string;
+  typicalTurn(): Promise<{ shape: TurnShape | null; turns: number }>;
   get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null;
   send(id: string, text: string): void;
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
@@ -158,6 +163,22 @@ function readIntakeAnswers(value: unknown): IntakeAnswer[] | null {
 export interface BenchServer extends HttpServer {
   /** Drop every connection, so `close()` can actually finish. */
   closeSockets(): void;
+}
+
+/**
+ * What a review Bench opens itself runs on.
+ *
+ * `reviewModel` predates roles having models of their own and is still the
+ * more specific answer, so a developer who set one keeps it. Otherwise this
+ * is simply the reviewer role, and the registry answers for it.
+ */
+function reviewerModel(registry: SessionRegistryLike): string {
+  const settings = registry.getSettings();
+  // Optional-chained: a settings file written before roles had models has
+  // no table at all, and a review is not the place to find that out.
+  const chosen = settings.roleModels?.reviewer;
+  if (chosen === undefined && settings.reviewModel !== DEFAULT_MODEL) return settings.reviewModel;
+  return registry.modelFor("reviewer");
 }
 
 export function createServer(opts: {
@@ -420,6 +441,19 @@ export function createServer(opts: {
       return;
     }
 
+    /**
+     * The turn every model is priced against.
+     *
+     * Its own route rather than a field on the model list, because the two
+     * change on completely different clocks: the catalogue is fetched once
+     * and kept for the life of the daemon, and this moves every time any
+     * specialist finishes a turn.
+     */
+    if (path === "/api/turn-shape" && req.method === "GET") {
+      json(res, 200, await registry.typicalTurn());
+      return;
+    }
+
     if (path === "/api/openrouter/models" && req.method === "GET") {
       try {
         json(res, 200, { models: await registry.catalogue() });
@@ -463,7 +497,10 @@ export function createServer(opts: {
         const id = await registry.create({
           project: String(body.project),
           label: String(body.label),
-          model: String(body.model ?? DEFAULT_MODEL),
+          // Empty rather than Opus when the caller says nothing: the registry
+          // fills it from the role, which is what knows whether this is a
+          // researcher that should cost a fifth of a cent.
+          model: body.model === undefined ? "" : String(body.model),
           role: typeof body.role === "string" ? body.role : undefined,
           // Absent means isolated. A caller that has not heard of the toggle
           // gets the safer of the two.
@@ -615,8 +652,10 @@ export function createServer(opts: {
         project: subject.project,
         label: reviewLabel(subject.label),
         // The developer's standing answer to "who reviews", since nothing
-        // asks them at the moment a reviewer is opened.
-        model: String(body.model ?? registry.getSettings().reviewModel),
+        // asks them at the moment a reviewer is opened. An explicitly chosen
+        // review model still wins; otherwise this is the reviewer role, and
+        // the registry answers for it.
+        model: body.model === undefined ? reviewerModel(registry) : String(body.model),
         role: "reviewer",
         isolated: true,
       });

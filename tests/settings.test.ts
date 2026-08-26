@@ -16,6 +16,7 @@ describe("what is on disk", () => {
       codingStyle: "comments say why",
       workflowRules: "run the tests",
       reviewModel: "opus",
+      roleModels: {},
     });
   });
 
@@ -36,7 +37,7 @@ describe("what is on disk", () => {
     const dir = await home();
     await writeFile(join(dir, "settings.json"), JSON.stringify({ codingStyle: "terse" }));
 
-    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus" });
+    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {} });
   });
 
   it("refuses half a set rather than erasing the half it was not sent", async () => {
@@ -110,7 +111,7 @@ describe("which model reviews", () => {
     const dir = await home();
     await writeSettings(dir, { codingStyle: "terse", workflowRules: "" });
 
-    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus" });
+    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {} });
   });
 
   it("keeps a model written into the file by hand", async () => {
@@ -120,5 +121,32 @@ describe("which model reviews", () => {
     await writeFile(join(dir, "settings.json"), JSON.stringify({ reviewModel: "claude-fable-5" }));
 
     expect((await readSettings(dir)).reviewModel).toBe("claude-fable-5");
+  });
+});
+
+describe("what each kind of work runs on", () => {
+  it("keeps only what the developer has actually changed", async () => {
+    // Not a copy of all six. A table written into the file is a table that
+    // stops following the built-in one the moment a model is renamed.
+    const dir = await home();
+    await writeSettings(dir, {
+      codingStyle: "", workflowRules: "",
+      roleModels: { researcher: "haiku" },
+    });
+
+    expect((await readSettings(dir)).roleModels).toEqual({ researcher: "haiku" });
+  });
+
+  it("refuses a model this bench could not run", async () => {
+    await expect(writeSettings(await home(), {
+      codingStyle: "", workflowRules: "", roleModels: { researcher: "gpt-4" },
+    })).rejects.toThrow();
+  });
+
+  it("reads a file written before roles had models of their own", async () => {
+    const dir = await home();
+    await writeFile(join(dir, "settings.json"), JSON.stringify({ reviewModel: "haiku" }));
+
+    expect((await readSettings(dir)).roleModels).toEqual({});
   });
 });

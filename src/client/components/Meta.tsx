@@ -1,4 +1,5 @@
 import { contextTone } from "../../shared/context-window.js";
+import { dollars } from "../../shared/cost.js";
 import { modelLabel } from "../../shared/models.js";
 import type { RosterRow } from "../../shared/types.js";
 import { ContextMeter } from "./ContextMeter.js";
@@ -39,6 +40,13 @@ export function Meta({ row, status = false, branch = false, badges = false }: {
   // only once it is close.
   const fill = status || branch || tone !== "ok";
 
+  // What it has cost, at the right edge of the row. It takes the place the
+  // model badge held: the composer says the model on every screen where you
+  // could act on it, and money is the fact you scan a roster for.
+  const spent = row.spend
+    ? <span className="badge badge-spend" data-billed={row.spend.billed}>{dollars(row.spend.dollars)}</span>
+    : null;
+
   if (!badges) {
     // A roster row is 276px wide and this line has to fit the two things a
     // roster is for: which one this is, and whether it wants watching.
@@ -56,7 +64,7 @@ export function Meta({ row, status = false, branch = false, badges = false }: {
         {/* Held to the right edge rather than set in the run of the line:
             twenty rows put twenty of these in a column, and a column reads
             at a glance in a way a mid-sentence word does not. */}
-        {model}
+        {spent ?? model}
       </div>
     );
   }
@@ -68,6 +76,22 @@ export function Meta({ row, status = false, branch = false, badges = false }: {
     <div className="meta meta-badges">
       <span className="badge badge-role">{row.role}</span>
       {status && <span className="badge">{row.status.replace(/_/g, " ")}</span>}
+      {/* What it has run up. On the header only: it is a fact you check when
+          you are looking at one specialist, not one you scan a column for.
+          The two kinds of money are told apart in the title rather than in a
+          second badge - a plan turn is not a bill, and adding the two
+          together would be inventing a number. */}
+      {row.spend && (
+        <span
+          className="badge badge-spend"
+          data-billed={row.spend.billed}
+          title={row.spend.billed === "plan"
+            ? `What its ${row.spend.turns} turns would have cost at list price. They were billed to your Claude plan.`
+            : `What its ${row.spend.turns} turns cost, billed to your OpenRouter account.`}
+        >
+          {dollars(row.spend.dollars)}
+        </span>
+      )}
       {/* The only raised voice here, and the only one warranted: this
           specialist is editing the files you have open. */}
       {shared && <span className="badge badge-shared">in your checkout</span>}

@@ -22,6 +22,7 @@
  */
 
 import type { Credit } from "../shared/credit.js";
+import type { Price } from "../shared/cost.js";
 
 /**
  * Where OpenRouter's own routes live - `/key`, `/models` - for the calls this
@@ -95,19 +96,20 @@ export interface Listed {
    */
   contextLength: number | null;
   /**
-   * US dollars per million output tokens, or null when OpenRouter quotes
-   * something that is not a plain per-token price.
+   * What it charges, per million tokens, all four ways.
    *
-   * Carried because this is the one number that decides between two models
-   * that otherwise read the same, and it is the developer's own money: these
-   * turns are billed to their OpenRouter account, not to a subscription they
-   * have already paid for. A picker that hides it is asking them to choose
-   * blind.
+   * This used to be the output price alone, and that was the wrong number to
+   * have picked. A specialist re-sends its whole conversation on every tool
+   * call, so its bill is mostly input and mostly cached input - which is
+   * quoted separately at about a tenth of fresh. Output is the smallest term
+   * and the one that varies least between models that read alike.
    *
-   * Output rather than input because a specialist writes code - and the spread
-   * across the catalogue is two orders of magnitude, so the choice is real.
+   * It is the developer's own money: these turns go to their OpenRouter
+   * account, not to a subscription already paid for. A picker that shows one
+   * of the four numbers is asking them to choose blind and looking like it
+   * is not.
    */
-  dollarsPerMillion: number | null;
+  price: Price;
 }
 
 /**
@@ -128,18 +130,32 @@ function canRunASpecialist(supported: unknown): boolean {
 }
 
 /**
- * What OpenRouter charges to write a million tokens, in dollars.
+ * What OpenRouter charges per million tokens, in dollars, all four ways.
  *
- * Quoted per-token as a decimal string. Anything that is not a plain
+ * Each is quoted per-token as a decimal string. Anything that is not a plain
  * non-negative number is reported as "not known" rather than shown: the
  * catalogue uses negative sentinels for models whose price is decided per
  * request, and drawing one of those as a price would be inventing a figure.
+ *
+ * Cache prices are absent for most of the catalogue, and absent is not free -
+ * a model that does not cache re-reads the conversation at full price every
+ * turn, which is what shared/cost.ts assumes when it finds a null here.
  */
-function perMillion(pricing: unknown): number | null {
-  const quoted = (pricing as { completion?: unknown })?.completion;
-  const each = Number(quoted);
-  if (typeof quoted !== "string" || !Number.isFinite(each) || each < 0) return null;
-  return each * 1_000_000;
+function prices(pricing: unknown): Price {
+  const quoted = pricing as Record<string, unknown> | undefined;
+  const one = (key: string): number | null => {
+    const value = quoted?.[key];
+    const each = Number(value);
+    if (typeof value !== "string" || !Number.isFinite(each) || each < 0) return null;
+    return each * 1_000_000;
+  };
+
+  return {
+    fresh: one("prompt"),
+    cacheWrite: one("input_cache_write"),
+    cacheRead: one("input_cache_read"),
+    out: one("completion"),
+  };
 }
 
 /**
@@ -214,7 +230,7 @@ export async function catalogue(fetchImpl: typeof fetch = fetch): Promise<Listed
       name: typeof model.name === "string" && model.name !== "" ? model.name : model.id,
       vendor: vendorOf(model.id),
       contextLength,
-      dollarsPerMillion: perMillion(model.pricing),
+      price: prices(model.pricing),
     }];
   });
 }

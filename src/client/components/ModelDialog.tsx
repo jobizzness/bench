@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { MODELS } from "../../shared/models.js";
+import { costOfTurn, dollars, multipleLabel, multipleOf, type Price } from "../../shared/cost.js";
+import { ModelRow, shortName, windowLabel, type Listed } from "./ModelRow.js";
+import { useTurnShape } from "./useTurnShape.js";
 
-/** One OpenRouter model, as the daemon hands it over. */
-export interface Listed {
-  id: string;
-  name: string;
-  vendor: string;
-  contextLength: number | null;
-  /** US dollars per million output tokens, or null when it is not per-token. */
-  dollarsPerMillion: number | null;
-}
+export type { Listed };
 
 /** Vendors worth putting at the top. Everything else follows alphabetically —
  * these are simply the ones people reach for, not a judgement about the rest. */
@@ -57,39 +52,27 @@ function vendorName(vendor: string): string {
 }
 
 /**
- * The model's own name, with the vendor taken off the front.
+ * What the model the specialist is on charges, so everything else can be
+ * quoted against it.
  *
- * OpenRouter names every model "Google: Gemini 3.7 Flash". Under a Google
- * heading, next to the id `google/gemini-3.7-flash`, that is the third time
- * the reader has been told who makes it - and it is what pushed rows onto two
- * lines and made the list twice as tall as it needed to be.
+ * Anthropic's four are not billed per token on this bench at all - they go to
+ * a subscription already paid for - so the comparison uses their list price
+ * through OpenRouter, and the legend says that is what it is doing. Without
+ * it there is no baseline at all for the model most benches sit on.
  */
-function shortName(model: Listed): string {
-  const colon = model.name.indexOf(": ");
-  return colon === -1 ? model.name : model.name.slice(colon + 2);
+function baselineFor(current: string, listed: Listed[]): Price | null {
+  return listed.find((m) => m.id === currentId(current))?.price ?? null;
 }
 
-/** The window, in the units people say it in. */
-function window_(length: number | null): string {
-  if (length === null) return "";
-  return length >= 1_000_000
-    ? `${(length / 1_000_000).toFixed(length % 1_000_000 === 0 ? 0 : 1)}M`
-    : `${Math.round(length / 1000)}k`;
+/** The catalogue id for whatever the specialist is on - an OpenRouter id is
+ * already one, and an Anthropic alias resolves to the model it follows. */
+function currentId(current: string): string {
+  const known = MODELS.find((m) => m.id === current);
+  return known ? `anthropic/${known.resolves}` : current;
 }
 
-/**
- * What a million tokens of its output costs.
- *
- * Shown because these turns are billed to the developer's own OpenRouter
- * account rather than to a subscription already paid for, and because the
- * spread across the catalogue is two orders of magnitude - which makes it the
- * fact that actually decides between two models that read alike.
- */
-function price(dollars: number | null): string {
-  if (dollars === null) return "";
-  if (dollars === 0) return "free";
-  return dollars < 10 ? `$${dollars.toFixed(2)}/M` : `$${Math.round(dollars)}/M`;
-}
+/** Nothing quoted, anywhere. A model the catalogue has never heard of. */
+const EMPTY_PRICE: Price = { fresh: null, cacheWrite: null, cacheRead: null, out: null };
 
 /**
  * How well a model answers what was typed, higher being better, 0 being not at
@@ -176,6 +159,13 @@ export function ModelDialog({
   /** Which result the arrow keys are on. -1 is none, which is where it starts:
    * opening the picker should not preselect a model nobody asked for. */
   const [active, setActive] = useState(-1);
+  /** Ranked by price rather than by how well the name matches. Off by
+   * default: most openings of this dialog are somebody looking for a model
+   * they can already name. */
+  const [cheapest, setCheapest] = useState(false);
+  /** The turn every price here is worked out against - the developer's own,
+   * averaged, or a stated assumption until this bench has run some. */
+  const { shape, turns } = useTurnShape(open);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -185,6 +175,7 @@ export function ModelDialog({
     setError("");
     setQuery("");
     setActive(-1);
+    setCheapest(false);
     dialog.showModal?.();
     // Put the caret in the search box, because searching is what this modal
     // is for. `autoFocus` is not enough: showModal() takes focus itself and
@@ -210,6 +201,45 @@ export function ModelDialog({
     return () => { live = false; };
   }, [open]);
 
+  /** What a turn like the developer's costs on each model, worked out once. */
+  const priced = useMemo(() => {
+    const baseline = costOfTurn(shape, baselineFor(current, listed) ?? EMPTY_PRICE);
+    return new Map(listed.map((model) => {
+      const turn = costOfTurn(shape, model.price);
+      return [model.id, { turn, multiple: multipleOf(turn, baseline) }];
+    }));
+  }, [listed, shape, current]);
+
+  /** What the developer is comparing against, in the words the picker uses
+   * for it elsewhere. */
+  const currentLabel = MODELS.find((m) => m.id === current)?.label
+    ?? shortName(listed.find((m) => m.id === current) ?? { id: current, name: current, vendor: "", contextLength: null, price: EMPTY_PRICE });
+
+  /**
+   * The cheapest model in the catalogue that still holds as much as the one
+   * the specialist is on.
+   *
+   * Arithmetic, not a recommendation. Cheap is not the same as able, and the
+   * only part of "able" a price list can answer is whether the conversation
+   * will fit - so that is the only claim made. Nothing is said at all unless
+   * it would actually save something.
+   */
+  const saving = useMemo(() => {
+    const now = priced.get(currentId(current))?.turn ?? null;
+    const window = listed.find((m) => m.id === currentId(current))?.contextLength ?? null;
+    if (now === null || window === null) return null;
+
+    let best: { model: Listed; turn: number } | null = null;
+    for (const model of listed) {
+      const turn = priced.get(model.id)?.turn ?? null;
+      if (turn === null || (model.contextLength ?? 0) < window) continue;
+      if (best === null || turn < best.turn) best = { model, turn };
+    }
+    if (best === null || best.turn >= now * 0.95) return null;
+
+    return { ...best, window, times: multipleLabel(multipleOf(best.turn, now)) };
+  }, [listed, priced, current]);
+
   /** The catalogue, ranked against what has been typed and cut to length. */
   const { rows, total } = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -217,6 +247,17 @@ export function ModelDialog({
       .map((model) => ({ model, hit: score(model, needle) }))
       .filter((row) => row.hit > 0)
       .sort((a, b) => {
+        // Cheapest first is sorted on the estimated cost of a turn, never on
+        // the output price: ordering by the wrong number is the whole reason
+        // this picker needed rebuilding.
+        if (cheapest) {
+          const at = priced.get(a.model.id)?.turn;
+          const bt = priced.get(b.model.id)?.turn;
+          // A model that will not quote a price sorts last rather than first.
+          // Unknown is not free, and free is not what nobody would pick.
+          if (at !== bt) return (at ?? Infinity) - (bt ?? Infinity);
+          return a.model.name.localeCompare(b.model.name);
+        }
         if (a.hit !== b.hit) return b.hit - a.hit;
         const ai = FIRST.indexOf(a.model.vendor);
         const bi = FIRST.indexOf(b.model.vendor);
@@ -234,7 +275,7 @@ export function ModelDialog({
       : scored;
 
     return { rows: ordered.slice(0, SHOWN), total: scored.length };
-  }, [listed, query, current]);
+  }, [listed, query, current, cheapest, priced]);
 
   // An arrow key that runs off the end of a filtered list would leave the
   // highlight on a row that is no longer there.
@@ -316,7 +357,9 @@ export function ModelDialog({
       <section className="model-house" data-house="anthropic">
         <h3>Anthropic</h3>
         <p className="field-note" data-house-note="anthropic">
-          This machine's Claude login, or the key in Settings. Nothing else has to be set up.
+          This machine's Claude login, or the key in Settings. Nothing else has
+          to be set up — and these are billed to your Claude plan, not per token,
+          so there is no per-turn price to quote against them.
         </p>
         <div className="model-options">
           {MODELS.map((model) => (
@@ -370,6 +413,40 @@ export function ModelDialog({
           onKeyDown={onSearchKey}
         />
 
+        {/* The legend. Said once above the list rather than forty times down
+            it: three bare dollar figures on a row are unreadable without it,
+            and repeating the words would cost the room the figures need. */}
+        <div className="model-legend">
+          <span className="model-legend-cols">
+            per million: <b>fresh</b> · <b>cached</b> · <b>out</b>
+          </span>
+          <button
+            type="button"
+            id={own("cheapest")}
+            className="model-sort"
+            aria-pressed={cheapest}
+            onClick={() => { setCheapest((on) => !on); setActive(-1); }}
+          >
+            {cheapest ? "cheapest first" : "best match first"}
+          </button>
+        </div>
+        <p className="field-note model-basis" id={own("basis")}>
+          {turns > 0
+            ? `A turn like yours — the average of your last ${turns} — priced on each model, against ${currentLabel}.`
+            : `No turns recorded yet, so a turn is assumed at 60k in, most of it cached, 4k out — priced against ${currentLabel}.`}
+        </p>
+
+        {/* The saving, said out loud rather than left to be noticed. It is
+            arithmetic, not a recommendation: cheap is not the same as able,
+            and the window is the one part of "able" a catalogue can answer. */}
+        {saving && (
+          <p className="field-note model-saving" id={own("saving")}>
+            Cheapest here that still holds {windowLabel(saving.window)}:{" "}
+            <b>{shortName(saving.model)}</b> at {dollars(saving.turn)} a turn —{" "}
+            {saving.times} what you are on.
+          </p>
+        )}
+
         {rows.length === 0 && listed.length > 0 && (
           <p className="field-note model-tally" id={own("none")}>Nothing matches “{query}”.</p>
         )}
@@ -382,25 +459,17 @@ export function ModelDialog({
             return (
               <div key={model.id} className="model-run">
                 {heads && <h4 className="model-vendor">{vendorName(model.vendor)}</h4>}
-                <button
-                  type="button"
-                  role="option"
-                  className="model-row"
-                  data-model={model.id}
-                  data-at={at}
-                  data-current={model.id === current}
-                  data-active={at === active}
-                  aria-selected={model.id === current}
-                  aria-current={model.id === current}
+                <ModelRow
+                  model={model}
+                  at={at}
+                  active={at === active}
+                  current={model.id === current}
                   disabled={busy || !hasKey}
-                  onMouseEnter={() => setActive(at)}
-                  onClick={() => void choose(model.id)}
-                >
-                  <b>{shortName(model)}</b>
-                  <span className="model-id">{model.id}</span>
-                  <span className="model-window">{window_(model.contextLength)}</span>
-                  <span className="model-price">{price(model.dollarsPerMillion)}</span>
-                </button>
+                  turn={priced.get(model.id)?.turn ?? null}
+                  multiple={priced.get(model.id)?.multiple ?? null}
+                  onPick={() => void choose(model.id)}
+                  onHover={() => setActive(at)}
+                />
               </div>
             );
           })}

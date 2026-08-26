@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { asRole, DEFAULT_ROLE, ROLES, ROLE_NOTE, type Role } from "../../shared/roles.js";
-import { DEFAULT_MODEL, isProxied, modelLabel } from "../../shared/models.js";
+import { isProxied, modelLabel } from "../../shared/models.js";
+import { ROLE_MODELS } from "../../shared/role-models.js";
 import { ModelDialog } from "./ModelDialog.js";
 import { LABEL_MAX, labelIsUsable, slugify } from "../../shared/slug.js";
 import { useBenchActions } from "./context.js";
@@ -48,9 +49,16 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState("");
   const [label, setLabel] = useState("");
-  const [model, setModel] = useState(DEFAULT_MODEL);
   const [modelOpen, setModelOpen] = useState(false);
   const [role, setRole] = useState<Role>(DEFAULT_ROLE);
+  /**
+   * Null means "whatever this role runs on", which is what the field shows
+   * until somebody picks something. Kept as null rather than resolved into a
+   * model id so that changing the role changes the model with it - a picked
+   * model is a decision and must survive, but an inherited one is not.
+   */
+  const [picked, setPicked] = useState<string | null>(null);
+  const model = picked ?? ROLE_MODELS[role].preferred;
   const [isolated, setIsolated] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -64,7 +72,7 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
     setError("");
     setProject("");
     setLabel("");
-    setModel(DEFAULT_MODEL);
+    setPicked(null);
     setRole(DEFAULT_ROLE);
     setIsolated(true);
     dialog.showModal?.();
@@ -178,6 +186,13 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
         <button type="button" id="f-model" onClick={() => setModelOpen(true)}>
           {modelLabel(model)}
         </button>
+        {/* Why it is on that one, until you say otherwise. A default nobody
+            can see the reason for is a default nobody trusts. */}
+        {picked === null && (
+          <p className="field-note" id="f-model-why">
+            {ROLE_MODELS[role].because} Change it here for this one, or in Settings for good.
+          </p>
+        )}
         {isProxied(model) && (
           <p className="field-note" id="f-model-note">
             Runs through OpenRouter, and is billed there rather than to
@@ -190,7 +205,7 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
           open={modelOpen}
           current={model}
           onClose={() => setModelOpen(false)}
-          onPick={setModel}
+          onPick={setPicked}
           onNeedKey={onNeedKey && (() => { setModelOpen(false); onNeedKey(); })}
         />
 

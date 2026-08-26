@@ -21,12 +21,18 @@ function model(over: Partial<{
   contextLength: number | null; dollarsPerMillion: number | null;
 }> = {}) {
   const id = over.id ?? "google/gemini-3.7-flash";
+  // One knob for price in these fixtures, as there was when a row quoted one
+  // number: the output price. The other three are derived from it so a row
+  // still has something to draw in every column.
+  const out = over.dollarsPerMillion === undefined ? 1.875 : over.dollarsPerMillion;
   return {
     id,
     name: over.name ?? "Google: Gemini 3.7 Flash",
     vendor: over.vendor ?? id.split("/")[0]!,
     contextLength: over.contextLength === undefined ? 1_048_576 : over.contextLength,
-    dollarsPerMillion: over.dollarsPerMillion === undefined ? 1.875 : over.dollarsPerMillion,
+    price: out === null
+      ? { fresh: null, cacheWrite: null, cacheRead: null, out: null }
+      : { fresh: out / 5, cacheWrite: out / 4, cacheRead: out / 50, out },
   };
 }
 
@@ -134,24 +140,28 @@ describe("the model picker", () => {
   it("shows what a model costs, because it is the developer's own money", async () => {
     // These turns are billed to their OpenRouter account rather than to a
     // subscription already paid for, and the spread across the catalogue is
-    // two orders of magnitude.
+    // two orders of magnitude. All three prices, because a specialist's bill
+    // is mostly input and mostly cached input.
     await openPicker({
       ...one,
       routerKey: { present: true, hint: "…4f2a" },
       models: [model({ dollarsPerMillion: 1.875 })],
     });
-    expect(ui.$("#model-dialog .model-row .model-price")!.textContent).toBe("$1.88/M");
+    expect(ui.$("#model-dialog .model-row .model-prices")!.textContent)
+      .toBe("$0.38 · $0.04 · $1.88");
   });
 
   it("says nothing about a price that is not per-token", async () => {
     // The catalogue quotes a sentinel for models priced per request. Drawing
-    // one as a figure would be inventing it.
+    // one as a figure would be inventing it, and drawing it as free would be
+    // worse - it would sort to the top of the cheapest-first list.
     await openPicker({
       ...one,
       routerKey: { present: true, hint: "…4f2a" },
       models: [model({ id: "openrouter/auto", name: "Auto Router", dollarsPerMillion: null })],
     });
-    expect(ui.$("#model-dialog .model-row .model-price")!.textContent).toBe("");
+    expect(ui.$("#model-dialog .model-row .model-prices")!.textContent).toBe("— · — · —");
+    expect(ui.$("#model-dialog .model-row .model-turn")!.textContent).toBe("—");
   });
 
   it("names the model without repeating the vendor a third time", async () => {

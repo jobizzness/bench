@@ -995,3 +995,38 @@ describe("the developer's own API key", () => {
     });
   });
 });
+
+describe("what a new specialist runs on", () => {
+  it("takes the model from the role when the caller names none", async () => {
+    // The CLI knows what kind of agent it is opening and nothing else. It
+    // used to fall back to Opus, which made every researcher a flagship.
+    const { config } = await setup();
+    const registry = new SessionRegistry(config as never);
+
+    expect(registry.modelFor("planner")).toBe("opus");
+    expect(registry.modelFor("specialist")).toBe("opus");
+  });
+
+  it("falls back to something direct when there is no OpenRouter key", async () => {
+    // A registry built for a test finds no credentials, which is exactly the
+    // case this fallback is for: the cheap model is unreachable, and running
+    // Opus instead without saying so is the expensive silent failure.
+    const { config } = await setup();
+    const registry = new SessionRegistry(config as never);
+
+    expect(registry.modelFor("researcher")).toBe("haiku");
+    expect(registry.modelFor("implementer")).toBe("sonnet");
+  });
+
+  it("prefers the developer's own answer over the built-in one", async () => {
+    const { config, home } = await setup();
+    await writeFile(
+      join(home, "settings.json"),
+      JSON.stringify({ codingStyle: "", workflowRules: "", roleModels: { researcher: "sonnet" } }),
+    );
+    const registry = new SessionRegistry(config as never);
+    await registry.restore();
+
+    expect(registry.modelFor("researcher")).toBe("sonnet");
+  });
+});

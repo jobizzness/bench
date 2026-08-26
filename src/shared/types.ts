@@ -45,6 +45,27 @@ export interface RosterRow {
   /** The last few things the specialist actually did, oldest first. Derived
    * from tool calls, so unlike a plan it cannot drift from the truth. */
   activity: Array<{ at: string; text: string }>;
+  /** What it has cost since it was made. Null until it has finished a turn,
+   * and on every specialist that ran before this was recorded. */
+  spend: Spend | null;
+}
+
+/**
+ * What a specialist has run up.
+ *
+ * Two kinds of money and they must not be added together. A turn that went
+ * straight to Anthropic on the machine's login is paid for by a subscription
+ * already bought - the figure is what that turn would have cost at list
+ * price, which is worth knowing and is not a bill. A turn answered by
+ * OpenRouter is money out of the developer's account today.
+ */
+export interface Spend {
+  /** Dollars, at list price for a plan turn and actual for an account one. */
+  dollars: number;
+  /** How many finished turns are in that figure. */
+  turns: number;
+  /** Who paid: the subscription, or the OpenRouter balance. */
+  billed: "plan" | "account";
 }
 
 export const decisionOptionSchema = z.object({

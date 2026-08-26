@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { houseRules, NO_SETTINGS, type Settings } from "../../shared/settings.js";
-import { ReviewModel } from "./ReviewModel.js";
+import { RoleModels } from "./RoleModels.js";
 import { ServerLocation } from "./ServerLocation.js";
 import { HiddenProjects } from "./HiddenProjects.js";
 import { ThemePicker } from "./ThemePicker.js";
@@ -107,9 +107,9 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           </pre>
         </details>
 
-        <ReviewModel
-          value={draft.reviewModel}
-          onChange={(reviewModel) => setDraft({ ...draft, reviewModel })}
+        <RoleModels
+          chosen={draft.roleModels}
+          onChange={(roleModels) => setDraft({ ...draft, roleModels })}
         />
 
         <AnthropicKey open={open} />

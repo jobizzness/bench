@@ -7,7 +7,9 @@
  * and one is reading - which the label alone could only tell you if everybody
  * named their tabs carefully and kept doing it.
  */
-export const ROLES = ["specialist", "implementer", "reviewer", "researcher"] as const;
+export const ROLES = [
+  "specialist", "planner", "implementer", "reviewer", "researcher", "assessor",
+] as const;
 
 export type Role = typeof ROLES[number];
 
@@ -28,7 +30,9 @@ export function asRole(value: unknown): Role {
  * would use it for, because that is the only thing that distinguishes them. */
 export const ROLE_NOTE: Record<Role, string> = {
   specialist: "Owns a piece of work from spec to done. The default, and what everything before this was.",
+  planner: "Works out what should be built and writes it down. Never runs on a cheap model.",
   implementer: "Builds what a spec already describes. Point it at the file rather than retyping it.",
   reviewer: "Reads work someone else did and says what is wrong with it.",
   researcher: "Answers a question about the codebase. Reads, and reports what it found.",
+  assessor: "Reads the end-to-end feature set the way the business would, not the way the code does.",
 };

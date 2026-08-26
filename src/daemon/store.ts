@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { Spend } from "../shared/types.js";
 
 /**
  * The index is on disk but unreadable. Thrown rather than swallowed: every
@@ -27,6 +28,9 @@ export interface SessionRecord {
   /** How full the conversation was when it last finished a turn. Kept so a
    * cold specialist can still say whether it is worth reviving. */
   context?: { used: number; window: number };
+  /** What it has cost so far. Kept on disk because it is cumulative: held in
+   * memory only, a restart would report every specialist as free. */
+  spend?: Spend;
   project: string;
   worktree: string;
   /** Recorded rather than derived: the branch name is not recoverable from
@@ -155,6 +159,19 @@ export class SessionStore {
       const record = all.find((r) => r.id === id);
       if (!record) return;
       record.context = context;
+      await this.write(all);
+    });
+  }
+
+  /** What the specialist has cost, after a turn has been added to it. Kept
+   * for the same reason as the context above: a cold roster should be able to
+   * say what a specialist has run up without prompting it. */
+  async rememberSpend(id: string, spend: Spend): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.spend = spend;
       await this.write(all);
     });
   }

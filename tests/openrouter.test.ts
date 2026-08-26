@@ -138,7 +138,10 @@ describe("the catalogue", () => {
       {
         id: "openai/gpt-5.6-luna", name: "OpenAI: GPT-5.6 Luna",
         context_length: 1050000, supported_parameters: tools,
-        pricing: { prompt: "0.0000012", completion: "0.00001" },
+        pricing: {
+          prompt: "0.0000012", completion: "0.00001",
+          input_cache_read: "0.00000012", input_cache_write: "0.0000015",
+        },
       },
       {
         id: "weird/no-context", name: "No context given",
@@ -174,7 +177,7 @@ describe("the catalogue", () => {
       name: "Google: Gemini 3.7 Flash",
       vendor: "google",
       contextLength: 1048576,
-      dollarsPerMillion: 1.875,
+      price: { fresh: 0.375, cacheWrite: null, cacheRead: null, out: 1.875 },
     });
   });
 
@@ -203,8 +206,29 @@ describe("the catalogue", () => {
     // The catalogue quotes a negative sentinel for models priced per request.
     // Drawing one of those as a price would be inventing a number.
     const models = await catalogue(serving(body).impl);
-    expect(models.find((m) => m.id === "openrouter/auto")!.dollarsPerMillion).toBe(null);
-    expect(models.find((m) => m.id === "weird/no-context")!.dollarsPerMillion).toBe(0);
+    expect(models.find((m) => m.id === "openrouter/auto")!.price.out).toBe(null);
+    expect(models.find((m) => m.id === "weird/no-context")!.price.out).toBe(0);
+  });
+
+  it("carries the cache prices, which are what an agentic turn mostly spends", async () => {
+    // A specialist re-sends its conversation on every tool call, so most of
+    // what it pays for is cached input. Quoting the output price alone - which
+    // is what this used to do - is quoting the smallest term in the bill.
+    const models = await catalogue(serving(body).impl);
+
+    expect(models.find((m) => m.id === "openai/gpt-5.6-luna")!.price).toEqual({
+      fresh: 1.2, cacheWrite: 1.5, cacheRead: 0.12, out: 10,
+    });
+  });
+
+  it("leaves a cache price unquoted rather than assuming it is free", async () => {
+    // Most of the catalogue does not quote one. Absent is not free: a model
+    // that does not cache re-reads the whole conversation at full price.
+    const models = await catalogue(serving(body).impl);
+    const gemini = models.find((m) => m.id === "google/gemini-3.7-flash")!;
+
+    expect(gemini.price.cacheRead).toBeNull();
+    expect(gemini.price.cacheWrite).toBeNull();
   });
 
   it("skips a row with no id at all", async () => {
