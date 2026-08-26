@@ -304,6 +304,7 @@ export function App() {
               send={null}
               inputRef={input}
               error={error}
+              model={row?.model ?? null}
             />
           </footer>
         </section>

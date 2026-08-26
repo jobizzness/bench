@@ -33,8 +33,10 @@ describe("what a specialist is running on", () => {
     expect(badge(render(<Meta row={row({ model: "haiku" })} />))).toBe("Haiku 4.5");
   });
 
-  it("is on the header too", () => {
-    expect(badge(render(<Meta row={row({ model: "sonnet" })} status branch badges />))).toBe("Sonnet 5");
+  it("is not on the header, which would be the same word twice on one screen", () => {
+    // The composer says it now, on the line where it is acted on. See
+    // composer-model.test.tsx.
+    expect(badge(render(<Meta row={row({ model: "sonnet" })} status branch badges />))).toBeUndefined();
   });
 
   it("comes last on the row, after what it is doing", () => {

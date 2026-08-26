@@ -1290,6 +1290,18 @@ button, input, textarea, select { font: inherit; color: inherit; }
   margin-top: 9px;
 }
 
+/* The same texture as the hint it shares the line with, so the foot of the
+   composer reads as one quiet strip rather than a row of labels. It says the
+   model and nothing else: "Opus 5" beside a spend meter is already a sentence
+   about what this turn will cost. */
+#composer-model {
+  flex: none;
+  font: 400 11px/1.4 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
 #composer-hint {
   margin: 0;
   flex: 1;

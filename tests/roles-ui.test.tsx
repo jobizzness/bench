@@ -57,7 +57,7 @@ describe("what kind of agent each one is", () => {
     // can see rather than clauses you have to read; the detail stays prose
     // because it is a sentence the specialist wrote.
     expect(metaOf(ui.$("#stage-head")!))
-      .toEqual(["implementer", "Opus 5", "working", "bench/auth-abcd1234", "Bash pnpm test"]);
+      .toEqual(["implementer", "working", "bench/auth-abcd1234", "Bash pnpm test"]);
   });
 });
 
@@ -102,7 +102,7 @@ describe("where a specialist is working", () => {
     await ui.open("new-one");
 
     expect(metaOf(ui.$("#stage-head")!))
-      .toEqual(["specialist", "Opus 5", "provisioning", "creating worktree"]);
+      .toEqual(["specialist", "provisioning", "creating worktree"]);
   });
 });
 

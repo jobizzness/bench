@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { modelLabel } from "../../shared/models.js";
 import { ComposerHint } from "./ComposerHint.js";
 import { UsagePopover } from "./UsagePopover.js";
 import { useAutoGrow } from "./useAutoGrow.js";
@@ -14,7 +15,7 @@ import { useAutoGrow } from "./useAutoGrow.js";
  * all: a brief with two paragraphs in it went to the specialist as one line.
  */
 export function Composer({
-  text, setText, onSubmit, disabled, placeholder, hint, optionCount, send, inputRef, error,
+  text, setText, onSubmit, disabled, placeholder, hint, optionCount, send, inputRef, error, model,
 }: {
   text: string;
   setText: (value: string) => void;
@@ -26,6 +27,9 @@ export function Composer({
   send: { label: string; blocked: boolean } | null;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   error: string | null;
+  /** What the specialist you are typing to runs on. Null with nobody on the
+   * stage, and on a row from a daemon that predates the field. */
+  model: string | null;
 }) {
   useAutoGrow(inputRef, text);
 
@@ -66,13 +70,17 @@ export function Composer({
           </button>
         )}
       </form>
-      {/* What the keys do, and at the far end what the login has left — the
-          two things you want at the moment you are deciding to send more
-          work. It lives here rather than in the roster header because the
-          panel it opens is wider than that column and was being cut off by
-          it. */}
+      {/* What the keys do, and at the far end what this will be spent on and
+          what there is left to spend — the three things you want at the
+          moment you are deciding to send more work. The usage panel lives
+          here rather than in the roster header because it is wider than that
+          column and was being cut off by it. */}
       <div id="composer-foot">
         {error ? <p id="composer-hint">{error}</p> : <ComposerHint kind={hint} optionCount={optionCount} />}
+        {/* Beside what is left, not up in the header: which model runs this
+            and how much of it there is are one question, asked once, as you
+            are about to send. */}
+        {model !== null && <span id="composer-model">{modelLabel(model)}</span>}
         <UsagePopover />
       </div>
     </>

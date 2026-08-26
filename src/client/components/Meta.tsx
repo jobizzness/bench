@@ -61,10 +61,12 @@ export function Meta({ row, status = false, branch = false, badges = false }: {
     );
   }
 
+  // No model here. The header used to carry it, and the composer now says it
+  // on the line where it is acted on - one screen saying the same word twice
+  // is one of them saying nothing.
   return (
     <div className="meta meta-badges">
       <span className="badge badge-role">{row.role}</span>
-      {model}
       {status && <span className="badge">{row.status.replace(/_/g, " ")}</span>}
       {/* The only raised voice here, and the only one warranted: this
           specialist is editing the files you have open. */}
