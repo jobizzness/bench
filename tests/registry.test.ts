@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionRegistry } from "../src/daemon/registry.js";
 import { SessionStore } from "../src/daemon/store.js";
+import { readThread } from "../src/daemon/thread.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -209,6 +210,25 @@ process.stdin.on("data", (chunk) => {
     process.stdout.write(JSON.stringify({
       type: "result", subtype: "success", is_error: false,
       session_id: "sess-restore", result: "ok",
+    }) + "\\n");
+  }
+});
+`;
+
+/** Says back the credential the specialist was actually spawned with. */
+const CREDENTIAL_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "sess-restore",
+      result: "key:" + (process.env.ANTHROPIC_API_KEY ?? "none"),
     }) + "\\n");
   }
 });
@@ -785,5 +805,50 @@ describe("the developer's own API key", () => {
     for (const file of await readdir(home)) {
       expect(await readFile(join(home, file), "utf8")).not.toContain(KEY);
     }
+  });
+
+  /**
+   * What the toggle is for.
+   *
+   * Parking the key is how a developer says "bill this to the subscription
+   * this machine is already logged in as, not to my key" - so it has to
+   * reach the process. It did not: the spawn read the key straight off the
+   * field and went around the switch, which made the toggle a control that
+   * moved and changed nothing.
+   */
+  describe("reaching the specialist it is spawned for", () => {
+    async function spawned(park: boolean): Promise<string> {
+      const { home, project, worktree, id, reportsDir, config } = await setup();
+      await new SessionStore(home).put({
+        id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+        model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+      });
+      const registry = new SessionRegistry({
+        ...config, claudeBin: await fakeCli(CREDENTIAL_CLI),
+      } as any);
+      await registry.restore();
+      registry.setApiKey(KEY);
+      if (park) registry.setApiKeyEnabled(false);
+
+      registry.send(id, "off you go");
+
+      // The registry does not re-emit what was said; it writes it to the
+      // thread. Waiting for that line is waiting for the turn.
+      const threadPath = registry.get(id)!.threadPath;
+      for (let tries = 0; tries < 60; tries++) {
+        await new Promise((r) => setTimeout(r, 50));
+        const reply = (await readThread(threadPath)).find((e) => e.kind === "reply");
+        if (reply) return reply.body;
+      }
+      throw new Error("the specialist never answered");
+    }
+
+    it("hands the key over while it is switched on", async () => {
+      expect(await spawned(false)).toBe(`key:${KEY}`);
+    });
+
+    it("hands over nothing while it is parked, leaving the machine's login alone", async () => {
+      expect(await spawned(true)).toBe("key:none");
+    });
   });
 });

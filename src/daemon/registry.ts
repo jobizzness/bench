@@ -308,7 +308,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       claudeBin: this.config.claudeBin,
       startTurn: opts.startTurn,
       rules: () => houseRules(this.settings),
-      apiKey: () => this.apiKey,
+      // Through the getter, not off the field: a parked key must reach the
+      // process as no key at all, or the switch in Settings is a control
+      // that moves and changes nothing.
+      apiKey: () => this.getApiKey(),
       via: opts.via,
     });
 
