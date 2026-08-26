@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { windowsFrom, fetchUsage, machineToken, usageSource } from "../src/daemon/usage.js";
+import { fullest, usageTone } from "../src/shared/usage.js";
 
 /** The shape the endpoint answers in, as far as anything here cares: named
  * windows, each with how much of it is spent. */
@@ -231,5 +232,29 @@ describe("choosing the credential a usage panel is drawn from", () => {
     fail = false;
 
     expect((await source()).available).toBe(true);
+  });
+});
+
+describe("the window that matters", () => {
+  const window = (key: string, percent: number) => ({ key, label: key, percent, resetsAt: null });
+
+  it("is the fullest one, wherever the API put it in the list", () => {
+    expect(fullest([window("a", 12), window("b", 91), window("c", 40)])?.key).toBe("b");
+  });
+
+  it("is nothing at all when there are no windows", () => {
+    expect(fullest([])).toBeNull();
+  });
+
+  it("goes to the first of a tie, which is the order the API named them in", () => {
+    expect(fullest([window("a", 50), window("b", 50)])?.key).toBe("a");
+  });
+});
+
+describe("how close is close enough to matter", () => {
+  it("is chrome below three-quarters, a warning at it, and red near the end", () => {
+    expect([usageTone(0), usageTone(74)]).toEqual(["ok", "ok"]);
+    expect([usageTone(75), usageTone(89)]).toEqual(["high", "high"]);
+    expect([usageTone(90), usageTone(100)]).toEqual(["full", "full"]);
   });
 });

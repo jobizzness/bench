@@ -2,7 +2,7 @@ import { useState } from "react";
 import { UsageMark } from "./UsageMark.js";
 import { UsageBars } from "./UsageBars.js";
 import { useUsage } from "./useUsage.js";
-import type { Usage } from "../../shared/usage.js";
+import { fullest, type Usage } from "../../shared/usage.js";
 
 /**
  * What is left, a hover away from the end of the composer.
@@ -22,6 +22,15 @@ export function UsagePopover() {
 
   if (usage === null || (!usage.available && usage.reason === "none")) return null;
 
+  const windows = usage.available ? usage.windows : [];
+  // Colour cannot be the only thing saying it. Said on the button rather than
+  // only inside the panel, so a pointer resting on it - or a screen reader
+  // passing over it - gets the number without opening anything.
+  const worst = fullest(windows);
+  const said = worst === null
+    ? "What this login has spent"
+    : `${worst.label}: ${worst.percent}% spent`;
+
   return (
     <div
       className="usage"
@@ -33,8 +42,8 @@ export function UsagePopover() {
       onFocus={() => { setOpen(true); void refresh(); }}
       onBlur={() => setOpen(false)}
     >
-      <button id="open-usage" type="button" title="What this login has spent" aria-label="What this login has spent">
-        <UsageMark />
+      <button id="open-usage" type="button" title={said} aria-label={said}>
+        <UsageMark windows={windows} />
       </button>
       {open && (
         <div id="usage-panel" role="status">

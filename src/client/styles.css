@@ -1592,6 +1592,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .usage:hover #open-usage { color: var(--text); background: var(--hover); }
 #open-usage .usage-mark { display: block; }
 
+/* The columns take their own colour once a window is worth knowing about, and
+   keep it whether or not the pointer is on them - the same three steps, in
+   the same tokens, as the bars in the panel and the context ring. Below
+   three-quarters the mark stays chrome: a corner of the screen that is always
+   lit is a corner nobody looks at. */
+.usage-mark[data-tone="high"] { color: var(--busy); }
+.usage-mark[data-tone="full"] { color: var(--broken); }
+
 /* Hung from the button rather than placed in the flow, so opening it moves
    nothing. Upward and right-aligned, into the stage: the button is in the
    bottom right corner of the window, which is the one corner where a panel

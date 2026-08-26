@@ -37,3 +37,20 @@ export function usageTone(percent: number): UsageTone {
   if (percent >= 90) return "full";
   return percent >= 75 ? "high" : "ok";
 }
+
+/**
+ * The window closest to full.
+ *
+ * What the icon has to be honest about. Running out of the five-hour window
+ * stops the work just as dead as running out of the week, so the mark carries
+ * whichever is worst rather than an average - an average of one full window
+ * and two empty ones is a number that has never been true of anything.
+ *
+ * Ties go to the first, which is the order the API named them in.
+ */
+export function fullest(windows: readonly UsageWindow[]): UsageWindow | null {
+  return windows.reduce<UsageWindow | null>(
+    (worst, window) => (worst === null || window.percent > worst.percent ? window : worst),
+    null,
+  );
+}

@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  * @vitest-environment-options { "url": "http://localhost/?token=t" }
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { bootCockpit, row, type Cockpit, type Fixtures } from "./helpers/cockpit.js";
 import { waitFor } from "./helpers/wait-for.js";
 
@@ -58,6 +58,101 @@ describe("the usage icon in the composer", () => {
     await waitFor(() => ui.$("#open-usage"), "the usage button");
 
     expect(ui.$("#usage-panel")).toBeNull();
+  });
+});
+
+describe("the mark on the button", () => {
+  /** The columns, tallest-first in the DOM order the daemon named them. */
+  const columns = () => ui.$$(".usage-mark path");
+  /** How tall a column is drawn, in the icon's own units. */
+  const height = (path: Element) => 12.6 - Number(path.getAttribute("d")!.split("V")[1]);
+
+  it("draws a column per window the daemon named, not three for ever", async () => {
+    await boot({ usage: { available: true, windows: [SPENT.windows[0], SPENT.windows[1]] } });
+    await waitFor(() => ui.$("#open-usage"), "the usage button");
+
+    expect(columns()).toHaveLength(2);
+  });
+
+  it("draws each column as tall as its window is full", async () => {
+    await boot({ usage: SPENT });
+    await waitFor(() => ui.$("#open-usage"), "the usage button");
+
+    // 41, 68, 96 - so each column is taller than the one before it.
+    const tall = columns().map(height);
+    expect(tall[0]).toBeLessThan(tall[1]);
+    expect(tall[1]).toBeLessThan(tall[2]);
+  });
+
+  it("still draws something for a window with almost nothing spent", async () => {
+    await boot({ usage: { available: true, windows: [{ ...SPENT.windows[0], percent: 0 }] } });
+    await waitFor(() => ui.$("#open-usage"), "the usage button");
+
+    expect(height(columns()[0])).toBeGreaterThan(0);
+  });
+
+  it("stays chrome while there is room", async () => {
+    await boot({ usage: { available: true, windows: [{ ...SPENT.windows[0], percent: 40 }] } });
+    await waitFor(() => ui.$("#open-usage"), "the usage button");
+
+    expect(ui.$(".usage-mark")!.dataset.tone).toBe("ok");
+  });
+
+  it("turns as the fullest window turns, not as the average does", async () => {
+    // Two windows barely touched and one nearly gone is not a comfortable
+    // afternoon, whatever the mean says.
+    await boot({ usage: SPENT });
+    await waitFor(() => ui.$("#open-usage"), "the usage button");
+
+    expect(ui.$(".usage-mark")!.dataset.tone).toBe("full");
+  });
+
+  it("warns before it stops you", async () => {
+    await boot({ usage: { available: true, windows: [{ ...SPENT.windows[0], percent: 78 }] } });
+    await waitFor(() => ui.$("#open-usage"), "the usage button");
+
+    expect(ui.$(".usage-mark")!.dataset.tone).toBe("high");
+  });
+
+  it("says the number too, so colour is never the only thing carrying it", async () => {
+    await boot({ usage: SPENT });
+    await waitFor(() => ui.$("#open-usage"), "the usage button");
+
+    expect(ui.$("#open-usage")!.getAttribute("aria-label")).toBe("7-day Opus: 96% spent");
+  });
+
+  it("keeps its shape, and no colour, when there are no numbers to draw", async () => {
+    await boot({ usage: { available: false, reason: "refused" } });
+    await waitFor(() => ui.$("#open-usage"), "the usage button");
+
+    expect(columns()).toHaveLength(3);
+    expect(ui.$(".usage-mark")!.dataset.tone).toBeUndefined();
+  });
+});
+
+describe("keeping up to date", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("asks again on a clock, because a mark you have to hover cannot warn you", async () => {
+    vi.useFakeTimers();
+    await boot({ usage: SPENT });
+    const before = ui.fetched.filter((url) => url.includes("/api/usage")).length;
+
+    await ui.run(() => { vi.advanceTimersByTime(60_000); });
+
+    expect(ui.fetched.filter((url) => url.includes("/api/usage")).length).toBe(before + 1);
+  });
+
+  it("leaves a hidden tab alone", async () => {
+    vi.useFakeTimers();
+    await boot({ usage: SPENT });
+    const before = ui.fetched.filter((url) => url.includes("/api/usage")).length;
+
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    await ui.run(() => { vi.advanceTimersByTime(300_000); });
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+
+    expect(ui.fetched.filter((url) => url.includes("/api/usage")).length).toBe(before);
   });
 });
 

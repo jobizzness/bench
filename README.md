@@ -118,7 +118,9 @@ own login.
 When the bench is running on an OAuth credential — its own setup token, or
 this machine's login — a small mark at the end of the composer opens what has
 been spent: a bar per window, five-hour and seven-day, with what is left in
-each.
+each. The mark is those windows in miniature, and it colours itself amber past
+three-quarters and red past ninety percent of whichever window is closest to
+full, so it warns you without being opened.
 
 ![Settings: house rules, and the address this tab is talking to](docs/screenshots/settings.png)
 
