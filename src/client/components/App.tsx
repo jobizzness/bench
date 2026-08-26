@@ -347,7 +347,11 @@ export function App() {
         onClose={() => setQueueOpen(false)}
         onOpenSpecialist={select}
       />
-      <NewSessionDialog open={creating} onClose={() => setCreating(false)} />
+      <NewSessionDialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        onNeedKey={() => { setCreating(false); setSettingsOpen(true); }}
+      />
       <ServerSetup
         open={setupOpen}
         // Nothing to go back to until this page knows where its daemon is.
@@ -364,6 +368,7 @@ export function App() {
           current={row.model ?? ""}
           sessionId={row.id}
           onClose={() => setModelOpen(false)}
+          onNeedKey={() => { setModelOpen(false); setSettingsOpen(true); }}
         />
       )}
     </BenchProvider>

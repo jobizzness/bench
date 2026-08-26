@@ -42,6 +42,14 @@ export interface Fixtures {
   /** What the OpenRouter key has spent. Undefined is a daemon holding no
    * OpenRouter key, which is the ordinary case. */
   credit?: unknown;
+  /** The OpenRouter key the daemon is already holding, if any. */
+  routerKey?: { present: boolean; hint: string };
+  /** The catalogue the picker fills from. "unreachable" is OpenRouter
+   * refusing to answer, which the picker has to open through. */
+  models?: Array<{
+    id: string; name: string; vendor: string;
+    contextLength: number | null; dollarsPerMillion: number | null;
+  }> | "unreachable";
 }
 
 export interface Cockpit {
@@ -148,6 +156,27 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       }
       const held = fixtures.apiKey ?? { present: false, hint: "" };
       return { ok: true, status: 200, json: async () => ({ enabled: true, ...held, verified: true }) };
+    }
+
+    // What the picker asks for when it opens: whether a key is held, and the
+    // catalogue it would reach. Above the POST branch because the key route
+    // takes one too.
+    if (url.includes("/api/openrouter/key")) {
+      const method = init?.method ?? "GET";
+      if (method !== "GET") sent.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      const held = fixtures.routerKey ?? { present: false, hint: "" };
+      return { ok: true, status: 200, json: async () => ({ ...held, verified: true }) };
+    }
+
+    if (url.includes("/api/openrouter/models")) {
+      const models = fixtures.models;
+      return {
+        ok: models !== "unreachable",
+        status: models === "unreachable" ? 502 : 200,
+        json: async () => (models === "unreachable"
+          ? { error: "OpenRouter answered 500 for its model list" }
+          : { models: models ?? [] }),
+      };
     }
 
     if (init?.method === "POST") {

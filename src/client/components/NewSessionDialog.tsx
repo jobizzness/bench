@@ -33,7 +33,14 @@ const WORKTREE_NOTE = {
  * you type at it, not a field in here — this dialog only decides where it
  * lives and what it costs.
  */
-export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function NewSessionDialog({ open, onClose, onNeedKey }: {
+  open: boolean;
+  onClose: () => void;
+  /** Take the developer to where an OpenRouter key is set. This dialog closes
+   * on the way: Settings is a modal too, and two stacked on each other is a
+   * back button nobody can find. */
+  onNeedKey?: () => void;
+}) {
   const { select } = useBenchActions();
   const ref = useRef<HTMLDialogElement>(null);
   const projectRef = useRef<HTMLInputElement>(null);
@@ -184,6 +191,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
           current={model}
           onClose={() => setModelOpen(false)}
           onPick={setModel}
+          onNeedKey={onNeedKey && (() => { setModelOpen(false); onNeedKey(); })}
         />
 
         <div className="check">

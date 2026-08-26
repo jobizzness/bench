@@ -1380,8 +1380,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* The one it is already on. Marked rather than hidden - a modal that drops
    the current answer makes you work out what you would be changing from. */
 .model-option[data-current="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--wants);
+  color: var(--wants);
 }
 .model-option[data-current="true"] b::after {
   content: " ·  now";
@@ -1392,6 +1392,139 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* Shown and unavailable, never omitted: "you could run this, here is what it
    needs" beats a list that quietly leaves out half the bench. */
 .model-option:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Everything else: the OpenRouter side ────────────────────────────
+
+   A column of rows rather than a grid of cards, and the reason is the
+   quantity. Four models are a set of choices you take in at once; three
+   hundred are a list you scan, and a row that reads name → window → price
+   scans down a column in a way that a card in a grid cannot. */
+
+.model-router { margin-top: 22px; }
+.model-router > h3 { margin-bottom: 2px; }
+
+/* The search is the way through the list, so it gets the width of one. It
+   used to be sized by the browser's default and cut its own placeholder off
+   mid-sentence. */
+.model-search {
+  display: block;
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  font: 400 13px/1.4 var(--sans);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--sunk);
+  color: var(--text);
+}
+.model-search:focus-visible {
+  outline: none;
+  border-color: var(--wants);
+}
+.model-search::placeholder { color: var(--faint); }
+
+/* Findable without shouting. The search below it is focused the moment the
+   modal opens and carries the accent ring for it; two accent-edged boxes
+   stacked on each other read as one muddled control rather than two. */
+.model-need-key {
+  align-self: flex-start;
+  margin: 6px 0 2px;
+  padding: 6px 11px;
+  font: 500 12px/1.3 var(--sans);
+  border: 1px solid var(--line-firm);
+  border-radius: 7px;
+  background: none;
+  color: var(--wants);
+  cursor: pointer;
+}
+.model-need-key:hover, .model-need-key:focus-visible {
+  border-color: var(--wants);
+  background: var(--hover);
+  outline: none;
+}
+
+.model-rows {
+  display: flex;
+  flex-direction: column;
+  max-height: 46vh;
+  overflow-y: auto;
+  /* Room for the scrollbar so the price column does not shift under it. */
+  padding-right: 2px;
+}
+
+/* Said once per run of rows, not once per model. Sixty headed blocks was the
+   old shape and it was most of the scrollbar. */
+.model-vendor {
+  margin: 12px 0 3px;
+  font: 600 10px/1.4 var(--mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.model-run:first-child .model-vendor { margin-top: 6px; }
+
+.model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas: "name window price" "id window price";
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.model-row b {
+  grid-area: name;
+  font: 600 13px/1.35 var(--sans);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-row .model-id {
+  grid-area: id;
+  font: 400 10px/1.3 var(--mono);
+  letter-spacing: 0.02em;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The two numbers that decide, in a fixed column so the eye can run down
+   them. Tabular figures because a price list that does not line up is a
+   price list you have to read one row at a time. */
+.model-row .model-window,
+.model-row .model-price {
+  font: 400 11px/1.3 var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+  text-align: right;
+}
+.model-row .model-window { grid-area: window; min-width: 34px; }
+.model-row .model-price { grid-area: price; min-width: 52px; color: var(--muted); }
+
+/* The arrow keys and the mouse land on the same highlight, so which row Enter
+   would take is never in doubt. */
+.model-row[data-active="true"]:not(:disabled) {
+  border-color: var(--line-firm);
+  background: var(--hover);
+}
+.model-row:focus-visible { outline: none; border-color: var(--wants); }
+
+.model-row[data-current="true"] { color: var(--wants); border-color: var(--wants); }
+.model-row[data-current="true"] b::after {
+  content: " ·  now";
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.04em;
+}
+
+.model-row:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.model-tally { margin: 8px 0 0; }
 
 /* ── Sheets: the new specialist dialog and the house rules ──────────── */
 
