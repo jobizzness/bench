@@ -44,10 +44,12 @@ subagents, web search. Bench supervises it; it does not replace it.
 - **Progress you can read.** A live trail derived from tool calls — `Bash pnpm
   test`, `Edit src/registry.ts` — beside the specialist's own checklist.
 - **Any model, not only Claude's.** Anthropic's aliases go straight to
-  Anthropic on the login you already have. Everything else — some 350 models
-  across 59 vendors — goes through an OpenRouter key you supply, and is billed
-  there. Pick one when you make a specialist or change it after, from the
-  model name at the foot of the composer.
+  Anthropic on the login you already have. Everything else goes through an
+  OpenRouter key you supply, and is billed there. The picker offers the models
+  that can actually run a specialist — the ones that support tool use, which
+  is most but not all of what OpenRouter carries — searchable, with what each
+  holds and what it costs. Pick one when you make a specialist or change it
+  after, from the model name at the foot of the composer.
 - **They outlive the daemon.** Restart Bench and the roster comes back. Nothing
   respawns until you prompt it, and then it resumes with its memory intact.
 - **Gates.** A commit carrying AI attribution is denied at `PreToolUse`. A
@@ -120,15 +122,47 @@ than the ones already running. A switch beside it parks the key without
 throwing it away, for the afternoons you want the work back on the machine's
 own login.
 
+### Keys Bench finds for itself
+
+Typing a key in is not the only way to give Bench one. At startup it reads
+`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` and `OPENROUTER_API_KEY` (or
+`OPEN_ROUTER_KEY`, or `OPENROUTER_KEY`) from its own environment and from a
+`.env` — so a key you have already written down survives every restart instead
+of being pasted in again. `.env.example` lists what is read.
+
+It looks in `$BENCH_HOME/.env`, then the directory Bench was started from, then
+where Bench is installed; first hit wins. Something exported in the shell beats
+any file, and a key typed into Settings beats everything for as long as that
+daemon runs. Settings says which one is in force and where it came from, so a
+key nobody remembers setting can be traced rather than guessed at.
+
+The file is read, never merged into the environment. A `.env` usually holds
+more than Bench understands, and the daemon's environment is handed to every
+specialist it spawns — so only the keys above are taken out of it, and the rest
+of your file goes nowhere.
+
+One consequence worth knowing: an `ANTHROPIC_API_KEY` sitting in a `.env`
+overrides this machine's claude.ai login, which moves the spend from a
+subscription you have already paid for onto the API, and turns off claude.ai
+connectors. The switch in Settings parks it if that is not what you wanted.
+
 ### Running a specialist on something other than Claude
 
 Claude Code speaks one protocol and OpenRouter serves it, so pointing a
 specialist at Gemini or GPT or Llama is three environment variables on the
 child process — there is nothing to install and no second process that can be
-down. Save an OpenRouter key in Settings and the model picker fills in with
-everything OpenRouter carries, grouped by vendor and searchable. Without a key
+down. Save an OpenRouter key in Settings — or from the picker itself, which
+offers to take you there — and the picker fills in. Search it by name or id;
+each row says what the model holds and what a million tokens of its output
+costs, because that spend is yours rather than a subscription's. Without a key
 the list still shows, disabled: what you could run is worth more than a list
 that quietly omits most of it.
+
+Models that cannot use tools are left out. That is not most of them, but it is
+not a small number either, and none of them could have run a specialist —
+without tool use a specialist cannot read a file, edit one or run a command.
+Google's image and music models are in that group, and they used to sort to
+the top of the picker.
 
 Anthropic's own models deliberately do not go this way. They go direct, on
 your own login or key, because that is what bills the subscription you are

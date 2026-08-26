@@ -1,6 +1,6 @@
 # Bench — where it stands
 
-Last updated 2026-08-26. 1002 tests passing, 2 end-to-end suites run
+Last updated 2026-08-26. 1035 tests passing, 2 end-to-end suites run
 separately against the real CLI.
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
@@ -103,6 +103,32 @@ unfolding a document inside a 108ch column. Replies keep their inline
 preview — a reply is the answer to something you asked, and reading it
 should not cost a click.
 
+**A specialist answered by OpenRouter, end to end.** A specialist was created
+through the cockpit on `google/gemini-2.5-flash-lite`, prompted, and replied —
+the reply is in its thread. Before 26 August none could have:
+`ANTHROPIC_BASE_URL` was set to `https://openrouter.ai/api/v1` and the CLI
+appends `/v1/messages` to it, so every request went to `/api/v1/v1/messages`,
+got a 404 HTML page, retried seven times and died. Both halves are now checked
+against the live service with a real key: the old URL still answers 404, the
+new one answers 200.
+
+It survived 1002 tests because the test compared `sessionEnv()` against a copy
+of the same constant that fed it, which is true of any value. The tests now
+assert the URL the CLI actually resolves.
+
+**The OpenRouter credit meter, on a real key.** The success shape — the `usage`
+and `limit` fields — could previously only be read from a stub. That one turn
+moved the meter from `$0.00` to `$0.0045`, which is the field coming from
+OpenRouter rather than from a fixture.
+
+**Keys Bench finds for itself.** Both keys are read at startup from the
+environment or a `.env`, and reported with where they came from. Verified by
+starting a daemon against this repo's own file: both were picked up, including
+the non-standard `OPEN_ROUTER_KEY` spelling, and the OpenRouter one is what the
+turn above was billed to. The file is read rather than merged into the
+environment, so the OpenAI and Gemini keys sitting beside them in that file
+reach no specialist.
+
 ## Built, not yet proven in anger
 
 - **The decision loop end to end through the browser.** Answers post back
@@ -115,23 +141,11 @@ should not cost a click.
   degrades to free text rather than wedging the session.
 - **Concurrency.** Three specialists have run at once without incident.
   That is an observation, not a test.
-- **A specialist has never been answered by OpenRouter.** The routing is
-  three environment variables on the child process and there is no proxy to
-  be down, but no turn has yet come back from a non-Anthropic model — so the
-  claim that Claude Code drives OpenRouter's `/v1/messages` end to end rests
-  on the protocol being the same one, not on having watched it work. What
-  *has* been checked against the live service: the catalogue parses (356
-  models, 59 vendors, every one carrying a context length), and a bad key is
-  refused as `refused` rather than read as an outage.
 - **Changing a specialist's model mid-life.** Recorded, and the process is
   let go so the next prompt revives it on the new model resuming the same
   transcript. That path is the one a cold specialist already takes after
   every daemon restart, which is why it is built this way — but the
   Anthropic-to-OpenRouter direction has not been walked with a real CLI.
-- **The OpenRouter credit meter, on a real key.** The spend and ceiling come
-  from OpenRouter's `/key` route. Its failure shapes are proven live; its
-  success shape — the `usage` and `limit` fields — has only ever been read
-  from a stub, because proving it needs a funded key nobody here has.
 
 ## Known broken
 
