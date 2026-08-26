@@ -7,6 +7,7 @@ import type { AddressInfo } from "node:net";
 import { createServer, formatIntake } from "../src/daemon/server.js";
 import { keyHint, type KeyCheck } from "../src/daemon/anthropic-key.js";
 import type { Usage } from "../src/daemon/usage.js";
+import type { Credit } from "../src/shared/credit.js";
 import type { IntakeAnswer, RosterRow } from "../src/shared/types.js";
 
 const TOKEN = "test-token-abc";
@@ -95,6 +96,8 @@ let verdict: KeyCheck = "ok";
 /** The same, for OpenRouter. */
 let routerVerdict: KeyCheck = "ok";
 let usage: Usage = { available: false, reason: "none" };
+/** The same, for the OpenRouter credit meter. */
+let credit: Credit = { available: false, reason: "none" };
 
 beforeAll(async () => {
   registry = new StubRegistry();
@@ -132,6 +135,7 @@ beforeAll(async () => {
     checkKey: async () => verdict,
     checkRouterKey: async () => routerVerdict,
     usage: async () => usage,
+    credit: async () => credit,
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -757,6 +761,47 @@ describe("what has been spent", () => {
     usage = WINDOWS;
 
     expect((await fetch(`${base}/api/usage`)).status).toBe(401);
+  });
+});
+
+/**
+ * The other account a specialist can be billed to.
+ *
+ * A specialist on an OpenRouter model never touches the Anthropic
+ * subscription, so the panel that reports that subscription is answering
+ * about the wrong account. This is the one it is actually spent from.
+ */
+describe("what an OpenRouter key has spent", () => {
+  it("serves the spend and the ceiling", async () => {
+    credit = { available: true, spent: 12.4, limit: 50 };
+
+    const res = await fetch(`${base}/api/openrouter/usage`, auth);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ available: true, spent: 12.4, limit: 50 });
+  });
+
+  it("serves a key with no ceiling as having none", async () => {
+    credit = { available: true, spent: 3, limit: null };
+
+    expect(await (await fetch(`${base}/api/openrouter/usage`, auth)).json())
+      .toEqual({ available: true, spent: 3, limit: null });
+  });
+
+  it("says there is nothing to show rather than failing", async () => {
+    // A bench with no OpenRouter key is the ordinary case, not an error.
+    credit = { available: false, reason: "none" };
+
+    const res = await fetch(`${base}/api/openrouter/usage`, auth);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ available: false, reason: "none" });
+  });
+
+  it("tells nobody without the token what has been spent", async () => {
+    credit = { available: true, spent: 12.4, limit: 50 };
+
+    expect((await fetch(`${base}/api/openrouter/usage`)).status).toBe(401);
   });
 });
 

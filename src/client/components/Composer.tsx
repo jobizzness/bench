@@ -1,7 +1,8 @@
 import type { RefObject } from "react";
-import { modelLabel } from "../../shared/models.js";
+import { modelLabel, isProxied } from "../../shared/models.js";
 import { ComposerHint } from "./ComposerHint.js";
 import { UsagePopover } from "./UsagePopover.js";
+import { CreditPopover } from "./CreditPopover.js";
 import { useAutoGrow } from "./useAutoGrow.js";
 
 /**
@@ -94,7 +95,12 @@ export function Composer({
             {modelLabel(model)}
           </button>
         )}
-        <UsagePopover />
+        {/* Which account, not just how much. The meter follows the model
+            beside it because they are one question: a specialist on
+            OpenRouter is not spending the Anthropic subscription, and a bar
+            about that subscription beside its name is a true number about
+            the wrong account. */}
+        {model !== undefined && isProxied(model) ? <CreditPopover /> : <UsagePopover />}
       </div>
     </>
   );

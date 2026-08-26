@@ -14,7 +14,8 @@ import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
 import { checkKey, type KeyCheck } from "./anthropic-key.js";
-import { checkKey as checkRouterKey, type Listed } from "./openrouter.js";
+import { checkKey as checkRouterKey, creditSource, type Listed } from "./openrouter.js";
+import type { Credit } from "../shared/credit.js";
 import { usageSource, type Usage } from "./usage.js";
 import { RefIndex } from "./refs.js";
 import { reviewBrief, reviewLabel } from "./review.js";
@@ -171,6 +172,8 @@ export function createServer(opts: {
   checkKey?: (key: string) => Promise<KeyCheck>;
   /** The same, for OpenRouter. */
   checkRouterKey?: (key: string) => Promise<KeyCheck>;
+  /** The same, for the OpenRouter credit meter. */
+  credit?: () => Promise<Credit>;
   /** Where the usage panel's numbers come from. Injected by the tests, and
    * by index.ts with the key the registry is holding - the server itself is
    * deliberately unable to read that key. */
@@ -182,6 +185,7 @@ export function createServer(opts: {
   const verify = opts.checkKey ?? checkKey;
   const verifyRouter = opts.checkRouterKey ?? checkRouterKey;
   const spent = opts.usage ?? usageSource({ benchKey: () => null });
+  const routerSpent = opts.credit ?? creditSource({ key: () => null });
 
   /**
    * A throw inside an async request handler is not caught by anything: node
@@ -403,6 +407,19 @@ export function createServer(opts: {
      * public information, but the cockpit asking for it is not a reason to
      * open a route that needs nothing.
      */
+    /**
+     * What the OpenRouter key has spent, for the meter beside the model name.
+     *
+     * A specialist on an OpenRouter model never touches the Anthropic
+     * subscription, so the panel that reports that subscription is answering
+     * about an account this turn will not be billed to. This is the account
+     * it will.
+     */
+    if (path === "/api/openrouter/usage" && req.method === "GET") {
+      json(res, 200, await routerSpent());
+      return;
+    }
+
     if (path === "/api/openrouter/models" && req.method === "GET") {
       try {
         json(res, 200, { models: await registry.catalogue() });

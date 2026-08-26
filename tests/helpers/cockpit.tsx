@@ -39,6 +39,9 @@ export interface Fixtures {
   /** What the credential behind the bench has spent. Undefined is a daemon
    * with no oauth credential to ask, which is the ordinary case. */
   usage?: unknown;
+  /** What the OpenRouter key has spent. Undefined is a daemon holding no
+   * OpenRouter key, which is the ordinary case. */
+  credit?: unknown;
 }
 
 export interface Cockpit {
@@ -161,6 +164,13 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
         ok: fixtures.decision != null,
         status: fixtures.decision != null ? 200 : 404,
         json: async () => ({ seq: 1, decision: fixtures.decision, malformed: false }),
+      };
+    }
+    if (url.includes("/api/openrouter/usage")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => fixtures.credit ?? { available: false, reason: "none" },
       };
     }
     if (url.includes("/api/usage")) {

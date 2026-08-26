@@ -161,6 +161,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       : { present: true, hint: keyHint(this.routerKey) };
   }
 
+  /** The OpenRouter key to authenticate with. Read by the credit meter's
+   * source, which the server is deliberately unable to reach past. */
+  getRouterKey(): string | null {
+    return this.routerKey;
+  }
+
   setRouterKey(key: string): void {
     this.routerKey = key;
   }

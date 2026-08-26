@@ -21,6 +21,8 @@
  * OpenRouter would quietly move that spend somewhere else.
  */
 
+import type { Credit } from "../shared/credit.js";
+
 /** Where OpenRouter answers Anthropic's protocol. */
 export const BASE_URL = "https://openrouter.ai/api/v1";
 
@@ -145,5 +147,86 @@ export function sessionEnv(opts: { key: string; contextLength?: number | null })
     ANTHROPIC_BASE_URL: BASE_URL,
     ANTHROPIC_API_KEY: opts.key,
     ...(opts.contextLength ? { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(opts.contextLength) } : {}),
+  };
+}
+
+/**
+ * What this key has spent, and the ceiling it was given.
+ *
+ * The same `/key` route the check above uses - it answers both questions at
+ * once - but read for its body rather than its status, and reported as the
+ * three-way answer the meter needs. "Refused" and "could not ask" are not the
+ * same thing to draw: one is a key to fix, the other is a number that will be
+ * there again in a minute.
+ *
+ * A 200 whose body is not the promised shape counts as not having reached
+ * OpenRouter at all. That is a captive portal or a proxy's login page, and
+ * reporting "$0.00 spent" from one would be reporting a number nobody said.
+ */
+export async function credit(key: string, fetchImpl: typeof fetch = fetch): Promise<Credit> {
+  try {
+    const res = await fetchImpl(`${BASE_URL}/key`, {
+      headers: { authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      return { available: false, reason: res.status === 401 || res.status === 403 ? "refused" : "unreachable" };
+    }
+
+    const body = await res.json() as { data?: { usage?: unknown; limit?: unknown } };
+    const data = body?.data;
+    if (typeof data !== "object" || data === null) return { available: false, reason: "unreachable" };
+
+    return {
+      available: true,
+      // A key that has never been used may come back without the field at
+      // all, which is nothing spent rather than nothing known.
+      spent: typeof data.usage === "number" ? data.usage : 0,
+      // Null is the ordinary answer here: a pay-as-you-go key has no ceiling,
+      // and that is not the same as a ceiling of zero.
+      limit: typeof data.limit === "number" ? data.limit : null,
+    };
+  } catch {
+    return { available: false, reason: "unreachable" };
+  }
+}
+
+/** How long an answer stands, matching the Anthropic panel's minute. A hover
+ * is cheap to repeat; the endpoint is not, and a spend that has moved by
+ * less than a minute's work is not a spend worth re-asking for. */
+const FRESH_FOR = 60_000;
+
+/**
+ * Where the credit meter gets its number, key and all.
+ *
+ * The key is read per call rather than captured, because the developer can
+ * save one or drop one while the daemon runs and the meter should follow
+ * without a restart. Holding no key is "nothing to report" rather than a
+ * failure - a bench that only ever runs Anthropic models is not broken.
+ */
+export function creditSource(deps: {
+  /** The key the bench is holding, if any. Read, never served. */
+  key: () => string | null;
+  fetchImpl?: typeof fetch;
+  now?: () => number;
+}): () => Promise<Credit> {
+  const clock = deps.now ?? Date.now;
+  let held: { key: string; at: number; credit: Credit } | null = null;
+
+  return async () => {
+    const key = deps.key();
+    if (key === null) return { available: false, reason: "none" };
+
+    const at = clock();
+    // Keyed on the key as well as the clock: a developer who has just
+    // replaced a key is asking about the new one, however fresh the last
+    // answer was.
+    if (held !== null && held.key === key && at - held.at < FRESH_FOR) return held.credit;
+
+    const answer = await credit(key, deps.fetchImpl);
+    // Only an answer is worth keeping. A failure held for a minute is a key
+    // that stays broken for a minute after it was fixed.
+    if (answer.available) held = { key, at, credit: answer };
+    return answer;
   };
 }

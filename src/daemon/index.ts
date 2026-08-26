@@ -3,6 +3,7 @@ import { createServer } from "./server.js";
 import { HomeInUse, takeHomeLock } from "./lock.js";
 import { SessionRegistry } from "./registry.js";
 import { usageSource } from "./usage.js";
+import { creditSource } from "./openrouter.js";
 import { CorruptIndex } from "./store.js";
 import { onStopKey } from "./stop-key.js";
 import { cockpitUrls, isLoopback } from "./urls.js";
@@ -29,6 +30,7 @@ const server = createServer({
   config,
   registry,
   usage: usageSource({ benchKey: () => registry.getApiKey() }),
+  credit: creditSource({ key: () => registry.getRouterKey() }),
 });
 
 // Specialists outlive the daemon: the roster comes back from disk before

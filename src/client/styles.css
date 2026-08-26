@@ -1744,6 +1744,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
   font: 400 10.5px/1.5 var(--mono);
   color: var(--faint);
 }
+/* The OpenRouter amount is a sentence where the Anthropic one is a number:
+   "$12.40 of $50.00 used" is three times the width of "41%", and at the
+   panel's width it would crowd the label it shares a line with. */
+.credit-amount { font-size: 10.5px; letter-spacing: -0.01em; }
+
 .usage-note { margin: 0; font: 400 11.5px/1.55 var(--sans); color: var(--muted); }
 
 /* Wider than the other sheets: it holds a list and the thing being answered,
