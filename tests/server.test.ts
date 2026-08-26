@@ -57,6 +57,31 @@ class StubRegistry extends EventEmitter {
     return true;
   }
   async create(input: any) { this.created.push(input); return "s2"; }
+  remodelled: Array<{ id: string; model: string }> = [];
+  remodelError: string | null = null;
+  async setModel(id: string, model: string) {
+    if (this.remodelError !== null) throw new Error(this.remodelError);
+    this.remodelled.push({ id, model });
+  }
+
+  /** The OpenRouter key. Held the same way the Anthropic one is, and reported
+   * the same way: whether there is one, never which one. */
+  routerKey: string | null = null;
+  routerKeyState() {
+    return this.routerKey === null
+      ? { present: false, hint: "" }
+      : { present: true, hint: keyHint(this.routerKey) };
+  }
+  setRouterKey(key: string) { this.routerKey = key; }
+  clearRouterKey() { this.routerKey = null; }
+  catalogueError: string | null = null;
+  models = [
+    { id: "google/gemini-3.7-flash", name: "Google: Gemini 3.7 Flash", vendor: "google", contextLength: 1048576 },
+  ];
+  async catalogue() {
+    if (this.catalogueError !== null) throw new Error(this.catalogueError);
+    return this.models;
+  }
 }
 
 let server: ReturnType<typeof createServer>;
@@ -67,6 +92,8 @@ let clientDir: string;
 /** What the API is pretending to say about a key. The tests must not reach
  * Anthropic any more than they reach GitHub. */
 let verdict: KeyCheck = "ok";
+/** The same, for OpenRouter. */
+let routerVerdict: KeyCheck = "ok";
 let usage: Usage = { available: false, reason: "none" };
 
 beforeAll(async () => {
@@ -103,6 +130,7 @@ beforeAll(async () => {
     registry: registry as any,
     clientDir,
     checkKey: async () => verdict,
+    checkRouterKey: async () => routerVerdict,
     usage: async () => usage,
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -777,5 +805,190 @@ describe("parking the key without throwing it away", () => {
 
     expect(res.status).toBe(401);
     expect(registry.getApiKey()).toBe(KEY);
+  });
+});
+
+/**
+ * The developer's OpenRouter key.
+ *
+ * Same three routes and same rules as the Anthropic key: it goes up and never
+ * comes back down, a refusal is caught before the key is kept, and an
+ * unreachable service is not a reason to refuse one.
+ */
+describe("the OpenRouter key", () => {
+  beforeEach(() => {
+    registry.routerKey = null;
+    registry.catalogueError = null;
+    routerVerdict = "ok";
+  });
+
+  it("says whether there is one, and never what it is", async () => {
+    registry.routerKey = "sk-or-v1-supersecret";
+    const body = await (await fetch(`${base}/api/openrouter/key`, auth)).json();
+
+    expect(body.present).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("supersecret");
+  });
+
+  it("keeps a key OpenRouter answered for", async () => {
+    const res = await fetch(`${base}/api/openrouter/key`, {
+      method: "POST", ...auth, body: JSON.stringify({ key: "sk-or-v1-good" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).verified).toBe(true);
+    expect(registry.routerKey).toBe("sk-or-v1-good");
+  });
+
+  it("refuses a key OpenRouter turned away, rather than keeping it", async () => {
+    // Said now rather than discovered later: the CLI retries a rejected key
+    // with a doubling delay, so a typo kept here looks like a hang.
+    routerVerdict = "refused";
+    const res = await fetch(`${base}/api/openrouter/key`, {
+      method: "POST", ...auth, body: JSON.stringify({ key: "sk-or-v1-typo" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("OpenRouter");
+    expect(registry.routerKey).toBe(null);
+  });
+
+  it("keeps an unproven key when OpenRouter could not be reached", async () => {
+    routerVerdict = "unreachable";
+    const res = await fetch(`${base}/api/openrouter/key`, {
+      method: "POST", ...auth, body: JSON.stringify({ key: "sk-or-v1-maybe" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).verified).toBe(false);
+    expect(registry.routerKey).toBe("sk-or-v1-maybe");
+  });
+
+  it("refuses an empty key", async () => {
+    const res = await fetch(`${base}/api/openrouter/key`, {
+      method: "POST", ...auth, body: JSON.stringify({ key: "   " }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("lets go of a key when asked", async () => {
+    registry.routerKey = "sk-or-v1-old";
+    const res = await fetch(`${base}/api/openrouter/key`, { method: "DELETE", ...auth });
+
+    expect(res.status).toBe(200);
+    expect(registry.routerKey).toBe(null);
+  });
+
+  it("lets nobody without the token set or read it", async () => {
+    const read = await fetch(`${base}/api/openrouter/key`);
+    const write = await fetch(`${base}/api/openrouter/key`, {
+      method: "POST", body: JSON.stringify({ key: "k" }),
+    });
+
+    expect(read.status).toBe(401);
+    expect(write.status).toBe(401);
+    expect(registry.routerKey).toBe(null);
+  });
+});
+
+describe("the model catalogue", () => {
+  beforeEach(() => { registry.catalogueError = null; });
+
+  it("serves what OpenRouter carries", async () => {
+    const body = await (await fetch(`${base}/api/openrouter/models`, auth)).json();
+    expect(body.models[0].id).toBe("google/gemini-3.7-flash");
+    expect(body.models[0].contextLength).toBe(1048576);
+  });
+
+  it("says why rather than serving an empty list", async () => {
+    // An empty picker looks like OpenRouter has nothing. Anthropic's four
+    // still work, so this is a note, not a failure.
+    registry.catalogueError = "OpenRouter answered 503 for its model list";
+    const res = await fetch(`${base}/api/openrouter/models`, auth);
+
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toContain("503");
+  });
+
+  it("is behind the token like everything else", async () => {
+    expect((await fetch(`${base}/api/openrouter/models`)).status).toBe(401);
+  });
+});
+
+/**
+ * A creation that cannot go ahead.
+ *
+ * The reasons are things the developer can act on - no key for that provider,
+ * no way to run the proxy - so they have to survive the trip back rather than
+ * arriving as a 500 that says nothing.
+ */
+describe("refusing to create a specialist", () => {
+  it("says why, in the words the registry used", async () => {
+    const registryThatRefuses = registry as any;
+    const before = registryThatRefuses.create;
+    registryThatRefuses.create = async () => {
+      throw new Error("no OpenRouter key - add one in Settings to run a specialist on this model");
+    };
+    try {
+      const res = await fetch(`${base}/api/sessions`, {
+        method: "POST", ...auth,
+        body: JSON.stringify({ project: "/var/www/demo", label: "gem", model: "google/gemini-3.7-flash" }),
+      });
+
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toContain("no OpenRouter key");
+    } finally {
+      registryThatRefuses.create = before;
+    }
+  });
+});
+
+
+/**
+ * Moving a specialist onto another model.
+ *
+ * The refusal matters more than the success: a model whose provider has no
+ * key has to be turned away here, in the modal the developer is looking at,
+ * rather than on the next prompt.
+ */
+describe("what a specialist runs on", () => {
+  beforeEach(() => {
+    registry.remodelled = [];
+    registry.remodelError = null;
+  });
+
+  it("is changed on request", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/model`, {
+      method: "POST", ...auth, body: JSON.stringify({ model: "google/gemini-3.7-flash" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.remodelled).toEqual([{ id: "s1", model: "google/gemini-3.7-flash" }]);
+  });
+
+  it("carries back the reason it could not be", async () => {
+    registry.remodelError = "no OpenRouter key - add one in Settings";
+    const res = await fetch(`${base}/api/sessions/s1/model`, {
+      method: "POST", ...auth, body: JSON.stringify({ model: "google/gemini-3.7-flash" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("no OpenRouter key - add one in Settings");
+  });
+
+  it("has never heard of a specialist that is not there", async () => {
+    const res = await fetch(`${base}/api/sessions/nobody/model`, {
+      method: "POST", ...auth, body: JSON.stringify({ model: "haiku" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("lets nobody without the token move a specialist", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/model`, {
+      method: "POST", body: JSON.stringify({ model: "haiku" }),
+    });
+
+    expect(res.status).toBe(401);
+    expect(registry.remodelled).toEqual([]);
   });
 });

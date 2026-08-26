@@ -18,6 +18,8 @@ import { asRole } from "../shared/roles.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
 import { keyHint } from "./anthropic-key.js";
+import { catalogue, isOpenRouterModel, type Listed } from "./openrouter.js";
+import { isModelId, modelLabel } from "../shared/models.js";
 import type { RosterRow, SessionStatus } from "../shared/types.js";
 
 interface Entry {
@@ -37,6 +39,14 @@ interface Entry {
   turnsTaken: number;
   /** The developer ended this turn, so the exit is a decision not a crash. */
   stopping?: boolean;
+  /**
+   * Why, when it was not simply "stop".
+   *
+   * Moving a specialist to another model also has to let the process go, and
+   * a row that says "stopped by you" for that is a row that misreports a
+   * thing the developer did not do.
+   */
+  stoppedBecause?: string;
   model: string;
   port: number;
 }
@@ -69,9 +79,48 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    */
   private apiKeyOn = true;
 
+  /**
+   * The developer's OpenRouter key, for specialists run on anybody other than
+   * Anthropic. In memory and nowhere else, the same rule the Anthropic key
+   * follows: an override kept in a file is one you forget you set.
+   */
+  private routerKey: string | null = null;
+
+  /** The catalogue, once fetched. OpenRouter serves several hundred models
+   * and the list changes rarely, so it is read once and kept rather than
+   * fetched every time the picker opens. */
+  private models: Listed[] | null = null;
+
   constructor(private readonly config: ReturnType<typeof loadConfig>) {
     super();
     this.store = new SessionStore(config.home);
+  }
+
+  /**
+   * What a specialist needs to be answered by OpenRouter, or undefined when
+   * it is an Anthropic model and nothing has to change.
+   *
+   * Throws rather than returning undefined when the model needs a key there
+   * is not - the message is the one the developer reads in the dialog, so it
+   * says what to do rather than what failed.
+   */
+  private async viaFor(model: string): Promise<{ key: string; contextLength?: number | null } | undefined> {
+    if (!isOpenRouterModel(model)) return undefined;
+    if (this.routerKey === null) {
+      throw new Error("no OpenRouter key - add one in Settings to run a specialist on this model");
+    }
+    // The window this model actually has. Best effort: if the catalogue
+    // cannot be reached the specialist still starts, on the CLI's own
+    // assumption, which is worse than the truth but better than nothing.
+    const listed = (await this.catalogue().catch(() => [] as Listed[]))
+      .find((m) => m.id === model);
+    return { key: this.routerKey, contextLength: listed?.contextLength ?? null };
+  }
+
+  /** Every model OpenRouter serves, fetched once. */
+  async catalogue(): Promise<Listed[]> {
+    if (this.models === null) this.models = await catalogue();
+    return this.models;
   }
 
   getSettings(): Settings {
@@ -102,6 +151,22 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   setApiKeyEnabled(on: boolean): void {
     this.apiKeyOn = on;
+  }
+
+  /** What may be said about the OpenRouter key: that there is one, and which
+   * one. Never the key - it goes to the daemon and does not come back. */
+  routerKeyState(): { present: boolean; hint: string } {
+    return this.routerKey === null
+      ? { present: false, hint: "" }
+      : { present: true, hint: keyHint(this.routerKey) };
+  }
+
+  setRouterKey(key: string): void {
+    this.routerKey = key;
+  }
+
+  clearRouterKey(): void {
+    this.routerKey = null;
   }
 
   clearApiKey(): void {
@@ -223,6 +288,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     port: number;
     resume?: boolean;
     startTurn?: number;
+    /** Set for an OpenRouter model, already resolved. */
+    via?: { key: string; contextLength?: number | null };
   }): ClaudeSession {
     const entry = this.entries.get(id)!;
     const reportsDir = entry.reportsDir;
@@ -242,6 +309,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       startTurn: opts.startTurn,
       rules: () => houseRules(this.settings),
       apiKey: () => this.apiKey,
+      via: opts.via,
     });
 
     const syncProgress = () => {
@@ -287,7 +355,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       // prompt revives it from the last turn it finished.
       if (entry?.stopping) {
         entry.stopping = false;
-        this.update(id, "awaiting_decision", "stopped by you");
+        const because = entry.stoppedBecause ?? "stopped by you";
+        entry.stoppedBecause = undefined;
+        this.update(id, "awaiting_decision", because);
         return;
       }
 
@@ -378,6 +448,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   }): Promise<string> {
     const isolated = input.isolated ?? true;
     const role = asRole(input.role);
+
+    // Before anything is created. A model that needs an OpenRouter key and
+    // has none is the developer's problem while they are still looking at the
+    // dialog they asked from - not a row on the roster that provisioned a
+    // worktree and then died on its first turn.
+    const via = await this.viaFor(input.model);
+
     const id = randomUUID();
     const reportsDir = join(input.project, ".bench", "reports", id);
 
@@ -443,6 +520,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         worktree,
         model: input.model,
         port,
+        via,
       });
       // The process waits. A specialist is given work by prompting it, not
       // by being created.
@@ -463,6 +541,24 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   /** Every prompt takes the same path in. What the turn becomes is the
    * agent's call. */
+  /** Bring a cold specialist back, on whatever backend it was made on. */
+  private revive(id: string, entry: Entry, via: { key: string; contextLength?: number | null } | undefined): ClaudeSession {
+    return this.attach(id, {
+      label: entry.row.label,
+      worktree: entry.worktree,
+      model: entry.model,
+      port: entry.port,
+      // Only ever resume a conversation that exists. Asking the CLI to
+      // resume one that does not prints "No conversation found with session
+      // ID" and exits before the prompt is ever read.
+      resume: entry.resumable,
+      // Pick up the numbering where it stopped, or this turn writes over
+      // the last one's report.
+      startTurn: entry.turnsTaken,
+      via,
+    });
+  }
+
   send(id: string, text: string): void {
     const entry = this.entries.get(id);
     if (!entry) return;
@@ -470,24 +566,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // A specialist restored from disk has no process yet. Bring it back on
     // the first prompt, resuming the transcript the CLI still holds, so it
     // remembers what it was doing.
-    if (!entry.session) {
-      if (!existsSync(entry.worktree)) {
-        this.update(id, "crashed", "worktree is gone");
-        return;
-      }
-      this.attach(id, {
-        label: entry.row.label,
-        worktree: entry.worktree,
-        model: entry.model,
-        port: entry.port,
-        // Only ever resume a conversation that exists. Asking the CLI to
-        // resume one that does not prints "No conversation found with session
-        // ID" and exits before the prompt is ever read.
-        resume: entry.resumable,
-        // Pick up the numbering where it stopped, or this turn writes over
-        // the last one's report.
-        startTurn: entry.turnsTaken,
-      });
+    // A specialist restored from disk has no process yet, and no worktree to
+    // bring one back into is the end of it.
+    if (!entry.session && !existsSync(entry.worktree)) {
+      this.update(id, "crashed", "worktree is gone");
+      return;
     }
 
     void appendEntry(entry.threadPath, { kind: "user", body: text });
@@ -496,8 +579,40 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.row.answeredReportSeq = entry.row.latestReportSeq;
     // The trail describes the turn in flight, so it starts empty.
     entry.row.activity = [];
-    entry.session!.send(text);
-    this.update(id, "working", "starting");
+
+    if (entry.session) {
+      entry.session.send(text);
+      this.update(id, "working", "starting");
+      return;
+    }
+
+    // Cold, so this prompt revives it.
+    //
+    // A specialist that needs no proxy is revived here and now, exactly as it
+    // always was. Only a proxied one has to wait, and it waits because the
+    // proxy may not be up: a CLI pointed at a base URL nothing is listening
+    // on retries with a doubling delay, so skipping the wait would turn a
+    // stopped proxy into a specialist that hangs for two minutes.
+    if (!isOpenRouterModel(entry.model)) {
+      this.revive(id, entry, undefined);
+      entry.session!.send(text);
+      this.update(id, "working", "starting");
+      return;
+    }
+
+    // Slow enough on a first run that saying nothing would read as a prompt
+    // that went nowhere.
+    this.update(id, "working", "waking up");
+    void this.viaFor(entry.model).then(
+      (via) => {
+        this.revive(id, entry, via);
+        entry.session!.send(text);
+        this.update(id, "working", "starting");
+      },
+      (error: unknown) => {
+        this.update(id, "crashed", error instanceof Error ? error.message : String(error));
+      },
+    );
   }
 
   /**
@@ -530,6 +645,46 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     this.remember(this.store.rename(id, entry.row.label));
     this.emit("roster");
     return true;
+  }
+
+  /**
+   * Put a specialist on a different model.
+   *
+   * The running process cannot be moved: `--model` is fixed at spawn, and so
+   * is the base URL that decides who answers. So the change is recorded and
+   * the process is let go of - the next prompt revives it on the new model,
+   * resuming the same transcript, which is the path a cold specialist already
+   * takes every time the daemon restarts.
+   *
+   * Lazy rather than eager on purpose. Restarting here would spend a turn's
+   * startup on a decision the developer might still be thinking about, and a
+   * specialist that is mid-turn would lose the turn.
+   */
+  async setModel(id: string, model: string): Promise<void> {
+    const entry = this.entries.get(id);
+    if (!entry) throw new Error("no such specialist");
+    if (!isModelId(model)) throw new Error("not a model this bench offers");
+    if (entry.model === model) return;
+
+    // Before anything is recorded. Moving onto a provider with no key, or
+    // with no way to run its proxy, fails here - while the developer is
+    // still looking at the modal - rather than on the next prompt.
+    await this.viaFor(model);
+
+    entry.model = model;
+    entry.row.model = model;
+    this.remember(this.store.remodel(id, model));
+
+    // A live process is now running the wrong model. Let it go; the next
+    // prompt brings it back on the new one. Deliberately not `stop()`, which
+    // means "the developer stopped this" and says so on the row.
+    if (entry.session) {
+      entry.stopping = true;
+      entry.stoppedBecause = `moved to ${modelLabel(model)}`;
+      entry.session.stop();
+    } else {
+      this.emit("roster");
+    }
   }
 
   stop(id: string): void {

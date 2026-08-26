@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { asRole, DEFAULT_ROLE, ROLES, ROLE_NOTE, type Role } from "../../shared/roles.js";
-import { DEFAULT_MODEL, MODELS } from "../../shared/models.js";
+import { DEFAULT_MODEL, isProxied, modelLabel } from "../../shared/models.js";
+import { ModelDialog } from "./ModelDialog.js";
 import { LABEL_MAX, labelIsUsable, slugify } from "../../shared/slug.js";
 import { useBenchActions } from "./context.js";
 import { showProject } from "../hidden.js";
@@ -41,6 +42,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const [project, setProject] = useState("");
   const [label, setLabel] = useState("");
   const [model, setModel] = useState(DEFAULT_MODEL);
+  const [modelOpen, setModelOpen] = useState(false);
   const [role, setRole] = useState<Role>(DEFAULT_ROLE);
   const [isolated, setIsolated] = useState(true);
   const [error, setError] = useState("");
@@ -160,9 +162,29 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
         <p className="field-note" id="f-role-note">{ROLE_NOTE[role]}</p>
 
         <label htmlFor="f-model">Model</label>
-        <select id="f-model" value={model} onChange={(event) => setModel(event.target.value)}>
-          {MODELS.map((m) => <option value={m.id} key={m.id}>{m.label}</option>)}
-        </select>
+        {/*
+          A button into the same modal the composer opens, not a dropdown.
+          There are several hundred models once OpenRouter is in the list, and
+          they differ in who bills you and how much they hold - none of which
+          fits in an <option>.
+        */}
+        <button type="button" id="f-model" onClick={() => setModelOpen(true)}>
+          {modelLabel(model)}
+        </button>
+        {isProxied(model) && (
+          <p className="field-note" id="f-model-note">
+            Runs through OpenRouter, and is billed there rather than to
+            Anthropic. Needs an OpenRouter key in Settings.
+          </p>
+        )}
+
+        <ModelDialog
+          id="f-model-dialog"
+          open={modelOpen}
+          current={model}
+          onClose={() => setModelOpen(false)}
+          onPick={setModel}
+        />
 
         <div className="check">
           <input

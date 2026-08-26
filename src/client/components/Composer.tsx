@@ -15,7 +15,8 @@ import { useAutoGrow } from "./useAutoGrow.js";
  * all: a brief with two paragraphs in it went to the specialist as one line.
  */
 export function Composer({
-  text, setText, onSubmit, disabled, placeholder, hint, optionCount, send, inputRef, error, model,
+  text, setText, onSubmit, disabled, placeholder, hint, optionCount, send, inputRef, error,
+  model, onChangeModel,
 }: {
   text: string;
   setText: (value: string) => void;
@@ -27,9 +28,10 @@ export function Composer({
   send: { label: string; blocked: boolean } | null;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   error: string | null;
-  /** What the specialist you are typing to runs on. Null with nobody on the
-   * stage, and on a row from a daemon that predates the field. */
-  model: string | null;
+  /** What the selected specialist runs on. Absent when none is selected, and
+   * on a row from a daemon that predates the field. */
+  model?: string;
+  onChangeModel?: () => void;
 }) {
   useAutoGrow(inputRef, text);
 
@@ -77,10 +79,21 @@ export function Composer({
           column and was being cut off by it. */}
       <div id="composer-foot">
         {error ? <p id="composer-hint">{error}</p> : <ComposerHint kind={hint} optionCount={optionCount} />}
-        {/* Beside what is left, not up in the header: which model runs this
-            and how much of it there is are one question, asked once, as you
-            are about to send. */}
-        {model !== null && <span id="composer-model">{modelLabel(model)}</span>}
+        {/* What this specialist is running on, where you are looking when you
+            decide to send it work. It used to be visible only in the header
+            badge and settable only at creation, which made the model
+            something you chose once and then could not see at the moment it
+            mattered. */}
+        {model && (
+          <button
+            type="button"
+            id="composer-model"
+            title="Change the model this specialist runs on"
+            onClick={onChangeModel}
+          >
+            {modelLabel(model)}
+          </button>
+        )}
         <UsagePopover />
       </div>
     </>
