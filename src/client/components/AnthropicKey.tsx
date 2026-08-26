@@ -2,9 +2,17 @@ import { useEffect, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { KeyToggle } from "./KeyToggle.js";
 
-interface Held { present: boolean; hint: string; verified: boolean; enabled: boolean }
+interface Held {
+  present: boolean;
+  hint: string;
+  verified: boolean;
+  enabled: boolean;
+  /** Where the key came from, already in words: "typed here", or the variable
+   * and file it was read out of. Empty when there is no key. */
+  origin: string;
+}
 
-const NONE: Held = { present: false, hint: "", verified: true, enabled: true };
+const NONE: Held = { present: false, hint: "", verified: true, enabled: true, origin: "" };
 
 /**
  * What the daemon said, as a state this component can draw.
@@ -20,6 +28,7 @@ function asHeld(body: Partial<Held> | null | undefined): Held {
     hint: body?.hint ?? "",
     verified: body?.verified !== false,
     enabled: body?.enabled !== false,
+    origin: body?.origin ?? "",
   };
 }
 
@@ -128,9 +137,14 @@ export function AnthropicKey({ open }: { open: boolean }) {
         Optional. Either a console API key, which bills the API, or a token
         from <code>claude setup-token</code>, which bills the subscription it
         was minted from. Whichever is here takes precedence over this
-        machine's claude.ai login. It is held in memory only — a daemon
-        restart forgets it — and it reaches specialists started after it, not
-        the ones already running.
+        machine's claude.ai login. A key typed here is held in memory only —
+        a daemon restart forgets it — and it reaches specialists started
+        after it, not the ones already running.
+        {" "}
+        Bench also reads <code>ANTHROPIC_API_KEY</code> or{" "}
+        <code>CLAUDE_CODE_OAUTH_TOKEN</code> from its environment or a{" "}
+        <code>.env</code>, and one found that way comes back on every restart.
+        Typing one here replaces it until the daemon stops.
       </p>
     </section>
   );
@@ -139,15 +153,20 @@ export function AnthropicKey({ open }: { open: boolean }) {
 /** What may be said about a key that is now the daemon's. */
 function describe(held: Held): string {
   if (!held.present) return "None set. Specialists use this machine's Claude login.";
+
+  // Named, because a key can now arrive without anyone typing it. The last
+  // four characters say which key only to someone who already knows; where it
+  // came from is what lets them go and change it.
+  const which = `the key ending ${held.hint}${held.origin === "" ? "" : `, ${held.origin}`}`;
+
   // Parked is neither of the other two states: the key is known good and is
   // deliberately not being spent, and saying which login is being spent
   // instead is the whole reason to look at this line.
   if (!held.enabled) {
-    return `Holding the key ending ${held.hint}, switched off. `
-      + "Specialists use this machine's Claude login.";
+    return `Holding ${which}, switched off. Specialists use this machine's Claude login.`;
   }
   return held.verified
-    ? `Using the key ending ${held.hint}, which the API answered for.`
-    : `Using the key ending ${held.hint}. I could not reach the API to check it, ` +
+    ? `Using ${which}. The API answered for it.`
+    : `Using ${which}. I could not reach the API to check it, ` +
       `so the first specialist to use it is the test.`;
 }

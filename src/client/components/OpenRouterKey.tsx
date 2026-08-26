@@ -1,15 +1,22 @@
 import { useEffect, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 
-interface Held { present: boolean; hint: string; verified: boolean }
+interface Held {
+  present: boolean;
+  hint: string;
+  verified: boolean;
+  /** Where the key came from, already in words. Empty when there is none. */
+  origin: string;
+}
 
-const NONE: Held = { present: false, hint: "", verified: true };
+const NONE: Held = { present: false, hint: "", verified: true, origin: "" };
 
 function asHeld(body: Partial<Held> | null | undefined): Held {
   return {
     present: body?.present === true,
     hint: body?.hint ?? "",
     verified: body?.verified !== false,
+    origin: body?.origin ?? "",
   };
 }
 
@@ -100,8 +107,13 @@ export function OpenRouterKey({ open }: { open: boolean }) {
         Claude — Gemini, GPT, and everything else{" "}
         <a href="https://openrouter.ai/models" target="_blank" rel="noreferrer">OpenRouter</a>{" "}
         carries. Those requests go through OpenRouter and are billed there, not
-        to Anthropic. Held in memory only — a daemon restart forgets it — and
-        it reaches specialists started after it, not the ones already running.
+        to Anthropic. A key typed here is held in memory only — a daemon
+        restart forgets it — and it reaches specialists started after it, not
+        the ones already running.
+        {" "}
+        Bench also reads <code>OPENROUTER_API_KEY</code> (or{" "}
+        <code>OPEN_ROUTER_KEY</code>) from its environment or a{" "}
+        <code>.env</code>, and one found that way comes back on every restart.
       </p>
     </section>
   );
@@ -109,8 +121,9 @@ export function OpenRouterKey({ open }: { open: boolean }) {
 
 function describe(held: Held): string {
   if (!held.present) return "None set. Only Anthropic's models are offered.";
+  const which = `the key ending ${held.hint}${held.origin === "" ? "" : `, ${held.origin}`}`;
   return held.verified
-    ? `Using the key ending ${held.hint}, which OpenRouter answered for.`
-    : `Using the key ending ${held.hint}. I could not reach OpenRouter to check it, ` +
+    ? `Using ${which}. OpenRouter answered for it.`
+    : `Using ${which}. I could not reach OpenRouter to check it, ` +
       `so the first specialist to use it is the test.`;
 }

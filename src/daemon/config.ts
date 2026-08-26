@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { loadToken } from "./token.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findCredentials, type Found } from "./env-file.js";
 
 export interface BenchConfig {
   home: string;
@@ -24,6 +25,20 @@ export interface BenchConfig {
    * installed, that spawn fails as an unhandled error rather than a test.
    */
   claudeBin?: string;
+  /** Where Bench itself is installed. One of the places a `.env` is looked
+   * for, so a checkout's own file is read even when the daemon was started
+   * from somewhere else. */
+  installRoot: string;
+  /**
+   * The keys Bench found for itself before anything asked for one.
+   *
+   * Resolved here rather than in the registry because this is the file that
+   * is allowed to read the world - and because a registry that reads the
+   * real environment in its constructor is a registry whose tests depend on
+   * whichever machine runs them. A config without this field is a bench that
+   * found nothing, which is exactly what a test wants.
+   */
+  credentials?: { anthropic: Found | null; router: Found | null; searched: string[] };
 }
 
 export function loadConfig(): BenchConfig {
@@ -42,6 +57,11 @@ export function loadConfig(): BenchConfig {
     port,
     projectsRoot: process.env.BENCH_PROJECTS_ROOT ?? "/var/www",
     token: loadToken(home),
+    installRoot: root,
+    // Read, never merged into `process.env`: a `.env` holds more than Bench
+    // understands, and this daemon's environment is spread into every
+    // specialist it spawns.
+    credentials: findCredentials({ home, installRoot: root }),
     pluginDir: join(root, "plugin"),
     hookCommand: `node ${join(root, "dist", "daemon", "hooks", "bench-hook.js")}`,
   };

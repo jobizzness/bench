@@ -19,6 +19,7 @@ import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
 import { keyHint } from "./anthropic-key.js";
 import { catalogue, isOpenRouterModel, type Listed } from "./openrouter.js";
+import { describeOrigin, type Origin } from "./env-file.js";
 import { isModelId, modelLabel } from "../shared/models.js";
 import type { RosterRow, SessionStatus } from "../shared/types.js";
 
@@ -69,6 +70,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * so it lasts exactly as long as the daemon that was told it.
    */
   private apiKey: string | null = null;
+  /** Where that key came from, so the cockpit can say rather than only show
+   * its last four characters. */
+  private apiKeyOrigin: Origin = { from: "settings" };
 
   /**
    * Whether that key is the one being handed out.
@@ -85,6 +89,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * follows: an override kept in a file is one you forget you set.
    */
   private routerKey: string | null = null;
+  private routerKeyOrigin: Origin = { from: "settings" };
+
+  /** The `.env` files that were looked in at startup, in the order they were
+   * consulted. Reported so "Bench is not reading my file" is a question with
+   * an answer. */
+  private envSearched: string[] = [];
 
   /** The catalogue, once fetched. OpenRouter serves several hundred models
    * and the list changes rarely, so it is read once and kept rather than
@@ -94,6 +104,22 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   constructor(private readonly config: ReturnType<typeof loadConfig>) {
     super();
     this.store = new SessionStore(config.home);
+
+    // Both keys, if the developer already wrote them down somewhere. Found
+    // by loadConfig(), which is the file allowed to read the world - so a
+    // registry built for a test finds nothing, rather than whatever happens
+    // to be exported on the machine running it.
+    const found = config.credentials;
+    if (found === undefined) return;
+    this.envSearched = found.searched;
+    if (found.anthropic) {
+      this.apiKey = found.anthropic.key;
+      this.apiKeyOrigin = found.anthropic.origin;
+    }
+    if (found.router) {
+      this.routerKey = found.router.key;
+      this.routerKeyOrigin = found.router.origin;
+    }
   }
 
   /**
@@ -129,10 +155,19 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   /** What may be said about the key: that there is one, and which one. Never
    * the key - it goes to the daemon and does not come back. */
-  apiKeyState(): { present: boolean; hint: string; enabled: boolean } {
+  apiKeyState(): { present: boolean; hint: string; enabled: boolean; origin: string; searched: string[] } {
     return this.apiKey === null
-      ? { present: false, hint: "", enabled: this.apiKeyOn }
-      : { present: true, hint: keyHint(this.apiKey), enabled: this.apiKeyOn };
+      ? { present: false, hint: "", enabled: this.apiKeyOn, origin: "", searched: this.envSearched }
+      : {
+        present: true,
+        hint: keyHint(this.apiKey),
+        enabled: this.apiKeyOn,
+        // Where it came from, in words. A key that appears by itself is a
+        // key nobody can account for, and the last four characters are not
+        // an answer to "which key is that".
+        origin: describeOrigin(this.apiKeyOrigin),
+        searched: this.envSearched,
+      };
   }
 
   /** The key to authenticate with, which is nothing at all while it is
@@ -144,6 +179,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   setApiKey(key: string): void {
     this.apiKey = key;
+    // Typed now beats written down earlier, for as long as this daemon runs.
+    this.apiKeyOrigin = { from: "settings" };
     // Saving a key is asking for it to be used. Inheriting "off" from the key
     // it replaced would be a key that quietly does nothing.
     this.apiKeyOn = true;
@@ -155,10 +192,15 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   /** What may be said about the OpenRouter key: that there is one, and which
    * one. Never the key - it goes to the daemon and does not come back. */
-  routerKeyState(): { present: boolean; hint: string } {
+  routerKeyState(): { present: boolean; hint: string; origin: string; searched: string[] } {
     return this.routerKey === null
-      ? { present: false, hint: "" }
-      : { present: true, hint: keyHint(this.routerKey) };
+      ? { present: false, hint: "", origin: "", searched: this.envSearched }
+      : {
+        present: true,
+        hint: keyHint(this.routerKey),
+        origin: describeOrigin(this.routerKeyOrigin),
+        searched: this.envSearched,
+      };
   }
 
   /** The OpenRouter key to authenticate with. Read by the credit meter's
@@ -169,14 +211,26 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   setRouterKey(key: string): void {
     this.routerKey = key;
+    this.routerKeyOrigin = { from: "settings" };
   }
 
+  /**
+   * Let go of the OpenRouter key.
+   *
+   * Deliberately does not fall back to whatever the `.env` said. A Remove
+   * button that puts the key straight back is a button that does nothing,
+   * and the developer pressing it is telling this daemon to stop using that
+   * key - a restart is how they say the opposite.
+   */
   clearRouterKey(): void {
     this.routerKey = null;
+    this.routerKeyOrigin = { from: "settings" };
   }
 
+  /** Let go of the Anthropic key, on the same terms. */
   clearApiKey(): void {
     this.apiKey = null;
+    this.apiKeyOrigin = { from: "settings" };
     this.apiKeyOn = true;
   }
 

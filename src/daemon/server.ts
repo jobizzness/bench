@@ -28,7 +28,7 @@ export interface SessionRegistryLike {
   list(): RosterRow[];
   getSettings(): Settings;
   saveSettings(input: unknown): Promise<Settings>;
-  apiKeyState(): { present: boolean; hint: string; enabled: boolean };
+  apiKeyState(): { present: boolean; hint: string; enabled: boolean; origin: string; searched: string[] };
   // No reader. The key goes to the daemon for the CLI's benefit, and a
   // server that cannot ask for it is a server that cannot serve it back.
   setApiKey(key: string): void;
@@ -36,7 +36,7 @@ export interface SessionRegistryLike {
   clearApiKey(): void;
   // The OpenRouter key. Same rule as above: whether there is one goes out,
   // the key itself never does.
-  routerKeyState(): { present: boolean; hint: string };
+  routerKeyState(): { present: boolean; hint: string; origin: string; searched: string[] };
   setRouterKey(key: string): void;
   clearRouterKey(): void;
   /** Every model OpenRouter serves, for the picker. */

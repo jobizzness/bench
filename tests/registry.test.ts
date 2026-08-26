@@ -710,7 +710,7 @@ describe("the developer's own API key", () => {
   it("is nothing at all until one is set", async () => {
     const { config } = await setup();
 
-    expect(new SessionRegistry(config as any).apiKeyState()).toEqual({ present: false, hint: "", enabled: true });
+    expect(new SessionRegistry(config as any).apiKeyState()).toEqual({ present: false, hint: "", enabled: true, origin: "", searched: [] });
   });
 
   it("shows only its last four characters once set", async () => {
@@ -719,7 +719,7 @@ describe("the developer's own API key", () => {
 
     registry.setApiKey(KEY);
 
-    expect(registry.apiKeyState()).toEqual({ present: true, hint: "…4f2a", enabled: true });
+    expect(registry.apiKeyState()).toEqual({ present: true, hint: "…4f2a", enabled: true, origin: "typed here", searched: [] });
     expect(registry.getApiKey()).toBe(KEY);
   });
 
@@ -730,7 +730,7 @@ describe("the developer's own API key", () => {
 
     registry.clearApiKey();
 
-    expect(registry.apiKeyState()).toEqual({ present: false, hint: "", enabled: true });
+    expect(registry.apiKeyState()).toEqual({ present: false, hint: "", enabled: true, origin: "", searched: [] });
     expect(registry.getApiKey()).toBeNull();
   });
 
@@ -753,7 +753,7 @@ describe("the developer's own API key", () => {
     registry.setApiKeyEnabled(false);
 
     expect(registry.getApiKey()).toBeNull();
-    expect(registry.apiKeyState()).toEqual({ present: true, hint: "…4f2a", enabled: false });
+    expect(registry.apiKeyState()).toEqual({ present: true, hint: "…4f2a", enabled: false, origin: "typed here", searched: [] });
   });
 
   it("hands it out again when it is switched back on", async () => {
@@ -789,7 +789,7 @@ describe("the developer's own API key", () => {
 
     registry.clearApiKey();
 
-    expect(registry.apiKeyState()).toEqual({ present: false, hint: "", enabled: true });
+    expect(registry.apiKeyState()).toEqual({ present: false, hint: "", enabled: true, origin: "", searched: [] });
   });
 
   it("is forgotten when the daemon restarts", async () => {
@@ -849,6 +849,81 @@ describe("the developer's own API key", () => {
 
     it("hands over nothing while it is parked, leaving the machine's login alone", async () => {
       expect(await spawned(true)).toBe("key:none");
+    });
+
+    /**
+     * A key Bench found for itself has to travel the same road.
+     *
+     * Seeding a field that nothing reads would look right in Settings and do
+     * nothing at all, which is the shape of the bug the switch above already
+     * had once.
+     */
+    it("hands over a key that was found in a .env, without anyone typing it", async () => {
+      const { home, project, worktree, id, reportsDir, config } = await setup();
+      await new SessionStore(home).put({
+        id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+        model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+      });
+      const registry = new SessionRegistry({
+        ...config,
+        claudeBin: await fakeCli(CREDENTIAL_CLI),
+        credentials: {
+          anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
+          router: null,
+          searched: ["/w/.env"],
+        },
+      } as any);
+      await registry.restore();
+
+      registry.send(id, "off you go");
+
+      const threadPath = registry.get(id)!.threadPath;
+      for (let tries = 0; tries < 60; tries++) {
+        await new Promise((r) => setTimeout(r, 50));
+        const reply = (await readThread(threadPath)).find((e) => e.kind === "reply");
+        if (reply) {
+          expect(reply.body).toBe(`key:${KEY}`);
+          return;
+        }
+      }
+      throw new Error("the specialist never answered");
+    });
+
+    it("says where a found key came from, and lets a typed one replace it", async () => {
+      const { config } = await setup();
+      const registry = new SessionRegistry({
+        ...config,
+        credentials: {
+          anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
+          router: null,
+          searched: ["/w/.env"],
+        },
+      } as any);
+
+      expect(registry.apiKeyState().origin).toBe("from ANTHROPIC_API_KEY in /w/.env");
+
+      registry.setApiKey("sk-ant-api03-typed-over-the-file-9999");
+      expect(registry.apiKeyState().origin).toBe("typed here");
+      expect(registry.getApiKey()).toBe("sk-ant-api03-typed-over-the-file-9999");
+    });
+
+    it("stays gone when a found key is removed, rather than reappearing", async () => {
+      // A Remove button that puts the key straight back is a button that does
+      // nothing. A restart is how the developer says the opposite.
+      const { config } = await setup();
+      const registry = new SessionRegistry({
+        ...config,
+        credentials: {
+          anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
+          router: null,
+          searched: ["/w/.env"],
+        },
+      } as any);
+
+      registry.clearApiKey();
+
+      expect(registry.getApiKey()).toBeNull();
+      expect(registry.apiKeyState().present).toBe(false);
     });
   });
 });
