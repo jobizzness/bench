@@ -48,6 +48,11 @@ subagents, web search. Bench supervises it; it does not replace it.
 - **Gates.** A commit carrying AI attribution is denied at `PreToolUse`. A
   specialist may not push a branch.
 
+The roster puts whoever is waiting on you at the top of their project. If that
+is not the order you want, drag a row by the grip on the right — or focus the
+grip and use `↑` `↓` — and that group keeps the arrangement you gave it. It is
+remembered in the browser you arranged it in, and nowhere else.
+
 ![The roster, grouped by project](docs/screenshots/roster.png)
 
 ## Running it

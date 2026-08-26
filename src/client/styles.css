@@ -2269,6 +2269,45 @@ button, input, textarea, select { font: inherit; color: inherit; }
   background: var(--line-firm);
 }
 
+/* The handle, in the same gutter as the close button and revealed by the same
+   hover. A row shows nothing at rest: two controls always drawn is two things
+   to read past on every row of a list you scan all day. */
+.row .grip {
+  position: absolute;
+  top: 50%;
+  right: 1.85rem;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+  line-height: 0;
+  padding: 0.2rem 0.3rem;
+  border-radius: 4px;
+  cursor: grab;
+  /* The gesture belongs to us from the first pixel. Without this a finger on
+     the grip scrolls the roster instead, and the browser cancels the drag. */
+  touch-action: none;
+}
+.row:hover .grip,
+.row .grip:focus-visible { opacity: 0.45; }
+.row .grip:hover { opacity: 0.9; }
+/* Nothing to reveal it with, so it is quietly always there. */
+@media (hover: none) {
+  .row .grip { opacity: 0.4; }
+}
+
+/* The row in the air. Lifted rather than ghosted: it is the one being moved,
+   so it should be the one you can see. */
+.row[data-held="true"] {
+  background: var(--raised);
+  box-shadow: 0 5px 16px rgb(0 0 0 / 0.3);
+  z-index: 2;
+}
+.row[data-held="true"] .grip { opacity: 0.9; cursor: grabbing; }
+/* Mid-drag nothing in the list is text you are trying to select. */
+.group-rows[data-dragging="true"] { user-select: none; cursor: grabbing; }
+
 /* ── Where a specialist has got to ──────────────────────────────────── */
 
 /* The checklist gets the top of the stage. It is the answer to the question
