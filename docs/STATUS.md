@@ -1,6 +1,6 @@
 # Bench — where it stands
 
-Last updated 2026-08-22. 243 tests passing, 2 end-to-end suites run
+Last updated 2026-08-26. 1002 tests passing, 2 end-to-end suites run
 separately against the real CLI.
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
@@ -115,6 +115,23 @@ should not cost a click.
   degrades to free text rather than wedging the session.
 - **Concurrency.** Three specialists have run at once without incident.
   That is an observation, not a test.
+- **A specialist has never been answered by OpenRouter.** The routing is
+  three environment variables on the child process and there is no proxy to
+  be down, but no turn has yet come back from a non-Anthropic model — so the
+  claim that Claude Code drives OpenRouter's `/v1/messages` end to end rests
+  on the protocol being the same one, not on having watched it work. What
+  *has* been checked against the live service: the catalogue parses (356
+  models, 59 vendors, every one carrying a context length), and a bad key is
+  refused as `refused` rather than read as an outage.
+- **Changing a specialist's model mid-life.** Recorded, and the process is
+  let go so the next prompt revives it on the new model resuming the same
+  transcript. That path is the one a cold specialist already takes after
+  every daemon restart, which is why it is built this way — but the
+  Anthropic-to-OpenRouter direction has not been walked with a real CLI.
+- **The OpenRouter credit meter, on a real key.** The spend and ceiling come
+  from OpenRouter's `/key` route. Its failure shapes are proven live; its
+  success shape — the `usage` and `limit` fields — has only ever been read
+  from a stub, because proving it needs a funded key nobody here has.
 
 ## Known broken
 
