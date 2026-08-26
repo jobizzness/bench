@@ -23,8 +23,44 @@
 
 import type { Credit } from "../shared/credit.js";
 
-/** Where OpenRouter answers Anthropic's protocol. */
+/**
+ * Where OpenRouter's own routes live - `/key`, `/models` - for the calls this
+ * daemon makes itself.
+ */
 export const BASE_URL = "https://openrouter.ai/api/v1";
+
+/**
+ * What ANTHROPIC_BASE_URL has to be set to, which is deliberately not the URL
+ * above.
+ *
+ * The CLI builds its request as `${ANTHROPIC_BASE_URL}/v1/messages` - it adds
+ * the `/v1` itself. So the base it is given must stop one level short, or
+ * every turn is sent to `/api/v1/v1/messages`, which OpenRouter answers with a
+ * 404 HTML page. That is not a hypothesis: `claude -p` was pointed at a local
+ * server that recorded the path it asked for, and that is the path it asked
+ * for.
+ *
+ * It failed the worst way it could. A 404 is not a refusal the CLI gives up
+ * on, so it retried seven times with a doubling delay and only then died -
+ * which reads as a specialist that hung and crashed, with nothing anywhere
+ * saying the URL was wrong.
+ *
+ * Kept apart from BASE_URL rather than derived from it, because the two are
+ * used by different clients with different rules about who adds the version,
+ * and one constant serving both is exactly how they were collapsed before.
+ */
+export const CLI_BASE_URL = "https://openrouter.ai/api";
+
+/**
+ * The URL a CLI given this base will actually POST a turn to.
+ *
+ * Here so a test can assert the address that matters rather than the constant
+ * that feeds it. The old test compared BASE_URL against a copy of itself,
+ * which is true of any value and told nobody the requests were 404ing.
+ */
+export function messagesUrl(base: string): string {
+  return `${base.replace(/\/+$/, "")}/v1/messages`;
+}
 
 /**
  * Whether a model id belongs to OpenRouter rather than to Anthropic directly.
@@ -58,6 +94,52 @@ export interface Listed {
    * auto-compacted at a fifth of its window unless it is told otherwise.
    */
   contextLength: number | null;
+  /**
+   * US dollars per million output tokens, or null when OpenRouter quotes
+   * something that is not a plain per-token price.
+   *
+   * Carried because this is the one number that decides between two models
+   * that otherwise read the same, and it is the developer's own money: these
+   * turns are billed to their OpenRouter account, not to a subscription they
+   * have already paid for. A picker that hides it is asking them to choose
+   * blind.
+   *
+   * Output rather than input because a specialist writes code - and the spread
+   * across the catalogue is two orders of magnitude, so the choice is real.
+   */
+  dollarsPerMillion: number | null;
+}
+
+/**
+ * Whether this model could run a specialist at all.
+ *
+ * Tool use is the whole job. A specialist that cannot call a tool cannot read
+ * a file, cannot edit one and cannot run a command - it can only talk about
+ * doing so, which is not what anybody put it on the bench for.
+ *
+ * 69 of the 416 models OpenRouter serves are in this category, and they are
+ * not obscure ones tucked away at the bottom: Google's image models and its
+ * Lyria music models sort into the first block the picker draws, directly
+ * above Gemini. Offering them is offering a specialist that provisions a
+ * worktree, takes a prompt and can do nothing with it.
+ */
+function canRunASpecialist(supported: unknown): boolean {
+  return Array.isArray(supported) && supported.includes("tools");
+}
+
+/**
+ * What OpenRouter charges to write a million tokens, in dollars.
+ *
+ * Quoted per-token as a decimal string. Anything that is not a plain
+ * non-negative number is reported as "not known" rather than shown: the
+ * catalogue uses negative sentinels for models whose price is decided per
+ * request, and drawing one of those as a price would be inventing a figure.
+ */
+function perMillion(pricing: unknown): number | null {
+  const quoted = (pricing as { completion?: unknown })?.completion;
+  const each = Number(quoted);
+  if (typeof quoted !== "string" || !Number.isFinite(each) || each < 0) return null;
+  return each * 1_000_000;
 }
 
 /**
@@ -109,11 +191,19 @@ export async function catalogue(fetchImpl: typeof fetch = fetch): Promise<Listed
   const rows = Array.isArray(body.data) ? body.data : [];
 
   return rows.flatMap((row): Listed[] => {
-    const model = row as { id?: unknown; name?: unknown; context_length?: unknown };
+    const model = row as {
+      id?: unknown; name?: unknown; context_length?: unknown;
+      supported_parameters?: unknown; pricing?: unknown;
+    };
     if (typeof model.id !== "string" || model.id === "") return [];
     // Batch variants are the same model on a slower, cheaper queue. A
     // specialist is interactive, so they are noise in this list.
     if (model.id.endsWith(":batch")) return [];
+    // Filtered here rather than dimmed in the picker, because there is no
+    // sense in which the developer could pick one of these and be right. A
+    // list is more useful for being shorter and entirely true than for being
+    // complete.
+    if (!canRunASpecialist(model.supported_parameters)) return [];
 
     const contextLength = typeof model.context_length === "number" && model.context_length > 0
       ? model.context_length
@@ -124,6 +214,7 @@ export async function catalogue(fetchImpl: typeof fetch = fetch): Promise<Listed
       name: typeof model.name === "string" && model.name !== "" ? model.name : model.id,
       vendor: vendorOf(model.id),
       contextLength,
+      dollarsPerMillion: perMillion(model.pricing),
     }];
   });
 }
@@ -144,7 +235,7 @@ export async function catalogue(fetchImpl: typeof fetch = fetch): Promise<Listed
  */
 export function sessionEnv(opts: { key: string; contextLength?: number | null }): Record<string, string> {
   return {
-    ANTHROPIC_BASE_URL: BASE_URL,
+    ANTHROPIC_BASE_URL: CLI_BASE_URL,
     ANTHROPIC_API_KEY: opts.key,
     ...(opts.contextLength ? { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(opts.contextLength) } : {}),
   };

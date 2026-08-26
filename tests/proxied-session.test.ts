@@ -24,6 +24,13 @@ process.stdin.on("data", (chunk) => {
       type: "result", subtype: "success", is_error: false,
       session_id: "fake",
       result: "base:" + (process.env.ANTHROPIC_BASE_URL ?? "none")
+        // What the real CLI would go on to ask for. It appends the version
+        // itself, so the base alone does not say whether a turn will land -
+        // and asserting the base alone is what let a base that resolves to a
+        // 404 sit here looking correct.
+        + " url:" + (process.env.ANTHROPIC_BASE_URL
+          ? process.env.ANTHROPIC_BASE_URL.replace(/\\/+$/, "") + "/v1/messages"
+          : "none")
         + " key:" + (process.env.ANTHROPIC_API_KEY ?? "none")
         + " oat:" + (process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "none")
         + " ctx:" + (process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS ?? "none")
@@ -78,7 +85,10 @@ describe("a specialist answered by OpenRouter", () => {
       model: "google/gemini-3.7-flash",
       via: { key: "sk-or-v1-abc", contextLength: 1_048_576 },
     });
-    expect(reply).toContain("base:https://openrouter.ai/api/v1");
+    // The address the turn actually goes to, not the base it was built from.
+    // OpenRouter serves this path in Anthropic's own shape; one segment along
+    // it serves a 404 page instead.
+    expect(reply).toContain("url:https://openrouter.ai/api/v1/messages");
   });
 
   it("passes the OpenRouter id to the CLI untouched", async () => {

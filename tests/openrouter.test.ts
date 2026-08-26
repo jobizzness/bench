@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   BASE_URL,
+  CLI_BASE_URL,
+  messagesUrl,
   isOpenRouterModel,
   vendorOf,
   checkKey,
@@ -51,10 +53,33 @@ describe("what a specialist is given", () => {
     // /v1/messages and accepts a key on x-api-key, which is the header the
     // CLI puts ANTHROPIC_API_KEY on.
     expect(sessionEnv({ key: "sk-or-v1-abc", contextLength: 1_048_576 })).toEqual({
-      ANTHROPIC_BASE_URL: "https://openrouter.ai/api/v1",
+      ANTHROPIC_BASE_URL: "https://openrouter.ai/api",
       ANTHROPIC_API_KEY: "sk-or-v1-abc",
       CLAUDE_CODE_MAX_CONTEXT_TOKENS: "1048576",
     });
+  });
+
+  it("gives a base URL the CLI turns into OpenRouter's real messages route", () => {
+    // The invariant that matters, and the one this file used to miss: the
+    // assertion above only ever compared a constant against itself, so the
+    // base could be - and was - a URL the CLI resolves to a 404.
+    //
+    // The CLI appends `/v1/messages` to ANTHROPIC_BASE_URL. Observed, not
+    // assumed: `claude -p` was pointed at a local server that logged the path
+    // it was asked for, and with a base ending `/api/v1` it asked for
+    // `/api/v1/v1/messages`.
+    expect(messagesUrl(sessionEnv({ key: "k" }).ANTHROPIC_BASE_URL))
+      .toBe("https://openrouter.ai/api/v1/messages");
+  });
+
+  it("keeps the CLI's base and the daemon's own base apart", () => {
+    // They are genuinely different URLs and one constant cannot be both:
+    // `/key` and `/models` are served under `/api/v1`, while the CLI needs a
+    // base one level up because it adds the `/v1` itself. Collapsing them is
+    // what broke every OpenRouter turn.
+    expect(CLI_BASE_URL).toBe("https://openrouter.ai/api");
+    expect(BASE_URL).toBe("https://openrouter.ai/api/v1");
+    expect(BASE_URL).not.toBe(CLI_BASE_URL);
   });
 
   it("tells the CLI how much the model actually holds", () => {
@@ -96,23 +121,60 @@ describe("checking a key before it is kept", () => {
 });
 
 describe("the catalogue", () => {
+  /** Rows in the shape OpenRouter actually serves them. */
+  const tools = ["tools", "max_tokens"];
   const body = {
     data: [
-      { id: "google/gemini-3.7-flash", name: "Google: Gemini 3.7 Flash", context_length: 1048576 },
-      { id: "google/gemini-3.7-flash:batch", name: "Google: Gemini 3.7 Flash (batch)", context_length: 1048576 },
-      { id: "openai/gpt-5.6-luna", name: "OpenAI: GPT-5.6 Luna", context_length: 1050000 },
-      { id: "weird/no-context", name: "No context given" },
-      { id: "", name: "nameless" },
+      {
+        id: "google/gemini-3.7-flash", name: "Google: Gemini 3.7 Flash",
+        context_length: 1048576, supported_parameters: tools,
+        pricing: { prompt: "0.000000375", completion: "0.000001875" },
+      },
+      {
+        id: "google/gemini-3.7-flash:batch", name: "Google: Gemini 3.7 Flash (batch)",
+        context_length: 1048576, supported_parameters: tools,
+        pricing: { prompt: "0.0000001", completion: "0.0000009" },
+      },
+      {
+        id: "openai/gpt-5.6-luna", name: "OpenAI: GPT-5.6 Luna",
+        context_length: 1050000, supported_parameters: tools,
+        pricing: { prompt: "0.0000012", completion: "0.00001" },
+      },
+      {
+        id: "weird/no-context", name: "No context given",
+        supported_parameters: tools, pricing: { prompt: "0", completion: "0" },
+      },
+      // Real rows, both of them: an image model and a music model, and both
+      // sort into the first block the picker used to draw.
+      {
+        id: "google/lyria-3-pro-preview", name: "Google: Lyria 3 Pro Preview",
+        context_length: 1048576, supported_parameters: ["max_tokens"],
+        pricing: { prompt: "0.000001", completion: "0.000001" },
+      },
+      {
+        id: "google/gemini-3.1-flash-image", name: "Google: Nano Banana 2",
+        context_length: 131072, supported_parameters: [],
+        pricing: { prompt: "0.000001", completion: "0.000001" },
+      },
+      // Priced per request rather than per token, which the catalogue reports
+      // as a negative sentinel.
+      {
+        id: "openrouter/auto", name: "Auto Router",
+        context_length: 200000, supported_parameters: tools,
+        pricing: { prompt: "-1", completion: "-1" },
+      },
+      { id: "", name: "nameless", supported_parameters: tools },
     ],
   };
 
-  it("reads id, name, vendor and window off each model", async () => {
+  it("reads id, name, vendor, window and price off each model", async () => {
     const models = await catalogue(serving(body).impl);
     expect(models[0]).toEqual({
       id: "google/gemini-3.7-flash",
       name: "Google: Gemini 3.7 Flash",
       vendor: "google",
       contextLength: 1048576,
+      dollarsPerMillion: 1.875,
     });
   });
 
@@ -122,15 +184,33 @@ describe("the catalogue", () => {
     expect(models.some((m) => m.id.endsWith(":batch"))).toBe(false);
   });
 
+  it("drops the models that could not run a specialist if they were picked", async () => {
+    // Tool use is the whole job: without it a specialist cannot read a file,
+    // edit one or run a command. 69 of the models OpenRouter serves are in
+    // this category, and the picker used to offer every one of them - the
+    // image and music models among them, sorted to the very top under Google.
+    const models = await catalogue(serving(body).impl);
+    expect(models.map((m) => m.id)).not.toContain("google/lyria-3-pro-preview");
+    expect(models.map((m) => m.id)).not.toContain("google/gemini-3.1-flash-image");
+  });
+
   it("carries a missing window as null rather than inventing one", async () => {
     const models = await catalogue(serving(body).impl);
     expect(models.find((m) => m.id === "weird/no-context")!.contextLength).toBe(null);
   });
 
+  it("reports a price that is not per-token as unknown rather than as a figure", async () => {
+    // The catalogue quotes a negative sentinel for models priced per request.
+    // Drawing one of those as a price would be inventing a number.
+    const models = await catalogue(serving(body).impl);
+    expect(models.find((m) => m.id === "openrouter/auto")!.dollarsPerMillion).toBe(null);
+    expect(models.find((m) => m.id === "weird/no-context")!.dollarsPerMillion).toBe(0);
+  });
+
   it("skips a row with no id at all", async () => {
     const models = await catalogue(serving(body).impl);
     expect(models.map((m) => m.id)).toEqual([
-      "google/gemini-3.7-flash", "openai/gpt-5.6-luna", "weird/no-context",
+      "google/gemini-3.7-flash", "openai/gpt-5.6-luna", "weird/no-context", "openrouter/auto",
     ]);
   });
 
