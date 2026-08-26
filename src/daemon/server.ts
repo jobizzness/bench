@@ -14,6 +14,7 @@ import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
 import { checkKey, type KeyCheck } from "./anthropic-key.js";
+import { checkKey as checkRouterKey, type Listed } from "./openrouter.js";
 import { usageSource, type Usage } from "./usage.js";
 import { RefIndex } from "./refs.js";
 import { reviewBrief, reviewLabel } from "./review.js";
@@ -32,11 +33,19 @@ export interface SessionRegistryLike {
   setApiKey(key: string): void;
   setApiKeyEnabled(on: boolean): void;
   clearApiKey(): void;
+  // The OpenRouter key. Same rule as above: whether there is one goes out,
+  // the key itself never does.
+  routerKeyState(): { present: boolean; hint: string };
+  setRouterKey(key: string): void;
+  clearRouterKey(): void;
+  /** Every model OpenRouter serves, for the picker. */
+  catalogue(): Promise<Listed[]>;
   get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null;
   send(id: string, text: string): void;
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
   stop(id: string): void;
   rename(id: string, label: string): boolean;
+  setModel(id: string, model: string): Promise<void>;
   create(input: {
     project: string; label: string; model: string; role?: string; isolated?: boolean;
   }): Promise<string>;
@@ -160,6 +169,8 @@ export function createServer(opts: {
   clientDir?: string;
   /** Injected by the tests, which must not reach Anthropic. */
   checkKey?: (key: string) => Promise<KeyCheck>;
+  /** The same, for OpenRouter. */
+  checkRouterKey?: (key: string) => Promise<KeyCheck>;
   /** Where the usage panel's numbers come from. Injected by the tests, and
    * by index.ts with the key the registry is holding - the server itself is
    * deliberately unable to read that key. */
@@ -169,6 +180,7 @@ export function createServer(opts: {
   const index = opts.refs ?? new RefIndex();
   const clientDir = opts.clientDir ?? CLIENT_DIR;
   const verify = opts.checkKey ?? checkKey;
+  const verifyRouter = opts.checkRouterKey ?? checkRouterKey;
   const spent = opts.usage ?? usageSource({ benchKey: () => null });
 
   /**
@@ -341,6 +353,67 @@ export function createServer(opts: {
       return;
     }
 
+    /**
+     * The developer's OpenRouter key, and what it can reach.
+     *
+     * Same life as the Anthropic key above - held while the daemon runs,
+     * never written down - and the same three routes, so the cockpit treats
+     * both the same way.
+     */
+    if (path === "/api/openrouter/key" && req.method === "GET") {
+      json(res, 200, { ...registry.routerKeyState(), verified: true });
+      return;
+    }
+
+    if (path === "/api/openrouter/key" && req.method === "POST") {
+      const key = String((await readBody(req))?.key ?? "").trim();
+      if (key === "") {
+        json(res, 400, { error: "no key was sent" });
+        return;
+      }
+
+      const verdict = await verifyRouter(key);
+      if (verdict === "refused") {
+        // Said now rather than discovered later. The CLI retries a rejected
+        // key with a doubling delay, so a typo kept here does not look like a
+        // typo - it looks like a specialist that hangs.
+        json(res, 400, { error: "OpenRouter turned that key away. Check it and try again." });
+        return;
+      }
+
+      registry.setRouterKey(key);
+      // "unreachable" is not "wrong": an offline machine should still be able
+      // to hold a key, as long as it is told the key is unproven.
+      json(res, 200, { ...registry.routerKeyState(), verified: verdict === "ok" });
+      return;
+    }
+
+    if (path === "/api/openrouter/key" && req.method === "DELETE") {
+      registry.clearRouterKey();
+      json(res, 200, { ...registry.routerKeyState(), verified: true });
+      return;
+    }
+
+    /**
+     * Every model OpenRouter serves.
+     *
+     * Read from OpenRouter rather than kept in a list here: a hand-maintained
+     * list is one that goes stale invisibly, which is exactly what happened
+     * to the one this replaced. Behind the token like everything else - it is
+     * public information, but the cockpit asking for it is not a reason to
+     * open a route that needs nothing.
+     */
+    if (path === "/api/openrouter/models" && req.method === "GET") {
+      try {
+        json(res, 200, { models: await registry.catalogue() });
+      } catch (error) {
+        // The picker still opens on Anthropic's four. Saying why beats an
+        // empty list that looks like OpenRouter has nothing.
+        json(res, 502, { error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
     // Where else this same daemon answers. Without the token: the client
     // asking already holds one, and a list of addresses is not a secret while
     // the key that opens them is.
@@ -369,16 +442,26 @@ export function createServer(opts: {
         json(res, 400, { error: "that label is empty or too long to name anything" });
         return;
       }
-      const id = await registry.create({
-        project: String(body.project),
-        label: String(body.label),
-        model: String(body.model ?? DEFAULT_MODEL),
-        role: typeof body.role === "string" ? body.role : undefined,
-        // Absent means isolated. A caller that has not heard of the toggle
-        // gets the safer of the two.
-        isolated: body.isolated !== false,
-      });
-      json(res, 200, { id });
+      try {
+        const id = await registry.create({
+          project: String(body.project),
+          label: String(body.label),
+          model: String(body.model ?? DEFAULT_MODEL),
+          role: typeof body.role === "string" ? body.role : undefined,
+          // Absent means isolated. A caller that has not heard of the toggle
+          // gets the safer of the two.
+          isolated: body.isolated !== false,
+        });
+        json(res, 200, { id });
+      } catch (error) {
+        // Caught here rather than left to the wrapper, which answers 500 with
+        // a sentence that says nothing. The reasons a creation is refused are
+        // things the developer can act on - no key for that provider, no way
+        // to run the proxy, a proxy that would not start - and the dialog
+        // they are still looking at is where those belong.
+        process.stderr.write(`bench: could not create a specialist: ${String(error)}\n`);
+        json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
       return;
     }
 
@@ -545,6 +628,28 @@ export function createServer(opts: {
         return;
       }
       json(res, 200, { label: label.trim() });
+      return;
+    }
+
+    /**
+     * What this specialist runs on, changed after it was made.
+     *
+     * Refused here rather than on the next prompt when the new model needs a
+     * provider the bench has no key for: the modal the developer is looking
+     * at is where that belongs, and a prompt that dies two minutes later is
+     * the failure this whole path exists to avoid.
+     */
+    const remodel = path.match(/^\/api\/sessions\/([^/]+)\/model$/);
+    if (remodel && req.method === "POST") {
+      if (!registry.get(remodel[1])) { json(res, 404, { error: "no such session" }); return; }
+      const model = String((await readBody(req))?.model ?? "");
+      try {
+        await registry.setModel(remodel[1], model);
+        json(res, 200, { model });
+      } catch (error) {
+        process.stderr.write(`bench: could not change the model: ${String(error)}\n`);
+        json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
       return;
     }
 

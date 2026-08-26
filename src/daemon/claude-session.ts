@@ -6,6 +6,7 @@ import { LineDecoder, userMessageLine, isResultEvent, activityLine, replyText, c
 import type { Context } from "../shared/context-window.js";
 import { buildSettings } from "./gates/settings.js";
 import { credentialEnv } from "./anthropic-key.js";
+import { sessionEnv as openRouterEnv } from "./openrouter.js";
 
 /** Enough for a refusal and a stack trace, not enough to hold a log file. */
 const STDERR_KEPT = 4000;
@@ -40,6 +41,15 @@ export interface SessionOptions {
    * saved now reaches the specialists started after it and no others.
    */
   apiKey?: () => string | null;
+  /**
+   * Set when this specialist is answered by OpenRouter rather than Anthropic:
+   * the key to authenticate with, and how much the model will actually hold.
+   *
+   * Resolved before the process is spawned rather than read here, because
+   * refusing for want of a key belongs in the dialog the developer is still
+   * looking at - not in a turn that dies two minutes later.
+   */
+  via?: { key: string; contextLength?: number | null };
 }
 
 /**
@@ -92,7 +102,13 @@ export class ClaudeSession extends EventEmitter {
 
     const bin = this.opts.claudeBin ?? "claude";
     const settings = JSON.stringify(buildSettings({ hookCommand: this.opts.hookCommand }));
-    const apiKey = this.opts.apiKey?.();
+    // A specialist answered by OpenRouter is not talking to Anthropic, so an
+    // Anthropic credential buys it nothing - and costs it something: setting
+    // ANTHROPIC_API_KEY to a Claude key makes the CLI drop the claude.ai
+    // login it would otherwise use, which turns off connectors. Its key is
+    // the OpenRouter one instead, carried in `via`.
+    const via = this.opts.via;
+    const apiKey = via ? null : this.opts.apiKey?.();
 
     // --verbose is not optional: claude -p with stream-json exits without it.
     const args = [
@@ -102,6 +118,9 @@ export class ClaudeSession extends EventEmitter {
       "--output-format", "stream-json",
       ...(this.opts.resume ? ["--resume", this.opts.id] : ["--session-id", this.opts.id]),
       "--name", this.opts.label,
+      // Verbatim, whichever kind it is. An Anthropic alias the CLI resolves
+      // itself; an OpenRouter id it does not recognise and passes straight
+      // through to the endpoint, which is exactly what is wanted.
       "--model", this.opts.model,
       "--permission-mode", "acceptEdits",
       // The reports directory lives with the project, not inside the
@@ -131,6 +150,11 @@ export class ClaudeSession extends EventEmitter {
         // own variable; put one in ANTHROPIC_API_KEY and it is a key the API
         // has never issued.
         ...(apiKey ? credentialEnv(apiKey) : {}),
+        // Everything OpenRouter needs, or nothing at all. Nothing at all is
+        // the Anthropic case, and it has to leave the environment exactly as
+        // it found it: a bench with no key of its own must not take away the
+        // login the daemon was started with.
+        ...(via ? openRouterEnv(via) : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });

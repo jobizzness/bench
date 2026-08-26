@@ -21,6 +21,7 @@ import { Queue } from "./Queue.js";
 import { Progress } from "./Progress.js";
 import { Roster } from "./Roster.js";
 import { SettingsDialog } from "./SettingsDialog.js";
+import { ModelDialog } from "./ModelDialog.js";
 import { StageHead } from "./StageHead.js";
 import { StaleLink } from "./StaleLink.js";
 import { Thread } from "./Thread.js";
@@ -63,6 +64,7 @@ export function App() {
   const [artifact, setArtifact] = useState<ArtifactRef | null>(null);
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   // A copy of the cockpit on static hosting opens knowing nothing about any
@@ -304,6 +306,8 @@ export function App() {
               send={null}
               inputRef={input}
               error={error}
+              model={row?.model}
+              onChangeModel={() => setModelOpen(true)}
             />
           </footer>
         </section>
@@ -350,6 +354,18 @@ export function App() {
         onClose={endpoint() === null ? null : () => setSetupOpen(false)}
       />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      {/* Only ever for a specialist that exists. The roster carries the new
+          model back, so nothing is held here that the daemon has not agreed
+          to. */}
+      {row && (
+        <ModelDialog
+          open={modelOpen}
+          current={row.model ?? ""}
+          sessionId={row.id}
+          onClose={() => setModelOpen(false)}
+        />
+      )}
     </BenchProvider>
   );
 }

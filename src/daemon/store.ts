@@ -159,6 +159,23 @@ export class SessionStore {
     });
   }
 
+  /**
+   * What it runs on, changed after it was made.
+   *
+   * Written rather than held in memory because the model is what a revived
+   * specialist is spawned with: a change that did not survive a restart would
+   * quietly put the specialist back on the model you moved it off.
+   */
+  async remodel(id: string, model: string): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.model = model;
+      await this.write(all);
+    });
+  }
+
   /** What it is called, which is not what its branch is called. */
   async rename(id: string, label: string): Promise<void> {
     return this.change(async () => {

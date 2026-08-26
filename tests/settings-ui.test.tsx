@@ -22,8 +22,10 @@ afterEach(() => {
 const saved = () => ui.sent.find((s) => s.url.endsWith("/api/settings"));
 const framing = () => ui.$("#s-framing")!.textContent ?? "";
 
-async function open(settings?: { codingStyle: string; workflowRules: string }): Promise<void> {
-  ui = await bootCockpit({ rows: [row()], settings });
+import { Settings } from "../src/shared/settings.js";
+
+async function open(settings?: Partial<Settings>): Promise<void> {
+  ui = await bootCockpit({ rows: [row()], settings: { codingStyle: "", workflowRules: "", ...settings } });
   await ui.click(ui.$("#open-settings"));
   await waitFor(() => ui.$("#s-style"), "the rules page");
 }

@@ -203,13 +203,25 @@ describe("what kind of agent it opens", () => {
 });
 
 describe("which model a specialist runs on", () => {
-  it("offers every model the CLI takes, not two of them", async () => {
+  it("opens the model modal rather than a dropdown", async () => {
+    // There are several hundred models once OpenRouter is in the list, and
+    // they differ in who bills you and how much they hold. None of that fits
+    // in an <option>.
     const ui = await bootCockpit({ rows: [] });
     await ui.click(ui.$("#new-session"));
     await waitFor(() => ui.$("#f-model"), "the dialog");
 
-    expect(ui.$$("#f-model option").map((o) => o.getAttribute("value")))
-      .toEqual(["opus", "sonnet", "fable", "haiku"]);
+    expect(ui.$("#f-model")!.tagName).toBe("BUTTON");
+    expect(ui.$("#f-model")!.textContent).toBe("Opus 5");
+    ui.unmount();
+  });
+
+  it("starts on Opus, and says nothing about billing for it", async () => {
+    const ui = await bootCockpit({ rows: [] });
+    await ui.click(ui.$("#new-session"));
+    await waitFor(() => ui.$("#f-model"), "the dialog");
+
+    expect(ui.$("#f-model-note")).toBe(null);
     ui.unmount();
   });
 });

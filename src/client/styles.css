@@ -1308,6 +1308,91 @@ button, input, textarea, select { font: inherit; color: inherit; }
   color: var(--muted);
 }
 
+/* What this specialist runs on, at the end of the hint line and before the
+   usage mark. Quiet until you go looking for it: it is a fact you check
+   rather than a control you reach for, and it sits beside a hint that has to
+   stay the loudest thing down here. */
+#composer-model {
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  padding: 2px 6px;
+  font: 400 10px/1.4 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  cursor: pointer;
+}
+#composer-model:hover,
+#composer-model:focus-visible {
+  border-color: var(--line-firm);
+  color: var(--text);
+}
+
+/* ── The model modal ─────────────────────────────────────────────────
+
+   One house per block. The gap between blocks is the point: two models from
+   different providers are not two items on one list, they are two different
+   arrangements with two different things that can be missing. */
+
+#model-dialog { padding: 20px; gap: 0; }
+#model-dialog h2 { margin: 0 0 4px; }
+#model-dialog-note { margin: 0 0 16px; }
+
+.model-house + .model-house { margin-top: 18px; }
+.model-house h3 {
+  margin: 0;
+  font: 600 11px/1.4 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.model-house .field-note { margin: 3px 0 8px; }
+
+.model-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 6px;
+}
+
+.model-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.model-option b { font: 600 13px/1.3 var(--sans); }
+.model-option span {
+  font: 400 10px/1.3 var(--mono);
+  letter-spacing: 0.03em;
+  color: var(--faint);
+}
+.model-option:hover:not(:disabled),
+.model-option:focus-visible { border-color: var(--line-firm); }
+
+/* The one it is already on. Marked rather than hidden - a modal that drops
+   the current answer makes you work out what you would be changing from. */
+.model-option[data-current="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.model-option[data-current="true"] b::after {
+  content: " ·  now";
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.04em;
+}
+
+/* Shown and unavailable, never omitted: "you could run this, here is what it
+   needs" beats a list that quietly leaves out half the bench. */
+.model-option:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* ── Sheets: the new specialist dialog and the house rules ──────────── */
 
 .sheet {

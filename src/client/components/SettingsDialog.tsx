@@ -6,6 +6,7 @@ import { ServerLocation } from "./ServerLocation.js";
 import { HiddenProjects } from "./HiddenProjects.js";
 import { ThemePicker } from "./ThemePicker.js";
 import { AnthropicKey } from "./AnthropicKey.js";
+import { OpenRouterKey } from "./OpenRouterKey.js";
 
 const PLACEHOLDER = {
   codingStyle:
@@ -112,6 +113,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         />
 
         <AnthropicKey open={open} />
+
+        <OpenRouterKey open={open} />
 
         <ThemePicker />
 
