@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, writeFile, chmod, readdir, readFile } from "node:fs/pro
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readParked } from "../src/daemon/key-park.js";
+import { waitFor } from "./helpers/wait-for.js";
 import { SessionRegistry } from "../src/daemon/registry.js";
 import { SessionStore } from "../src/daemon/store.js";
 import { readThread } from "../src/daemon/thread.js";
@@ -905,6 +907,72 @@ describe("the developer's own API key", () => {
       registry.setApiKey("sk-ant-api03-typed-over-the-file-9999");
       expect(registry.apiKeyState().origin).toBe("typed here");
       expect(registry.getApiKey()).toBe("sk-ant-api03-typed-over-the-file-9999");
+    });
+
+    /**
+     * The switch is the developer saying where their money goes. A daemon
+     * restart is not them changing their mind.
+     */
+    describe("the parked switch, across a restart", () => {
+      it("comes back parked when it was left parked", async () => {
+        const { home, config } = await setup();
+        const credentials = {
+          anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
+          router: null,
+          searched: ["/w/.env"],
+        };
+
+        const before = new SessionRegistry({ ...config, credentials } as any);
+        before.setApiKeyEnabled(false);
+        // The write is fire-and-forget, so wait for it to land.
+        await waitFor(() => readParked(home) === true, "the flag to be written down");
+
+        // What loadConfig() would hand the next daemon.
+        const after = new SessionRegistry({
+          ...config, credentials, apiKeyParked: readParked(home),
+        } as any);
+
+        expect(after.apiKeyState().present).toBe(true);
+        expect(after.apiKeyState().enabled).toBe(false);
+        // The whole point: it is not being spent.
+        expect(after.getApiKey()).toBeNull();
+      });
+
+      it("comes back in use when it was left in use", async () => {
+        const { home, config } = await setup();
+        const registry = new SessionRegistry({ ...config } as any);
+
+        registry.setApiKeyEnabled(false);
+        await waitFor(() => readParked(home) === true, "the flag to be written down");
+        registry.setApiKeyEnabled(true);
+        await waitFor(() => (readParked(home) === false ? "written" : null), "the flag to be written down");
+
+        expect(readParked(home)).toBe(false);
+      });
+
+      it("un-parks itself when a new key is typed in", async () => {
+        // Saving a key is asking for it to be used. Finding the one you just
+        // typed switched off is a fault you go looking for.
+        const { home, config } = await setup();
+        const registry = new SessionRegistry({ ...config, apiKeyParked: true } as any);
+        expect(registry.apiKeyState().enabled).toBe(false);
+
+        registry.setApiKey(KEY);
+
+        expect(registry.getApiKey()).toBe(KEY);
+        await waitFor(() => (readParked(home) === false ? "written" : null), "the flag to be written down");
+      });
+
+      it("un-parks itself when the key is thrown away", async () => {
+        // Removing a key is not parking one. The next key given to this bench
+        // is one the developer wants spent.
+        const { home, config } = await setup();
+        const registry = new SessionRegistry({ ...config, apiKeyParked: true } as any);
+
+        registry.clearApiKey();
+
+        await waitFor(() => (readParked(home) === false ? "written" : null), "the flag to be written down");
+      });
     });
 
     it("stays gone when a found key is removed, rather than reappearing", async () => {

@@ -144,7 +144,10 @@ of your file goes nowhere.
 One consequence worth knowing: an `ANTHROPIC_API_KEY` sitting in a `.env`
 overrides this machine's claude.ai login, which moves the spend from a
 subscription you have already paid for onto the API, and turns off claude.ai
-connectors. The switch in Settings parks it if that is not what you wanted.
+connectors. The switch in Settings parks it if that is not what you wanted,
+and the switch is remembered — a key parked on Friday is still parked on
+Monday. Only the flag is written down, in `~/.bench/keys.json`; the key is
+not.
 
 ### Running a specialist on something other than Claude
 

@@ -1,6 +1,6 @@
 # Bench — where it stands
 
-Last updated 2026-08-26. 1035 tests passing, 2 end-to-end suites run
+Last updated 2026-08-26. 1044 tests passing, 2 end-to-end suites run
 separately against the real CLI.
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
@@ -120,6 +120,16 @@ assert the URL the CLI actually resolves.
 and `limit` fields — could previously only be read from a stub. That one turn
 moved the meter from `$0.00` to `$0.0045`, which is the field coming from
 OpenRouter rather than from a fixture.
+
+**The parked switch, across a restart.** The switch beside the Anthropic key
+means "bill this to the login this machine already has". It lasted exactly as
+long as the daemon, which was harmless while the key was forgotten at the same
+moment — a bench with no key has nothing to park. Reading keys from a `.env`
+broke that: the key came back and the decision not to spend it did not, so a
+parked key was quietly billing the API again after a restart. The flag is now
+written to `~/.bench/keys.json` — the flag only, never the key. Verified by
+parking a key, restarting the daemon, and finding it still parked; and the
+other way round.
 
 **Keys Bench finds for itself.** Both keys are read at startup from the
 environment or a `.env`, and reported with where they came from. Verified by

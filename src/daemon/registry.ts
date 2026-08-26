@@ -20,6 +20,7 @@ import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } f
 import { keyHint } from "./anthropic-key.js";
 import { catalogue, isOpenRouterModel, type Listed } from "./openrouter.js";
 import { describeOrigin, type Origin } from "./env-file.js";
+import { writeParked } from "./key-park.js";
 import { isModelId, modelLabel } from "../shared/models.js";
 import type { RosterRow, SessionStatus } from "../shared/types.js";
 
@@ -109,6 +110,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // by loadConfig(), which is the file allowed to read the world - so a
     // registry built for a test finds nothing, rather than whatever happens
     // to be exported on the machine running it.
+    // The developer's own answer to "should this key be spent", from the last
+    // time they gave one. Read before the key, so a key that arrives parked
+    // is never briefly live.
+    this.apiKeyOn = config.apiKeyParked !== true;
+
     const found = config.credentials;
     if (found === undefined) return;
     this.envSearched = found.searched;
@@ -182,12 +188,22 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // Typed now beats written down earlier, for as long as this daemon runs.
     this.apiKeyOrigin = { from: "settings" };
     // Saving a key is asking for it to be used. Inheriting "off" from the key
-    // it replaced would be a key that quietly does nothing.
+    // it replaced would be a key that quietly does nothing - and that answer
+    // has to be written down too, or the next restart parks a key the
+    // developer just went to the trouble of typing.
     this.apiKeyOn = true;
+    this.rememberParked(false);
   }
 
+  /**
+   * Park the key, or take it out of the car park.
+   *
+   * Written down, because this is the developer saying where their money
+   * goes and a daemon restart is not them changing their mind.
+   */
   setApiKeyEnabled(on: boolean): void {
     this.apiKeyOn = on;
+    this.rememberParked(!on);
   }
 
   /** What may be said about the OpenRouter key: that there is one, and which
@@ -227,11 +243,19 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     this.routerKeyOrigin = { from: "settings" };
   }
 
-  /** Let go of the Anthropic key, on the same terms. */
+  /**
+   * Let go of the Anthropic key, on the same terms.
+   *
+   * Throwing a key away is not the same as parking one, so the switch goes
+   * back on: the next key the developer gives this bench is one they want
+   * spent, and finding it arrived switched off would be a fault they go
+   * looking for.
+   */
   clearApiKey(): void {
     this.apiKey = null;
     this.apiKeyOrigin = { from: "settings" };
     this.apiKeyOn = true;
+    this.rememberParked(false);
   }
 
   async saveSettings(input: unknown): Promise<Settings> {
@@ -255,6 +279,23 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   private remember(work: Promise<unknown>): void {
     void work.catch((error) => {
       process.stderr.write(`bench: could not update the specialist index: ${String(error)}\n`);
+    });
+  }
+
+  /**
+   * Write the parked flag down, and say so if it cannot be.
+   *
+   * Its own reporter rather than `remember`, because that one names the
+   * specialist index and a developer reading "could not update the specialist
+   * index" after touching the key switch would go looking in the wrong place.
+   * The switch still works for this daemon either way; what is lost is only
+   * that the next one will not know.
+   */
+  private rememberParked(parked: boolean): void {
+    void writeParked(this.config.home, parked).catch((error) => {
+      process.stderr.write(
+        `bench: could not write down whether the key is parked, so a restart will forget: ${String(error)}\n`,
+      );
     });
   }
 
