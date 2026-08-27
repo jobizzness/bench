@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Spend } from "../shared/types.js";
+import type { NudgeState } from "../shared/nudge.js";
 
 /**
  * The index is on disk but unreadable. Thrown rather than swallowed: every
@@ -36,6 +37,11 @@ export interface SessionRecord {
   /** What it has cost so far. Kept on disk because it is cumulative: held in
    * memory only, a restart would report every specialist as free. */
   spend?: Spend;
+  /** The worst context tone, and whether the spend threshold, this
+   * specialist has already been told about. Kept on disk so a restart does
+   * not repeat a nudge that was already given - the whole point of only
+   * saying it once. */
+  nudged?: NudgeState;
   project: string;
   worktree: string;
   /** Recorded rather than derived: the branch name is not recoverable from
@@ -196,6 +202,18 @@ export class SessionStore {
       const record = all.find((r) => r.id === id);
       if (!record) return;
       record.answeredBy = answeredBy;
+      await this.write(all);
+    });
+  }
+
+  /** What this specialist has already been told about its own context and
+   * spend, so a restart does not say it again. */
+  async rememberNudged(id: string, nudged: NudgeState): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.nudged = nudged;
       await this.write(all);
     });
   }

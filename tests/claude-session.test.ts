@@ -284,6 +284,26 @@ describe("ClaudeSession", () => {
     session.stop();
   });
 
+  it("carries a context/spend nudge into the turn it is given for", async () => {
+    // Read per turn, the same as rules - the fact it reports only exists
+    // once the specialist is already running.
+    let nudge = "";
+    const session = await makeSession(FAKE_CLI, { nudge: () => nudge });
+    session.open();
+
+    session.send("first");
+    const [before] = await once(session, "turn-end");
+    expect(before.result).not.toContain("context is");
+
+    nudge = "[bench] Your context is 90% full.";
+    session.send("second");
+    const [after] = await once(session, "turn-end");
+
+    expect(after.result).toContain("context is 90% full");
+    expect(after.result.indexOf("context is 90%")).toBeLessThan(after.result.indexOf("second"));
+    session.stop();
+  });
+
   it("increments the turn counter across turns", async () => {
     const session = await makeSession();
     session.open();

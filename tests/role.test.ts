@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { ClaudeSession } from "../src/daemon/claude-session.js";
-import { ROLES, ROLE_BRIEF, ROLE_NOTE, DEFAULT_ROLE } from "../src/shared/roles.js";
+import { ROLES, ROLE_BRIEF, ROLE_NOTE, COST_AWARENESS_BRIEF, DEFAULT_ROLE } from "../src/shared/roles.js";
 
 /**
  * An agent knowing what it is.
@@ -71,7 +71,8 @@ async function toldItIs(over: Record<string, unknown>): Promise<string> {
 
 describe("what the agent is told it is", () => {
   it("hands a reviewer the reviewer's brief", async () => {
-    expect(await toldItIs({ role: "reviewer" })).toBe(ROLE_BRIEF.reviewer);
+    expect(await toldItIs({ role: "reviewer" }))
+      .toBe(`${ROLE_BRIEF.reviewer}\n\n${COST_AWARENESS_BRIEF}`);
   });
 
   it("gives each role a different brief", async () => {
@@ -85,7 +86,7 @@ describe("what the agent is told it is", () => {
     // Every record written before roles existed has no role, and so does an
     // older client. Those are specialists, which is what they have been all
     // along.
-    expect(await toldItIs({})).toBe(ROLE_BRIEF[DEFAULT_ROLE]);
+    expect(await toldItIs({})).toBe(`${ROLE_BRIEF[DEFAULT_ROLE]}\n\n${COST_AWARENESS_BRIEF}`);
   });
 
   it("says it once at spawn rather than on every turn", async () => {
@@ -96,7 +97,7 @@ describe("what the agent is told it is", () => {
     const session = await makeQuiet("planner");
     expect(session.args).toContain("--append-system-prompt");
     expect(session.args[session.args.indexOf("--append-system-prompt") + 1])
-      .toBe(ROLE_BRIEF.planner);
+      .toBe(`${ROLE_BRIEF.planner}\n\n${COST_AWARENESS_BRIEF}`);
   });
 });
 

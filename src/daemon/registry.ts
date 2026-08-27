@@ -29,6 +29,7 @@ import { costFrom, shapeFrom } from "./stream-codec.js";
 import type { ResultEvent } from "./stream-codec.js";
 import { TurnLog } from "./turns.js";
 import { Ledger, type Total } from "./ledger.js";
+import { nudgeFor, type NudgeState } from "../shared/nudge.js";
 
 interface Entry {
   row: RosterRow;
@@ -63,6 +64,11 @@ interface Entry {
   createdBy: string | null;
   /** What an agent told this tab, waiting on the developer to dispatch it. */
   pendingDispatch: string | null;
+  /** The worst context tone, and whether the spend threshold, this
+   * specialist has already been told about. Not on the row: the developer
+   * already sees the numbers themselves on the roster, this is only bench's
+   * own memory of what the agent has been told. */
+  nudged: NudgeState;
 }
 
 export class SessionRegistry extends EventEmitter implements SessionRegistryLike {
@@ -598,6 +604,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // gone too.
         createdBy: null,
         pendingDispatch: null,
+        nudged: rec.nudged ?? {},
         row: {
           id: rec.id,
           label: rec.label,
@@ -687,6 +694,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       claudeBin: this.config.claudeBin,
       startTurn: opts.startTurn,
       rules: () => houseRules(this.settings),
+      nudge: () => this.nudgeTextFor(id),
       // Through the getter, not off the field: a parked key must reach the
       // process as no key at all, or the switch in Settings is a control
       // that moves and changes nothing.
@@ -877,6 +885,27 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     return session;
   }
 
+  /**
+   * What to tell this specialist about its own context and spend this turn,
+   * if anything - and remember that it was told, so the same crossing is not
+   * repeated on turn forty.
+   *
+   * Read at dispatch time off the row, not the session: the row already
+   * carries the context and spend as of the last turn that finished, which is
+   * exactly what the next turn's framing should be reacting to.
+   */
+  private nudgeTextFor(id: string): string {
+    const entry = this.entries.get(id);
+    if (!entry) return "";
+
+    const result = nudgeFor(entry.row.context, entry.row.spend, entry.nudged);
+    if (!result) return "";
+
+    entry.nudged = result.state;
+    this.remember(this.store.rememberNudged(id, result.state));
+    return result.text;
+  }
+
   async create(input: {
     project: string;
     label: string;
@@ -919,6 +948,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       port: 0,
       createdBy: input.createdBy ?? null,
       pendingDispatch: null,
+      nudged: {},
       row: {
         id,
         label: input.label,

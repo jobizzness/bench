@@ -10,7 +10,7 @@ import type { Context } from "../shared/context-window.js";
 import { buildSettings } from "./gates/settings.js";
 import { credentialEnv } from "./anthropic-key.js";
 import { sessionEnv as openRouterEnv } from "./openrouter.js";
-import { ROLE_BRIEF, DEFAULT_ROLE, type Role } from "../shared/roles.js";
+import { ROLE_BRIEF, COST_AWARENESS_BRIEF, DEFAULT_ROLE, type Role } from "../shared/roles.js";
 
 /** Enough for a refusal and a stack trace, not enough to hold a log file. */
 const STDERR_KEPT = 4000;
@@ -47,6 +47,14 @@ export interface SessionOptions {
    * running, and the framing is the only thing said again each turn.
    */
   rules?: () => string;
+  /**
+   * What to tell this specialist about its own context and spend this turn,
+   * if anything. Read fresh per turn like `rules`, for the same reason: the
+   * fact this reports - a conversation getting full, a bill getting large -
+   * only exists once the specialist is already running, so it cannot live in
+   * the system prompt fixed at spawn. Empty on almost every turn.
+   */
+  nudge?: () => string;
   /**
    * The developer's own Anthropic key, if the cockpit has one. Read at spawn
    * rather than captured: env is fixed for the life of a process, so a key
@@ -197,7 +205,8 @@ export class ClaudeSession extends EventEmitter {
       // the framing instead because those are read fresh each turn - a rule
       // saved now has to reach a specialist already running, and a role
       // cannot change without a restart anyway.
-      "--append-system-prompt", ROLE_BRIEF[this.opts.role ?? DEFAULT_ROLE],
+      "--append-system-prompt",
+      `${ROLE_BRIEF[this.opts.role ?? DEFAULT_ROLE]}\n\n${COST_AWARENESS_BRIEF}`,
       // The reports directory lives with the project, not inside the
       // worktree, so it outlives a worktree that gets removed. Without this
       // it is simply outside the workspace and every write to it is refused.
@@ -332,10 +341,14 @@ export class ClaudeSession extends EventEmitter {
   private framed(text: string, turn: number): string {
     const dir = join(this.opts.reportsDir, String(turn));
     const rules = this.opts.rules?.() ?? "";
-    // House rules sit between the mechanics and the ask: standing instructions
-    // first, then what is wanted now, so the nearest thing to the prompt is
-    // the prompt.
-    const standing = rules === "" ? "" : `${rules}\n\n`;
+    const nudge = this.opts.nudge?.() ?? "";
+    // House rules and the context/spend nudge sit between the mechanics and
+    // the ask: standing instructions first, then what is wanted now, so the
+    // nearest thing to the prompt is the prompt. The nudge comes after rules
+    // rather than before - it is fresher and rarer, so it belongs closer to
+    // the thing it is actually about to affect.
+    const standing = [rules, nudge].filter((s) => s !== "").join("\n\n");
+    const standingBlock = standing === "" ? "" : `${standing}\n\n`;
     return `[bench] Turn ${turn}. This turn's artifact directory is ${dir}\n` +
       `Write a report there - bench-report skill, report.html and decision.json - ` +
       `when a decision needs the developer, when work is finished and they need ` +
@@ -346,7 +359,7 @@ export class ClaudeSession extends EventEmitter {
       `If this turn takes more than a couple of steps, keep a checklist at ` +
       `${join(dir, "plan.json")} - {"steps":[{"text":"...","state":"todo|doing|done"}]} - ` +
       `and update it as you go. It is the only way the developer can see where ` +
-      `you have got to while you work.\n\n${standing}${text}`;
+      `you have got to while you work.\n\n${standingBlock}${text}`;
   }
 
   private consume(chunk: string): void {

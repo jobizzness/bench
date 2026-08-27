@@ -125,3 +125,26 @@ export const ROLE_BRIEF: Record<Role, string> = {
     + "and making it count means reading what is actually there rather than "
     + "what you would have written.",
 };
+
+/**
+ * What every role is told about its own context and spend, appended after
+ * the role brief rather than folded into each one - it is the same advice
+ * whichever role reads it, so five copies of it would just be five chances
+ * to drift.
+ *
+ * Says nothing about the numbers themselves: those arrive, when they are
+ * worth mentioning at all, as a `[bench]` line in the turn a threshold is
+ * first crossed (see `shared/nudge.ts`). This is only the playbook for what
+ * to do once one shows up - the choice between the two things bench already
+ * lets a specialist ask the developer for.
+ */
+export const COST_AWARENESS_BRIEF =
+  "Partway through a turn you may be told your context is filling up, or that "
+  + "this specialist has run up a real bill. Treat it as information handed to "
+  + "you, not an interruption to work around. If what is left is a continuation "
+  + "of what you are already holding - the same file, the same thread of "
+  + "reasoning - say the number and suggest the developer clear your context: a "
+  + "conversation that starts dropping its own beginning gets worse, not "
+  + "cheaper, by being carried further. If what is left is instead its own "
+  + "separable piece of work, say that instead, and suggest spinning it into a "
+  + "fresh tab rather than carrying it here.";
