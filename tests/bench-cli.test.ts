@@ -18,7 +18,16 @@ async function fakeDaemon(): Promise<{ url: string; lastBody: () => any; close: 
     req.on("end", () => {
       if (req.url === "/api/roster") {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ rows: [{ id: "sess-parent", label: "parent", project: "proj-1", status: "idle", detail: "" }] }));
+        res.end(JSON.stringify({ rows: [
+          { id: "sess-parent", label: "parent", project: "proj-1", status: "idle", detail: "" },
+          { id: "sess-child", label: "child", project: "proj-1", status: "idle", detail: "" },
+        ] }));
+        return;
+      }
+      if (req.url?.endsWith("/message") && req.method === "POST") {
+        lastBody = JSON.parse(data);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
         return;
       }
       if (req.url === "/api/sessions" && req.method === "POST") {
@@ -41,10 +50,14 @@ async function fakeDaemon(): Promise<{ url: string; lastBody: () => any; close: 
   };
 }
 
-async function runBenchNew(env: Record<string, string | undefined>, args: string[]) {
-  return exec("npx", ["tsx", join(process.cwd(), "src/cli/bench.ts"), "new", ...args], {
+async function runBench(env: Record<string, string | undefined>, args: string[]) {
+  return exec("npx", ["tsx", join(process.cwd(), "src/cli/bench.ts"), ...args], {
     env: { ...process.env, ...env },
   });
+}
+
+async function runBenchNew(env: Record<string, string | undefined>, args: string[]) {
+  return runBench(env, ["new", ...args]);
 }
 
 describe("bench new", () => {
@@ -92,5 +105,25 @@ describe("bench new", () => {
     );
 
     expect(daemon.lastBody().createdBy).toBe("sess-parent");
+  });
+});
+
+describe("bench tell", () => {
+  let daemon: Awaited<ReturnType<typeof fakeDaemon>>;
+
+  afterEach(async () => {
+    await daemon?.close();
+  });
+
+  it("says which specialist is talking, so the message can be held for review", async () => {
+    // Without this the daemon cannot tell an agent's `bench tell` from the
+    // developer typing in the cockpit, and holds both.
+    daemon = await fakeDaemon();
+    await runBench(
+      { BENCH_URL: daemon.url, BENCH_TOKEN: "tok", BENCH_SESSION_ID: "sess-parent" },
+      ["tell", "child", "build the thing"],
+    );
+
+    expect(daemon.lastBody()).toMatchObject({ text: "build the thing", from: "sess-parent" });
   });
 });

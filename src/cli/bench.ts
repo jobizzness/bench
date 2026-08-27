@@ -153,7 +153,10 @@ async function main(): Promise<void> {
 
     await call(`/api/sessions/${target.id}/message`, {
       method: "POST",
-      body: JSON.stringify({ text }),
+      // Said by a specialist, not typed by the developer. A tab this one
+      // opened holds its first message for the developer to read before it
+      // runs, and this is how the daemon can tell the two apart.
+      body: JSON.stringify({ text, from: process.env.BENCH_SESSION_ID }),
     });
     process.stderr.write(`bench: told ${target.label}.\n`);
     return;

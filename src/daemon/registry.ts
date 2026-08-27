@@ -558,7 +558,16 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         entry.stopping = false;
         const because = entry.stoppedBecause ?? "stopped by you";
         entry.stoppedBecause = undefined;
-        this.update(id, "awaiting_decision", because);
+        // Still holding a message nobody has sent yet, so that is still what
+        // it is waiting on. Changing the model is the main thing the dispatch
+        // modal is for and it stops the process to do it - landing on
+        // "awaiting_decision" here took the held prompt off the roster
+        // mid-choice, leaving no way to send or decline it.
+        this.update(
+          id,
+          entry.pendingDispatch !== null ? "awaiting_dispatch" : "awaiting_decision",
+          entry.pendingDispatch !== null ? "waiting on you to dispatch" : because,
+        );
         return;
       }
 
@@ -779,7 +788,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     });
   }
 
-  send(id: string, text: string): void {
+  /**
+   * @param from The specialist that sent this, when one did. Absent means the
+   * developer, typing in the cockpit - and what the developer types is never
+   * held back from the specialist they typed it to.
+   */
+  send(id: string, text: string, from?: string): void {
     const entry = this.entries.get(id);
     if (!entry) return;
 
@@ -790,7 +804,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // live right after create()/restore(); once a session is running, its
     // own counter is the true one, which is why both are checked.
     const neverDispatched = (entry.session?.turn ?? entry.turnsTaken) === 0;
-    if (entry.createdBy !== null && neverDispatched) {
+    if (from !== undefined && entry.createdBy !== null && neverDispatched) {
       entry.pendingDispatch = text;
       entry.row.pendingPrompt = text;
       this.update(id, "awaiting_dispatch", "waiting on you to dispatch");

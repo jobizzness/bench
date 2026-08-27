@@ -35,6 +35,7 @@ import { useGithub } from "./useGithub.js";
 import { useQueue } from "./useQueue.js";
 import { useSessionPlan } from "./useSessionPlan.js";
 import { useDecisionKeys } from "./useDecisionKeys.js";
+import { useHandoff } from "./useHandoff.js";
 import { useRoster } from "./useRoster.js";
 import { useSelection } from "./useSelection.js";
 import { threadSignature, useThread } from "./useThread.js";
@@ -66,7 +67,6 @@ export function App() {
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
-  const [dispatchOpen, setDispatchOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   // A copy of the cockpit on static hosting opens knowing nothing about any
@@ -104,13 +104,10 @@ export function App() {
 
   useEffect(() => { if (live === true) everConnected.current = true; }, [live]);
 
-  // Nothing else worth showing exists yet for a tab that has taken no turn,
-  // so selecting one held on another specialist's message is the moment to
-  // read it. Keyed on the row rather than a click: dismissing it stays
-  // dismissed until you leave and come back to it.
-  useEffect(() => {
-    if (row?.status === "awaiting_dispatch") setDispatchOpen(true);
-  }, [row?.id, row?.status]);
+  // A specialist handing work to a tab it just opened does it while you are
+  // reading that specialist, so that is where the hand-off is put in front of
+  // you - not only on the new tab, which nobody would think to click.
+  const handoff = useHandoff(rows, selectedId);
 
   // Silence from a daemon that has answered before is a restart, and the
   // banner says so. Silence from one that has never answered is usually the
@@ -382,9 +379,13 @@ export function App() {
         />
       )}
       <DispatchModal
-        open={dispatchOpen}
-        row={row?.status === "awaiting_dispatch" ? row : null}
-        onClose={() => setDispatchOpen(false)}
+        open={handoff.open}
+        row={handoff.held}
+        onClose={handoff.close}
+        // The hand-off stays up underneath: adding a key is an errand, and
+        // what you were doing when you left for it is still what you came
+        // here to do.
+        onNeedKey={() => setSettingsOpen(true)}
       />
     </BenchProvider>
   );

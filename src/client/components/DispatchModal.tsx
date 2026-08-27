@@ -14,28 +14,36 @@ import { ModelDialog } from "./ModelDialog.js";
  * one button that lets it go.
  *
  * Opens itself, driven by the row rather than a click: there is nothing else
- * to show yet for a tab that has taken no turn, so selecting it and reading
- * this are the same action. Declining does not close the tab - only the
+ * to show yet for a tab that has taken no turn, so the hand-off arriving and
+ * reading it are the same moment. Declining does not close the tab - only the
  * developer can do that, with the row's own × - it just empties the tab back
  * out, exactly as if `bench tell` had never reached it.
  */
-export function DispatchModal({ open, row, onClose }: {
+export function DispatchModal({ open, row, onClose, onNeedKey }: {
   open: boolean;
   row: RosterRow | null;
   onClose: () => void;
+  /** Take the developer to where an OpenRouter key is set, since the picker
+   * inside this one is otherwise a catalogue with every row disabled. */
+  onNeedKey?: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [modelOpen, setModelOpen] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Keyed on which tab is being handed work, never on the row object: the
+  // roster is pushed whole every time any specialist so much as writes a
+  // line, so a dependency on the row itself ran this on every push - and
+  // showModal() on a dialog that is already showing throws, taking the page
+  // down while the developer was in the middle of choosing a model.
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
     if (!open || !row) { if (dialog.open) dialog.close?.(); return; }
     setError("");
-    dialog.showModal?.();
-  }, [open, row]);
+    if (!dialog.open) dialog.showModal?.();
+  }, [open, row?.id]);
 
   if (!row) return null;
 
@@ -72,14 +80,6 @@ export function DispatchModal({ open, row, onClose }: {
           {modelLabel(row.model)}
         </button>
 
-        <ModelDialog
-          id="dispatch-model-dialog"
-          open={modelOpen}
-          current={row.model}
-          sessionId={row.id}
-          onClose={() => setModelOpen(false)}
-        />
-
         {error && <p id="dispatch-modal-error" className="error">{error}</p>}
 
         <div className="actions">
@@ -91,6 +91,19 @@ export function DispatchModal({ open, row, onClose }: {
           </button>
         </div>
       </form>
+
+      {/* Outside the form, deliberately. The picker has a search box in it,
+          and Enter in a text field submits the form it sits in - so a
+          developer typing "flash" and pressing Enter dispatched the agent on
+          the model they were busy replacing. */}
+      <ModelDialog
+        id="dispatch-model-dialog"
+        open={modelOpen}
+        current={row.model}
+        sessionId={row.id}
+        onClose={() => setModelOpen(false)}
+        {...(onNeedKey ? { onNeedKey: () => { setModelOpen(false); onNeedKey(); } } : {})}
+      />
     </dialog>
   );
 }

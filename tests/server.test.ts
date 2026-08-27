@@ -50,7 +50,7 @@ class StubRegistry extends EventEmitter {
       ? { reportsDir: this.reportsDir, threadPath: this.threadPathValue, alive: this.aliveValue, revivable: this.revivableValue }
       : null;
   }
-  send(id: string, text: string) { this.sent.push({ id, text }); }
+  send(id: string, text: string, from?: string) { this.sent.push({ id, text, from }); }
   closed: Array<{ id: string; force: boolean }> = [];
   closeResult: any = { closed: true, changes: 0, unmergedCommits: 0 };
   async close(id: string, opts: any = {}) {
@@ -483,7 +483,7 @@ describe("POST /api/sessions/:id/message", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(registry.sent.at(-1)).toEqual({ id: "s1", text: "why zod?" });
+    expect(registry.sent.at(-1)).toEqual({ id: "s1", text: "why zod?", from: undefined });
   });
 
   it("accepts a message for a cold specialist that can be revived", async () => {
@@ -497,9 +497,22 @@ describe("POST /api/sessions/:id/message", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(registry.sent.at(-1)).toEqual({ id: "s1", text: "carry on" });
+    expect(registry.sent.at(-1)).toEqual({ id: "s1", text: "carry on", from: undefined });
     registry.aliveValue = true;
     registry.revivableValue = false;
+  });
+
+  it("says who sent it, when a specialist did", async () => {
+    // `bench tell` names itself; the cockpit's composer does not. What the
+    // daemon does with the difference is hold the message or deliver it.
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "build the thing", from: "sess-parent" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.sent.at(-1)).toEqual({ id: "s1", text: "build the thing", from: "sess-parent" });
   });
 
   it("400s on an empty message", async () => {

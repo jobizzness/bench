@@ -47,7 +47,7 @@ export interface SessionRegistryLike {
   modelFor(role: Role): string;
   typicalTurn(): Promise<{ shape: TurnShape | null; turns: number }>;
   get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null;
-  send(id: string, text: string): void;
+  send(id: string, text: string, from?: string): void;
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
   stop(id: string): void;
   clearContext(id: string): boolean;
@@ -634,7 +634,14 @@ export function createServer(opts: {
         return;
       }
 
-      registry.send(message[1], text);
+      // Who is talking. `bench tell` sends its own session id; the cockpit's
+      // composer sends nothing, and that difference is the whole of what
+      // decides whether the message is held for the developer to read - see
+      // registry.send(). Without it, the developer's own first message to a
+      // spawned tab came back at them as something to dispatch.
+      const from = typeof body.from === "string" && body.from !== "" ? body.from : undefined;
+
+      registry.send(message[1], text, from);
       json(res, 200, { ok: true });
       return;
     }

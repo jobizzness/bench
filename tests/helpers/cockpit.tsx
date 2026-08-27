@@ -109,6 +109,13 @@ function polyfillDialogs(): void {
   if (!proto || proto.showModal) return;
 
   proto.showModal = function showModal(this: HTMLDialogElement) {
+    // As the spec has it, and not a detail: showModal() on a dialog that is
+    // already showing throws, so a component that reopens itself on every
+    // roster push takes the page down with it. A polyfill that quietly
+    // re-set the attribute made that bug invisible here.
+    if (this.hasAttribute("open")) {
+      throw new DOMException("dialog is already open", "InvalidStateError");
+    }
     this.setAttribute("open", "");
   };
   proto.close = function close(this: HTMLDialogElement) {

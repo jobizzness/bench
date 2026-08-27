@@ -1063,7 +1063,7 @@ describe("a tab another specialist spins up", () => {
     const { project, registry } = await setupForCreate();
     const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
 
-    registry.send(id, "build the thing");
+    registry.send(id, "build the thing", "sess-parent");
 
     const row = rowOf(registry, id);
     expect(row.status).toBe("awaiting_dispatch");
@@ -1087,8 +1087,8 @@ describe("a tab another specialist spins up", () => {
     const { project, registry } = await setupForCreate();
     const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
 
-    registry.send(id, "first");
-    registry.send(id, "second");
+    registry.send(id, "first", "sess-parent");
+    registry.send(id, "second", "sess-parent");
 
     expect(rowOf(registry, id).pendingPrompt).toBe("second");
   });
@@ -1096,7 +1096,7 @@ describe("a tab another specialist spins up", () => {
   it("dispatches the held message on request", async () => {
     const { project, registry } = await setupForCreate();
     const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
-    registry.send(id, "build the thing");
+    registry.send(id, "build the thing", "sess-parent");
 
     await registry.dispatch(id);
 
@@ -1115,7 +1115,7 @@ describe("a tab another specialist spins up", () => {
   it("declines the held message, leaving the tab as if it were never told", async () => {
     const { project, registry } = await setupForCreate();
     const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
-    registry.send(id, "build the thing");
+    registry.send(id, "build the thing", "sess-parent");
 
     registry.decline(id);
 
@@ -1124,13 +1124,69 @@ describe("a tab another specialist spins up", () => {
     expect(row.pendingPrompt).toBeNull();
   });
 
+  it("does not hold what the developer typed themselves", async () => {
+    // The cockpit's composer sends no `from`, and holding the developer's own
+    // words to hand back to them for dispatch is a loop with nobody in it.
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+
+    registry.send(id, "actually, do this instead");
+
+    const row = rowOf(registry, id);
+    expect(row.status).toBe("working");
+    expect(row.pendingPrompt).toBeNull();
+  });
+
+  it("goes on holding it while the developer moves it onto another model", async () => {
+    // Changing the model lets the idle process go, and the exit used to be
+    // read as an ordinary stop - which took the held prompt off the roster
+    // with the modal still open over it.
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+    registry.send(id, "build the thing", "sess-parent");
+
+    await registry.setModel(id, "haiku");
+    // The process is let go asynchronously, and the exit is where the status
+    // was being overwritten - so waiting on the row's own words would pass
+    // before the thing under test had happened.
+    await waitFor(
+      () => (registry.get(id)!.alive === false ? "gone" : null),
+      "the process it was made with to go",
+    );
+
+    const row = rowOf(registry, id);
+    expect(row.status).toBe("awaiting_dispatch");
+    expect(row.pendingPrompt).toBe("build the thing");
+    expect(row.model).toBe("haiku");
+  });
+
+  it("dispatches onto the model the developer moved it to", async () => {
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+    registry.send(id, "build the thing", "sess-parent");
+    await registry.setModel(id, "haiku");
+    // The process is let go asynchronously, and the exit is where the status
+    // was being overwritten - so waiting on the row's own words would pass
+    // before the thing under test had happened.
+    await waitFor(
+      () => (registry.get(id)!.alive === false ? "gone" : null),
+      "the process it was made with to go",
+    );
+
+    await registry.dispatch(id);
+
+    const row = rowOf(registry, id);
+    expect(row.status).toBe("working");
+    expect(row.pendingPrompt).toBeNull();
+  });
+
   it("does not hold a second message once the tab has taken its first turn", async () => {
     const { project, registry } = await setupForCreate();
     const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
-    registry.send(id, "first");
+    registry.send(id, "first", "sess-parent");
     await registry.dispatch(id);
 
-    registry.send(id, "second");
+    registry.send(id, "second", "sess-parent");
 
     const row = rowOf(registry, id);
     expect(row.status).toBe("working");
