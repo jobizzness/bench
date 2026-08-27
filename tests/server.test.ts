@@ -27,7 +27,7 @@ class StubRegistry extends EventEmitter {
   async typicalTurn() { return this.turnShape; }
   /** What the real registry answers from the role table. The stub only has to
    * be asked, so it says the one thing these tests care about. */
-  modelFor(role: string) { return this.settings.roleModels[role] ?? "openai/gpt-5.1-codex-mini"; }
+  modelFor(role: string) { return this.settings.roleModels[role] ?? "qwen/qwen3-coder-flash"; }
   settings = { codingStyle: "", workflowRules: "", reviewModel: "sonnet", roleModels: {} as Record<string, string> };
   getSettings() { return this.settings; }
   key: string | null = null;

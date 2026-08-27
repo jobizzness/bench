@@ -96,8 +96,8 @@ describe("what each kind of work runs on", () => {
 
     expect(shown("planner")).toBe("Opus 5");
     expect(shown("researcher")).toBe("deepseek-v4-flash");
-    expect(shown("reviewer")).toBe("gpt-5.1-codex-mini");
-    expect(shown("implementer")).toBe("gpt-5.1-codex");
+    expect(shown("reviewer")).toBe("qwen3-coder-flash");
+    expect(shown("implementer")).toBe("kimi-k2.7-code");
     expect(shown("assessor")).toBe("gemini-3.1-pro-preview");
   });
 

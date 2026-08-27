@@ -35,15 +35,20 @@ export const ROLE_MODELS: Record<Role, RoleModel> = {
   // is listed there: routing it would move the spend off a subscription that
   // is already paid for and onto a card.
   planner: { preferred: "opus", direct: "opus", because: "Deciding what to build is the one place to spend the most." },
+  // A model built for code, on the role whose output has to compile. Kimi's
+  // code variant rather than K3 itself: K3 costs more per turn than Sonnet 5
+  // does, which is the exact trap this cockpit exists to show you.
   implementer: {
-    preferred: "openai/gpt-5.1-codex",
+    preferred: "moonshotai/kimi-k2.7-code",
     direct: "sonnet",
-    because: "A coding agent, and this turn has to compile.",
+    because: "Built for writing code, on the one turn that has to compile.",
   },
+  // Also a coding model - reviewing a diff is reading code, not chatting
+  // about it - but the cheap one with a window big enough to hold a branch.
   reviewer: {
-    preferred: "openai/gpt-5.1-codex-mini",
+    preferred: "qwen/qwen3-coder-flash",
     direct: "haiku",
-    because: "Reads a diff and writes a paragraph. A twentieth of an Opus turn.",
+    because: "Reads code for a living, holds a whole branch, and costs a seventh of what it reviews.",
   },
   researcher: {
     preferred: "deepseek/deepseek-v4-flash",

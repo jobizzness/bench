@@ -42,6 +42,13 @@ describe("choosing the model for a role", () => {
       .toBe("deepseek/deepseek-v4-flash");
   });
 
+  it("puts a coding model on both roles that read and write code", () => {
+    // Reviewing a diff is reading code, not chatting about it. The two
+    // differ in what they cost, not in what kind of model they want.
+    expect(modelForRole("implementer", { viaRouter: true })).toContain("code");
+    expect(modelForRole("reviewer", { viaRouter: true })).toContain("coder");
+  });
+
   it("is the developer's own answer when they have given one", () => {
     expect(modelForRole("researcher", { chosen: "haiku", viaRouter: true })).toBe("haiku");
   });
@@ -51,6 +58,14 @@ describe("choosing the model for a role", () => {
     // cent model was unreachable, and saying nothing about it.
     expect(modelForRole("reviewer", { viaRouter: false })).toBe("haiku");
     expect(modelForRole("implementer", { viaRouter: false })).toBe("sonnet");
+  });
+
+  it("never defaults a role to the router that picks for itself", () => {
+    // openrouter/auto has no price until it has chosen, so a role on it could
+    // not be budgeted before a turn or billed after one.
+    for (const role of ROLES) {
+      expect(ROLE_MODELS[role]!.preferred, role).not.toBe("openrouter/auto");
+    }
   });
 
   it("says when that has happened, so the fallback is never silent", () => {

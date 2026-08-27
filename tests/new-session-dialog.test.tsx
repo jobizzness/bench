@@ -244,7 +244,7 @@ describe("the model a role starts on", () => {
     await open();
     await ui.pick(ui.$("#f-role"), "reviewer");
 
-    expect(ui.$("#f-model-why")!.textContent).toContain("Reads a diff");
+    expect(ui.$("#f-model-why")!.textContent).toContain("Reads code for a living");
   });
 
   it("keeps a model you picked when you change the role", async () => {
