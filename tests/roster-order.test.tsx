@@ -45,7 +45,12 @@ const saved = () => JSON.parse(localStorage.getItem(ORDER) ?? "{}");
 async function drag(label: string, to: number): Promise<void> {
   await ui.run(() => {
     ui.$$(".row").forEach((el, i) => {
-      el.getBoundingClientRect = () => ({ top: 100 + i * 40, height: 40 }) as DOMRect;
+      const rect = () => ({ top: 100 + i * 40, height: 40 }) as DOMRect;
+      el.getBoundingClientRect = rect;
+      // The drag hook measures the list item, not the row inside it - see
+      // Row.tsx for why a row and its children are siblings under a shared
+      // <li> rather than the row containing them.
+      (el.parentElement as HTMLElement).getBoundingClientRect = rect;
     });
   });
 
