@@ -91,39 +91,60 @@ describe("what a turn would cost", () => {
     expect(ui.$("#model-dialog-basis")!.textContent).toMatch(/assumed/i);
   });
 
-  it("shows a dash rather than a figure where the price is not quoted", async () => {
+  it("says the price is not quoted rather than drawing a figure", async () => {
     await openPicker({
       ...onSonnet,
       models: [SONNET, model("openrouter/auto", {})],
       turnShape: MINE,
     });
 
-    expect(text("openrouter/auto", ".model-turn")).toBe("—");
+    // Never a nought. A model billed per request drawn as free is the one
+    // mistake this row exists to prevent.
+    expect(text("openrouter/auto", ".model-turn")).toBe("not quoted");
   });
 });
 
 describe("comparing it to what you are on", () => {
-  it("says the multiple against the model the specialist is running", async () => {
+  it("says the comparison in words, where a ratio could be read either way", async () => {
     // The finding this feature exists for: K3 reads as the alternative to
-    // Sonnet and is half again the price of it for the same turn.
+    // Sonnet and is half again the price of it for the same turn. "1.5x"
+    // beside three catalogue rates did not say which way that went.
     await openPicker({ ...onSonnet, models: [SONNET, KIMI], turnShape: MINE });
 
-    expect(text("moonshotai/kimi-k3", ".model-multiple")).toBe("1.5×");
+    expect(text("moonshotai/kimi-k3", ".model-versus")).toBe("1.5× dearer");
   });
 
-  it("says so plainly when there is nothing in it", async () => {
+  it("says which one you are on rather than comparing it to itself", async () => {
     await openPicker({ ...onSonnet, models: [SONNET], turnShape: MINE });
 
-    expect(text("anthropic/claude-sonnet-5", ".model-multiple")).toBe("same");
+    expect(text("anthropic/claude-sonnet-5", ".model-versus")).toBe("what you are on");
   });
 
-  it("marks a model that would actually save something", async () => {
+  it("says cheaper the way a person would say it", async () => {
     await openPicker({ ...onSonnet, models: [SONNET, CHEAP], turnShape: MINE });
 
-    expect(rowFor("moonshotai/kimi-k2.5").querySelector(".model-turn")!
-      .getAttribute("data-cheaper")).toBe("true");
-    expect(rowFor("anthropic/claude-sonnet-5").querySelector(".model-turn")!
-      .getAttribute("data-cheaper")).toBe("false");
+    expect(text("moonshotai/kimi-k2.5", ".model-versus")).toMatch(/cheaper$/);
+  });
+
+  it("keeps the catalogue rates, on the row that quotes them", async () => {
+    // Reference figures, for whoever wants them. Not four numbers on every
+    // row of a list somebody opened to answer one question.
+    await openPicker({ ...onSonnet, models: [SONNET], turnShape: MINE });
+
+    expect(rowFor("anthropic/claude-sonnet-5").getAttribute("title"))
+      .toContain("$2 fresh input");
+  });
+
+  it("marks only what would cost multiples of what you pay now", async () => {
+    // A list that colours every row has no colour left for the one worth
+    // noticing, and cheap is the good case.
+    const dear = model("dear/very", { fresh: 20, cacheRead: 2, out: 100 });
+    await openPicker({ ...onSonnet, models: [SONNET, CHEAP, dear], turnShape: MINE });
+
+    expect(rowFor("dear/very").querySelector(".model-versus")!
+      .getAttribute("data-dear")).toBe("true");
+    expect(rowFor("moonshotai/kimi-k2.5").querySelector(".model-versus")!
+      .getAttribute("data-dear")).toBe("false");
   });
 
   it("compares an Anthropic alias against its own list price", async () => {
@@ -137,7 +158,7 @@ describe("comparing it to what you are on", () => {
       turnShape: MINE,
     });
 
-    expect(text("moonshotai/kimi-k3", ".model-multiple")).toBe("1.5×");
+    expect(text("moonshotai/kimi-k3", ".model-versus")).toBe("1.5× dearer");
   });
 });
 

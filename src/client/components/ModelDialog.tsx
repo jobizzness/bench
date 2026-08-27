@@ -120,12 +120,15 @@ function score(model: Listed, needle: string): number {
  * scanned down a column in a way that cards in a grid cannot.
  */
 export function ModelDialog({
-  open, current, onClose, onPick, onNeedKey, sessionId, id = "model-dialog",
+  open, current, onClose, onPick, onNeedKey, sessionId, standing = false, id = "model-dialog",
 }: {
   open: boolean;
   current: string;
   onClose: () => void;
   onPick?: (model: string) => void;
+  /** Set from Settings, where the choice is a standing default for a role
+   * rather than a model for one specialist - the note has to say which. */
+  standing?: boolean;
   /**
    * Take the developer to where a key is set. Absent where Settings cannot be
    * reached from — the note still says what is needed, there is simply no
@@ -233,11 +236,15 @@ export function ModelDialog({
     for (const model of listed) {
       const turn = priced.get(model.id)?.turn ?? null;
       if (turn === null || (model.contextLength ?? 0) < window) continue;
+      // Never the free variants. They are throttled preview endpoints, and a
+      // specialist that has to finish a turn cannot rely on one - recommending
+      // it as the saving is advice that costs an afternoon to take.
+      if (model.id.endsWith(":free")) continue;
       if (best === null || turn < best.turn) best = { model, turn };
     }
     if (best === null || best.turn >= now * 0.95) return null;
 
-    return { ...best, window, times: multipleLabel(multipleOf(best.turn, now)) };
+    return { ...best, window, now, times: multipleLabel(multipleOf(best.turn, now)) };
   }, [listed, priced, current]);
 
   /** The catalogue, ranked against what has been typed and cut to length. */
@@ -348,7 +355,9 @@ export function ModelDialog({
     <dialog id={id} className="sheet" ref={ref} onClose={onClose}>
       <h2>Model</h2>
       <p className="field-note" id={own("note")}>
-        {sessionId === undefined
+        {standing
+          ? "What this kind of work starts on, unless you say otherwise when you make one."
+          : sessionId === undefined
           ? "What this specialist will start on."
           : "Takes effect on the next prompt — the specialist restarts on the "
             + "new model and picks the conversation up where it left off."}
@@ -413,13 +422,22 @@ export function ModelDialog({
           onKeyDown={onSearchKey}
         />
 
-        {/* The legend. Said once above the list rather than forty times down
-            it: three bare dollar figures on a row are unreadable without it,
-            and repeating the words would cost the room the figures need. */}
-        <div className="model-legend">
-          <span className="model-legend-cols">
-            per million: <b>fresh</b> · <b>cached</b> · <b>out</b>
-          </span>
+        {/* One line, where a legend and a basis note used to be two. The
+            legend existed to decode three bare dollar figures on every row;
+            the rows say what they mean now, so it has nothing left to
+            explain. What remains is the one thing a price cannot say about
+            itself: which turn it is the price of. */}
+        <div className="model-strip">
+          <p className="model-basis" id={own("basis")}>
+            Cost of one turn{" "}
+            {turns > 1 && <>like your last {turns}</>}
+            {turns === 1 && <>like the one this bench has run</>}
+            {turns === 0 && <>on an assumed turn, until this bench has run some</>}
+            , against {currentLabel}.
+          </p>
+          {/* Labelled as the thing it will do, not as the state it is in. A
+              toggle that names its own state reads as a claim about the list
+              you are looking at. */}
           <button
             type="button"
             id={own("cheapest")}
@@ -427,23 +445,19 @@ export function ModelDialog({
             aria-pressed={cheapest}
             onClick={() => { setCheapest((on) => !on); setActive(-1); }}
           >
-            {cheapest ? "cheapest first" : "best match first"}
+            {cheapest ? "Sort by match" : "Sort by price"}
           </button>
         </div>
-        <p className="field-note model-basis" id={own("basis")}>
-          {turns > 0
-            ? `A turn like yours — the average of your last ${turns} — priced on each model, against ${currentLabel}.`
-            : `No turns recorded yet, so a turn is assumed at 60k in, most of it cached, 4k out — priced against ${currentLabel}.`}
-        </p>
 
         {/* The saving, said out loud rather than left to be noticed. It is
             arithmetic, not a recommendation: cheap is not the same as able,
             and the window is the one part of "able" a catalogue can answer. */}
         {saving && (
           <p className="field-note model-saving" id={own("saving")}>
-            Cheapest here that still holds {windowLabel(saving.window)}:{" "}
-            <b>{shortName(saving.model)}</b> at {dollars(saving.turn)} a turn —{" "}
-            {saving.times} what you are on.
+            <b>{shortName(saving.model)}</b> is the cheapest here that still
+            holds {windowLabel(saving.window)} —{" "}
+            {saving.turn === 0 ? "free" : dollars(saving.turn)} a turn against{" "}
+            {dollars(saving.now)}.
           </p>
         )}
 

@@ -137,3 +137,69 @@ describe("what each kind of work runs on", () => {
     expect(ui.$('.s-role[data-role="planner"] .s-role-reset')).toBeNull();
   });
 });
+
+describe("picking a model in Settings", () => {
+  const shown = (role: string) =>
+    ui.$(`.s-role[data-role="${role}"] .s-role-model`)!.textContent;
+
+  it("opens the picker on the role that was clicked", async () => {
+    await open();
+
+    await ui.click(ui.$('.s-role[data-role="researcher"] .s-role-model'));
+
+    await waitFor(() => ui.$("#s-role-dialog-search"), "the picker");
+  });
+
+  it("records the model that was picked", async () => {
+    await open();
+    await ui.click(ui.$('.s-role[data-role="researcher"] .s-role-model'));
+    await waitFor(() => ui.$("#s-role-dialog-search"), "the picker");
+
+    await ui.click(ui.$("#s-role-dialog .model-option[data-model='haiku']"));
+
+    expect(shown("researcher")).toBe("Haiku 4.5");
+  });
+
+  it("saves it with the rest of the rules", async () => {
+    await open();
+    await ui.click(ui.$('.s-role[data-role="researcher"] .s-role-model'));
+    await waitFor(() => ui.$("#s-role-dialog-search"), "the picker");
+    await ui.click(ui.$("#s-role-dialog .model-option[data-model='haiku']"));
+    await ui.click(ui.$("#s-save"));
+
+    expect(saved()!.body.roleModels).toEqual({ researcher: "haiku" });
+  });
+
+  it("says it is setting a standing default, not making a specialist", async () => {
+    // The same modal serves three places. In Settings there is no specialist
+    // for it to be "what this specialist will start on".
+    await open();
+    await ui.click(ui.$('.s-role[data-role="researcher"] .s-role-model'));
+    await waitFor(() => ui.$("#s-role-dialog-search"), "the picker");
+
+    expect(ui.$("#s-role-dialog-note")!.textContent).toContain("kind of work");
+  });
+
+  it("still draws with a daemon that has never heard of role models", async () => {
+    // An older daemon sends no table at all. A settings page that will not
+    // render is worse than one with nothing overridden in it.
+    ui = await bootCockpit({
+      rows: [row()],
+      settings: { codingStyle: "", workflowRules: "", roleModels: undefined } as never,
+    });
+    await ui.click(ui.$("#open-settings"));
+    await waitFor(() => ui.$("#s-roles"), "the rules page");
+
+    expect(shown("researcher")).toBe("deepseek-v4-flash");
+  });
+
+  it("changes only the role that was open", async () => {
+    await open();
+    await ui.click(ui.$('.s-role[data-role="reviewer"] .s-role-model'));
+    await waitFor(() => ui.$("#s-role-dialog-search"), "the picker");
+    await ui.click(ui.$("#s-role-dialog .model-option[data-model='sonnet']"));
+
+    expect(shown("reviewer")).toBe("Sonnet 5");
+    expect(shown("researcher")).toBe("deepseek-v4-flash");
+  });
+});

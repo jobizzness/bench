@@ -140,15 +140,18 @@ describe("the model picker", () => {
   it("shows what a model costs, because it is the developer's own money", async () => {
     // These turns are billed to their OpenRouter account rather than to a
     // subscription already paid for, and the spread across the catalogue is
-    // two orders of magnitude. All three prices, because a specialist's bill
-    // is mostly input and mostly cached input.
+    // two orders of magnitude. What the row says is the cost of a turn; the
+    // three catalogue rates behind it are on the row's tooltip, which is
+    // where a reference figure belongs when it is not what is being decided.
     await openPicker({
       ...one,
       routerKey: { present: true, hint: "…4f2a" },
       models: [model({ dollarsPerMillion: 1.875 })],
     });
-    expect(ui.$("#model-dialog .model-row .model-prices")!.textContent)
-      .toBe("$0.38 · $0.04 · $1.88");
+
+    expect(ui.$("#model-dialog .model-row .model-turn")!.textContent).toMatch(/¢|\$/);
+    expect(ui.$("#model-dialog .model-row")!.getAttribute("title"))
+      .toBe("Per million tokens: $0.38 fresh input, $0.04 cached, $1.88 output.");
   });
 
   it("says nothing about a price that is not per-token", async () => {
@@ -160,8 +163,9 @@ describe("the model picker", () => {
       routerKey: { present: true, hint: "…4f2a" },
       models: [model({ id: "openrouter/auto", name: "Auto Router", dollarsPerMillion: null })],
     });
-    expect(ui.$("#model-dialog .model-row .model-prices")!.textContent).toBe("— · — · —");
-    expect(ui.$("#model-dialog .model-row .model-turn")!.textContent).toBe("—");
+    expect(ui.$("#model-dialog .model-row")!.getAttribute("title"))
+      .toBe("This one is not priced per token.");
+    expect(ui.$("#model-dialog .model-row .model-turn")!.textContent).toBe("not quoted");
   });
 
   it("names the model without repeating the vendor a third time", async () => {

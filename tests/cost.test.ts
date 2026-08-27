@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  ASSUMED_SHAPE, averageShape, costOfTurn, dollars, multipleLabel, multipleOf,
+  ASSUMED_SHAPE, averageShape, comparisonLabel, costOfTurn, dollars, multipleLabel, multipleOf,
   perMillionLabel, turnTokens, type Price, type TurnShape,
 } from "../src/shared/cost.js";
 
@@ -118,6 +118,12 @@ describe("saying how one model compares to another", () => {
     expect(multipleLabel(0.25)).toBe("0.25×");
   });
 
+  it("says free rather than nought times what you are paying", () => {
+    // "0.0x what you are on" is what rounding a ratio of nought produced, and
+    // it reads as a rounding error rather than as the word for it.
+    expect(multipleLabel(0)).toBe("free");
+  });
+
   it("says so plainly when there is nothing in it", () => {
     expect(multipleLabel(1)).toBe("same");
     expect(multipleLabel(0.98)).toBe("same");
@@ -156,5 +162,34 @@ describe("saying money at the size it is", () => {
 
   it("marks an unquoted price as unknown rather than free", () => {
     expect(perMillionLabel(null)).toBe("—");
+  });
+});
+
+describe("saying the comparison the way a person would", () => {
+  it("names the direction, which a bare ratio never did", () => {
+    // "0.25x" and "1.5x" look alike at a glance and mean opposite things.
+    expect(comparisonLabel(1.5)).toBe("1.5× dearer");
+    expect(comparisonLabel(0.25)).toBe("4× cheaper");
+  });
+
+  it("drops to whole numbers once the difference is large", () => {
+    expect(comparisonLabel(48)).toBe("48× dearer");
+    expect(comparisonLabel(0.02)).toBe("50× cheaper");
+  });
+
+  it("calls a few per cent the same price, because it is", () => {
+    // "1.02x dearer" is a difference nobody would act on, dressed as one
+    // they might.
+    expect(comparisonLabel(1)).toBe("about the same");
+    expect(comparisonLabel(1.07)).toBe("about the same");
+    expect(comparisonLabel(0.93)).toBe("about the same");
+  });
+
+  it("says free rather than an infinite saving", () => {
+    expect(comparisonLabel(0)).toBe("free");
+  });
+
+  it("says nothing when there is nothing to compare", () => {
+    expect(comparisonLabel(null)).toBe("");
   });
 });

@@ -108,14 +108,37 @@ export function multipleOf(cost: number | null, baseline: number | null): number
 }
 
 /**
- * A multiple, said the way people say it.
+ * The comparison, said the way a person would say it.
  *
- * Below one it is read as a saving and said as a fraction of what you are
- * paying now - "0.3×" is arithmetic, "a third the price" is the sentence the
- * developer was going to say to themselves anyway.
+ * This replaced a bare ratio - "0.25×", "1.5×" - printed beside three
+ * catalogue rates and an estimate in cents. Four numbers on a row, three of
+ * them expressing the same fact in units nobody converts in their head, and
+ * the one that read as a saving looked exactly like the one that read as a
+ * cost. "5× cheaper" cannot be misread as anything else.
+ *
+ * The dead band is wide on purpose. Two models within a few per cent of each
+ * other are the same price for the purpose this is serving, and "1.02×
+ * dearer" is a difference nobody would act on dressed as one they might.
+ */
+export function comparisonLabel(multiple: number | null): string {
+  if (multiple === null) return "";
+  if (multiple === 0) return "free";
+  if (multiple >= 0.9 && multiple <= 1.1) return "about the same";
+
+  const times = multiple < 1 ? 1 / multiple : multiple;
+  const said = times >= 10 ? String(Math.round(times)) : times.toFixed(1).replace(/\.0$/, "");
+  return `${said}× ${multiple < 1 ? "cheaper" : "dearer"}`;
+}
+
+/**
+ * A multiple, as a bare ratio. Kept for the places that want the arithmetic
+ * rather than the sentence - the saving line says both.
  */
 export function multipleLabel(multiple: number | null): string {
   if (multiple === null) return "";
+  // A free model is not "0.0× what you are on", which is what rounding a
+  // ratio of nought produced. It is free, which is the word for it.
+  if (multiple === 0) return "free";
   if (multiple >= 100) return `${Math.round(multiple)}×`;
   if (multiple >= 10) return `${multiple.toFixed(0)}×`;
   if (multiple >= 1.05) return `${multiple.toFixed(1).replace(/\.0$/, "")}×`;

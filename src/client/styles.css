@@ -1543,17 +1543,20 @@ button.badge-role:hover, button.badge-role:focus-visible {
 
 .model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
-  /* Four columns and two lines. The estimate sits on the first line with the
-     multiple beneath it, so the number that answers the question and the
-     number that puts it in proportion read as one thing. */
+  /* Two columns, two lines. What the model is on the left, what it costs on
+     the right - so the eye runs down either column without reading the other.
+     It used to be four columns of figures, which is a spreadsheet, and a
+     spreadsheet is what you build when you have not decided which number
+     answers the question. */
+  grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
-    "name window prices turn"
-    "id   window prices multiple";
-  align-items: center;
-  column-gap: 10px;
+    "name turn"
+    "id   versus";
+  align-items: baseline;
+  column-gap: 14px;
+  row-gap: 1px;
   width: 100%;
-  padding: 6px 8px;
+  padding: 7px 8px;
   border: 1px solid transparent;
   border-radius: 7px;
   background: none;
@@ -1568,6 +1571,8 @@ button.badge-role:hover, button.badge-role:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The id and the window share the second line, because they answer the same
+   question - is this the model I mean, and will it hold the conversation. */
 .model-row .model-id {
   grid-area: id;
   font: 400 10px/1.3 var(--mono);
@@ -1577,37 +1582,40 @@ button.badge-role:hover, button.badge-role:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Everything numeric, in fixed columns so the eye can run down them. Tabular
-   figures because a price list that does not line up is a price list you have
-   to read one row at a time. */
-.model-row .model-window,
-.model-row .model-prices,
-.model-row .model-turn,
-.model-row .model-multiple {
-  font: 400 11px/1.3 var(--mono);
-  font-variant-numeric: tabular-nums;
+.model-row .model-window {
+  grid-area: id;
+  justify-self: end;
+  padding-left: 10px;
+  font: 400 10px/1.3 var(--mono);
   color: var(--faint);
-  text-align: right;
+  background: linear-gradient(90deg, transparent, var(--panel) 8px);
 }
-.model-row .model-window { grid-area: window; min-width: 34px; }
-/* Fresh, cached, out. Three quiet figures in one cell rather than three
-   columns: they are the workings, and the estimate beside them is the answer.
-   The separators are dimmer still, so the numbers carry the line. */
-.model-row .model-prices { grid-area: prices; min-width: 108px; }
-.model-row .model-prices i { font-style: normal; opacity: 0.4; }
 
 /* The one figure the developer came here for, so it is the one thing on the
-   row drawn at full strength. */
+   row drawn at full strength. Tabular figures: a price column that does not
+   line up is a price column you read one row at a time. */
 .model-row .model-turn {
   grid-area: turn;
-  min-width: 46px;
-  font-weight: 600;
+  justify-self: end;
+  font: 600 12.5px/1.35 var(--mono);
+  font-variant-numeric: tabular-nums;
   color: var(--text);
 }
-/* Green only when it would actually save something. A colour spent on every
-   row is a colour that says nothing. */
-.model-row .model-turn[data-cheaper="true"] { color: var(--wants); }
-.model-row .model-multiple { grid-area: multiple; min-width: 46px; }
+/* Under it, in words. "5x cheaper" cannot be misread; "0.2x" beside three
+   catalogue rates was four ways of saying one thing, and the one that meant
+   a saving looked exactly like the one that meant a cost. */
+.model-row .model-versus {
+  grid-area: versus;
+  justify-self: end;
+  font: 400 10px/1.3 var(--mono);
+  letter-spacing: 0.02em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+/* Amber only where it would cost you multiples of what you pay now. The cheap
+   ones are the good case and do not need alerting - a list that colours every
+   row has no colour left for the one worth noticing. */
+.model-row .model-versus[data-dear="true"] { color: var(--busy); }
 
 /* The arrow keys and the mouse land on the same highlight, so which row Enter
    would take is never in doubt. */
@@ -1628,33 +1636,37 @@ button.badge-role:hover, button.badge-role:focus-visible {
 
 .model-tally { margin: 8px 0 0; }
 
-/* The legend, and the one control that reorders the list. Set on the same
-   line because they are both about how to read what follows. */
-.model-legend {
+/* The line that says which turn these prices are the price of, and the one
+   control that reorders them. Both are about how to read what follows, so
+   they share a line above it. */
+.model-strip {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  margin: 10px 0 2px;
-  font: 400 10px/1.4 var(--mono);
-  letter-spacing: 0.04em;
+  margin: 11px 0 4px;
+}
+.model-basis {
+  margin: 0;
+  font: 400 10.5px/1.45 var(--mono);
+  letter-spacing: 0.03em;
   color: var(--faint);
 }
-.model-legend b { font-weight: 600; color: var(--muted); }
 
 .model-sort {
+  flex: none;
   border: 1px solid var(--line-firm);
   border-radius: 5px;
   background: none;
   color: var(--muted);
-  font: inherit;
-  padding: 2px 7px;
+  font: 400 10px/1.4 var(--mono);
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
   cursor: pointer;
 }
 .model-sort:hover { background: var(--hover); color: var(--text); }
 .model-sort[aria-pressed="true"] { border-color: var(--wants); color: var(--wants); }
 
-.model-basis { margin: 2px 0 0; }
 /* The one line that is a finding rather than furniture. */
 .model-saving { margin: 6px 0 0; color: var(--wants); }
 .model-saving b { font-weight: 600; }

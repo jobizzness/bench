@@ -16,10 +16,16 @@ import { ModelDialog } from "./ModelDialog.js";
  * changeable at the moment a specialist is made. What this settles is what it
  * is when nobody says otherwise, which is most of the time.
  */
-export function RoleModels({ chosen, onChange }: {
-  /** Only the roles the developer has overridden. Everything else follows the
-   * built-in table, and follows it when that table changes. */
-  chosen: Record<string, string>;
+export function RoleModels({ chosen = {}, onChange }: {
+  /**
+   * Only the roles the developer has overridden. Everything else follows the
+   * built-in table, and follows it when that table changes.
+   *
+   * Optional because a daemon that predates the table sends no such field,
+   * and a settings page that will not render is worse than one with nothing
+   * overridden in it.
+   */
+  chosen?: Record<string, string>;
   onChange: (next: Record<string, string>) => void;
 }) {
   const [editing, setEditing] = useState<Role | null>(null);
@@ -72,6 +78,7 @@ export function RoleModels({ chosen, onChange }: {
           three-hundred-model list, and every one of them fetches. */}
       <ModelDialog
         id="s-role-dialog"
+        standing
         open={editing !== null}
         current={editing === null ? "" : chosen[editing] ?? ROLE_MODELS[editing].preferred}
         onClose={() => setEditing(null)}
