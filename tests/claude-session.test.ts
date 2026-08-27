@@ -92,6 +92,24 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
+/** Echoes the model the session was told it is running on. */
+const SELF_MODEL_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "fake", result: "self:" + (process.env.BENCH_SELF_MODEL ?? "none"),
+    }) + "\\n");
+  }
+});
+`;
+
 /** Echoes both credential variables, so a test can assert which one a
  * setup-token lands in. */
 const OAUTH_CLI = `#!/usr/bin/env node
@@ -453,5 +471,16 @@ describe("ClaudeSession", () => {
     } finally {
       if (before !== undefined) process.env.ANTHROPIC_API_KEY = before;
     }
+  });
+  it("tells a specialist its own model, so a child it opens can inherit it", async () => {
+    // `bench new` only forwards a model when the parent is on an auto
+    // router; it can only make that call if it can see what it is running.
+    const session = await makeSession(SELF_MODEL_CLI, { model: "openrouter/auto" });
+    const replied = once(session, "reply");
+    session.open();
+    session.send("go");
+
+    expect((await replied)[0]).toBe("self:openrouter/auto");
+    session.stop();
   });
 });

@@ -1,13 +1,6 @@
-/** The two routers, and what tells them apart. */
-export const AUTO_ROUTERS = [
-  { id: "openrouter/auto", label: "Auto", note: "The stable router." },
-  { id: "openrouter/auto-beta", label: "Auto (beta)", note: "The newer one, still being tuned." },
-] as const;
+import { AUTO_ROUTERS, isAutoRouter } from "../../shared/auto-routers.js";
 
-/** Whether this id is a router rather than a model. */
-export function isAutoRouter(id: string): boolean {
-  return AUTO_ROUTERS.some((router) => router.id === id);
-}
+export { AUTO_ROUTERS, isAutoRouter };
 
 /**
  * Let OpenRouter pick the model, per request.
