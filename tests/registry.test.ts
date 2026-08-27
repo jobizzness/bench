@@ -1466,7 +1466,11 @@ describe("a report on a tab another specialist opened", () => {
     await waitFor(() => (rowOf(registry, parentId).status !== "working" ? true : null), "parent's own turn to finish");
 
     const childId = await registry.create({ project, label: "child", model: "opus", createdBy: parentId });
-    registry.send(childId, "build the thing");
+    // From the parent, as `bench tell` sends it. Holding turns on a sender
+    // being named: what the developer types is never held back from the
+    // specialist they typed it to, so an unattributed message here would go
+    // straight through and there would be nothing to dispatch.
+    registry.send(childId, "build the thing", parentId);
     await registry.dispatch(childId);
     await waitFor(() => (rowOf(registry, childId).status !== "working" ? true : null), "child's turn to finish");
 

@@ -806,11 +806,18 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // as quiet for the parent as it is for the developer. `send` is the
         // one path a message to a specialist ever takes, so a parent that
         // hasn't dispatched this tab yet still gets it held for review first.
+        //
+        // Sent as being from the child, which is what it is. Holding turns on
+        // a sender being named - what the developer types is never held back
+        // from the specialist they typed it to - so leaving it out would put
+        // this straight into a parent that has itself never been dispatched,
+        // which is the one case the holding was added for.
         if (entry.createdBy !== null) {
           const htmlPath = report?.htmlPath ?? join(reportsDir, String(seq), "report.html");
           this.send(
             entry.createdBy,
             `${entry.row.label} wrote a report: "${title}". Read ${htmlPath}, or bench tell ${entry.row.label} to answer it.`,
+            entry.row.id,
           );
         }
       }

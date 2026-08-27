@@ -315,6 +315,7 @@ export function App() {
               error={error}
               model={row?.model}
               onChangeModel={() => setModelOpen(true)}
+              project={row?.project}
             />
           </footer>
         </section>

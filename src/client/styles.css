@@ -2028,7 +2028,12 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
    The button is chrome until it is pointed at: this is a glance, not a
    control, and the line it sits on is already saying what the keys do. */
 .usage { position: relative; display: flex; flex: none; }
-#open-usage {
+/* The ledger's button is the same button. Named in the same rules rather than
+   given its own copy of them, so the two cannot drift apart - they sit next
+   to each other on one line, where a pixel of difference in padding is the
+   kind of thing you see without being able to say what you are seeing. */
+#open-usage,
+#open-spend {
   display: flex;
   align-items: center;
   background: none;
@@ -2042,8 +2047,10 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   cursor: default;
   transition: color 120ms var(--ease), background 120ms var(--ease);
 }
-.usage:hover #open-usage { color: var(--text); background: var(--hover); }
-#open-usage .usage-mark { display: block; }
+.usage:hover #open-usage,
+.usage:hover #open-spend { color: var(--text); background: var(--hover); }
+#open-usage .usage-mark,
+#open-spend .spend-mark { display: block; }
 
 /* The columns take their own colour once a window is worth knowing about, and
    keep it whether or not the pointer is on them - the same three steps, in
@@ -2057,7 +2064,8 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
    nothing. Upward and right-aligned, into the stage: the button is in the
    bottom right corner of the window, which is the one corner where a panel
    dropped below and to the right has nowhere to be drawn. */
-#usage-panel {
+#usage-panel,
+#spend-panel {
   position: absolute;
   bottom: calc(100% + 8px);
   right: 0;
@@ -2069,7 +2077,8 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   border-radius: 7px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
 }
-#usage-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+#usage-list,
+#spend-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
 
 /* Label over the bar rather than beside it. Beside it, the longest label
    ("7-day Sonnet") sets the indent for every row and the bars start halfway

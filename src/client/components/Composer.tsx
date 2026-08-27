@@ -3,6 +3,7 @@ import { modelLabel, isProxied } from "../../shared/models.js";
 import { ComposerHint } from "./ComposerHint.js";
 import { UsagePopover } from "./UsagePopover.js";
 import { CreditPopover } from "./CreditPopover.js";
+import { SpendPopover } from "./SpendPopover.js";
 import { useAutoGrow } from "./useAutoGrow.js";
 
 /**
@@ -17,7 +18,7 @@ import { useAutoGrow } from "./useAutoGrow.js";
  */
 export function Composer({
   text, setText, onSubmit, disabled, placeholder, hint, optionCount, send, inputRef, error,
-  model, onChangeModel,
+  model, onChangeModel, project,
 }: {
   text: string;
   setText: (value: string) => void;
@@ -33,6 +34,10 @@ export function Composer({
    * on a row from a daemon that predates the field. */
   model?: string;
   onChangeModel?: () => void;
+  /** Which project the selected specialist belongs to, so the spend meter can
+   * report this piece of work rather than the whole bench. Absent when none is
+   * selected. */
+  project?: string;
 }) {
   useAutoGrow(inputRef, text);
 
@@ -95,6 +100,12 @@ export function Composer({
             {modelLabel(model)}
           </button>
         )}
+        {/* What this work has already cost, before what is left to spend on
+            it. The two meters read as one sentence in that order — what it
+            runs on, what that has come to, what remains — and the ledger goes
+            first because it is the only one of the three that is about work
+            that has actually happened. */}
+        <SpendPopover project={project} />
         {/* Which account, not just how much. The meter follows the model
             beside it because they are one question: a specialist on
             OpenRouter is not spending the Anthropic subscription, and a bar

@@ -10,11 +10,16 @@ import { useState, type ReactNode } from "react";
  *
  * The shell only. What is being metered is the caller's business, and there
  * is more than one answer now: an Anthropic subscription is windows that
- * refill, an OpenRouter key is money that does not. Only one is ever mounted
- * at a time - whichever account the selected specialist is billed to - so the
- * ids stay the one pair the stylesheet and the tests already know.
+ * refill, an OpenRouter key is money that does not, and the ledger is money
+ * that has already gone. The first two are still exclusive - only one account
+ * is ever the one the selected specialist is billed to - and they keep the
+ * `usage` pair of ids the stylesheet and the tests already know, which is why
+ * the name is a prop with that default rather than a second copy of this
+ * file. What is no longer true is that only one meter is mounted: the ledger
+ * sits beside whichever of them is up, so it needs a pair of its own or the
+ * page ends up with two elements answering to `#open-usage`.
  */
-export function Meter({ said, mark, onOpen, children }: {
+export function Meter({ said, mark, onOpen, children, id = "usage" }: {
   /** The whole answer in a sentence, for a pointer resting on the button and
    * for a screen reader passing over it. Colour and height cannot be the only
    * things carrying a number. */
@@ -24,6 +29,9 @@ export function Meter({ said, mark, onOpen, children }: {
    * out whether the number moved. */
   onOpen: () => void;
   children: ReactNode;
+  /** What this meter's button and panel are called, so two of them can be up
+   * at once. Defaults to the pair that was here before there was a choice. */
+  id?: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -38,10 +46,10 @@ export function Meter({ said, mark, onOpen, children }: {
       onFocus={() => { setOpen(true); onOpen(); }}
       onBlur={() => setOpen(false)}
     >
-      <button id="open-usage" type="button" title={said} aria-label={said}>
+      <button id={`open-${id}`} type="button" title={said} aria-label={said}>
         {mark}
       </button>
-      {open && <div id="usage-panel" role="status">{children}</div>}
+      {open && <div id={`${id}-panel`} role="status">{children}</div>}
     </div>
   );
 }

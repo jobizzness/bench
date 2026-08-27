@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/client/components/App.js";
 import type { PlanStep } from "../../src/daemon/plan.js";
+import type { Total } from "../../src/daemon/ledger.js";
 import type { Decision, RosterRow, ThreadEntry } from "../../src/shared/types.js";
 import { waitFor } from "./wait-for.js";
 
@@ -42,6 +43,19 @@ export interface Fixtures {
   /** What the OpenRouter key has spent. Undefined is a daemon holding no
    * OpenRouter key, which is the ordinary case. */
   credit?: unknown;
+  /**
+   * What the ledger says, per project and for the bench as a whole.
+   *
+   * A function rather than a value because the one thing worth testing here
+   * is that the two scopes differ: it is handed the `project` query the
+   * cockpit asked with, or undefined for the whole-bench total. Undefined is
+   * a bench that has never billed a turn, which is the ordinary case in a
+   * test and must read as "nothing yet" rather than as a broken daemon.
+   *
+   * "unreachable" is the daemon refusing to answer, which the meter has to
+   * say out loud rather than draw as zero.
+   */
+  spend?: ((project?: string) => unknown) | Total | "unreachable";
   /** The OpenRouter key the daemon is already holding, if any. */
   routerKey?: { present: boolean; hint: string };
   /** The catalogue the picker fills from. "unreachable" is OpenRouter
@@ -211,6 +225,20 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
         status: fixtures.decision != null ? 200 : 404,
         json: async () => ({ seq: 1, decision: fixtures.decision, malformed: false }),
       };
+    }
+    // Above the other money routes because it is asked with the project in
+    // the query string, and a project path that happened to contain one of
+    // their names would otherwise be answered by the wrong branch.
+    if (url.includes("/api/spend")) {
+      const asked = new URL(url, "http://localhost").searchParams.get("project");
+      const held = fixtures.spend;
+      if (held === "unreachable") {
+        return { ok: false, status: 500, json: async () => ({ error: "no ledger" }) };
+      }
+      const body = typeof held === "function"
+        ? held(asked ?? undefined)
+        : held ?? { plan: 0, account: 0, turns: 0, estimated: 0 };
+      return { ok: true, status: 200, json: async () => body };
     }
     if (url.includes("/api/openrouter/usage")) {
       return {
