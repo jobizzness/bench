@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { projectName } from "../format.js";
 import { GithubMark } from "./GithubMark.js";
 import { Meta } from "./Meta.js";
 import { StageLabel } from "./StageLabel.js";
+import { RoleDialog } from "./RoleDialog.js";
 import { useBenchState } from "./context.js";
 
 /**
@@ -18,6 +20,7 @@ export function StageHead({ onGithub }: {
   onGithub: () => void;
 }) {
   const { rows, selectedId } = useBenchState();
+  const [roleOpen, setRoleOpen] = useState(false);
   const row = rows.find((r) => r.id === selectedId);
   if (!row) return null;
 
@@ -36,7 +39,16 @@ export function StageHead({ onGithub }: {
           <GithubMark />
         </button>
       </div>
-      <Meta row={row} status branch badges />
+      <Meta row={row} status branch badges onRole={() => setRoleOpen(true)} />
+      {/* The roster carries the new role back, so nothing is held here that
+          the daemon has not agreed to. */}
+      <RoleDialog
+        open={roleOpen}
+        current={row.role}
+        currentModel={row.model}
+        sessionId={row.id}
+        onClose={() => setRoleOpen(false)}
+      />
     </header>
   );
 }

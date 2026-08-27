@@ -15,7 +15,7 @@ import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
 import { checkKey, type KeyCheck } from "./anthropic-key.js";
 import type { TurnShape } from "../shared/cost.js";
-import type { Role } from "../shared/roles.js";
+import { isRole, type Role } from "../shared/roles.js";
 import { checkKey as checkRouterKey, creditSource, type Listed } from "./openrouter.js";
 import type { Credit } from "../shared/credit.js";
 import { usageSource, type Usage } from "./usage.js";
@@ -52,6 +52,7 @@ export interface SessionRegistryLike {
   stop(id: string): void;
   rename(id: string, label: string): boolean;
   setModel(id: string, model: string): Promise<void>;
+  setRole(id: string, role: Role): Promise<void>;
   create(input: {
     project: string; label: string; model: string; role?: string; isolated?: boolean;
   }): Promise<string>;
@@ -704,6 +705,29 @@ export function createServer(opts: {
         json(res, 200, { model });
       } catch (error) {
         process.stderr.write(`bench: could not change the model: ${String(error)}\n`);
+        json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
+    /**
+     * What kind of agent this is.
+     *
+     * Same shape as the model route above, because it is the same kind of
+     * change: recorded now, in force on the next prompt, because the role
+     * reaches the process as a system prompt and that is fixed at spawn.
+     */
+    const reroute = path.match(/^\/api\/sessions\/([^/]+)\/role$/);
+    if (reroute && req.method === "POST") {
+      if (!registry.get(reroute[1])) { json(res, 404, { error: "no such session" }); return; }
+      const asked = (await readBody(req))?.role;
+      if (!isRole(asked)) { json(res, 400, { error: "not a role this bench has" }); return; }
+      try {
+        await registry.setRole(reroute[1], asked);
+        // The model may have moved with the role, so it is said back.
+        json(res, 200, { role: asked, model: registry.list().find((r) => r.id === reroute[1])?.model });
+      } catch (error) {
+        process.stderr.write(`bench: could not change the role: ${String(error)}\n`);
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
       }
       return;

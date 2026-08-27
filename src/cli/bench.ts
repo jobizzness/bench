@@ -109,7 +109,7 @@ async function main(): Promise<void> {
     const as = args.indexOf("--as");
     const role = as === -1 ? undefined : args[as + 1];
     const label = args.filter((a, i) => i !== as && i !== as + 1)[0];
-    if (!label) fail("usage: bench new <label> [--as specialist|implementer|reviewer|researcher]");
+    if (!label) fail(`usage: bench new <label> [--as ${ROLES.join("|")}]`);
     if (as !== -1 && !isRole(role)) fail(`bench: no such role "${role ?? ""}". One of: ${ROLES.join(", ")}`);
 
     const all = await rows();

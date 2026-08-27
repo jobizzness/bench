@@ -676,6 +676,77 @@ button, input, textarea, select { font: inherit; color: inherit; }
    as a label rather than as a note. */
 .badge-role { color: var(--text); border-color: var(--line-firm); }
 
+/* On the header it is also the control that changes it. It keeps the badge's
+   shape rather than growing a button's: the header is a row of facts and one
+   of them being clickable should be something you find on the way past, not a
+   second thing competing with the name above it. */
+button.badge-role {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  background: none;
+  cursor: pointer;
+}
+button.badge-role:hover, button.badge-role:focus-visible {
+  border-color: var(--wants);
+  color: var(--wants);
+  outline: none;
+}
+
+/* ── The role modal ──────────────────────────────────────────────────
+
+   Six of them and a sentence each, so a column of reasons rather than the
+   model picker's search. The whole set fits on one screen and the sentence
+   is what you are choosing between. */
+
+.role-options { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+
+.role-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name model" "why why";
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 3px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.role-option b {
+  grid-area: name;
+  font: 600 13px/1.3 var(--sans);
+  text-transform: capitalize;
+}
+.role-option .role-why {
+  grid-area: why;
+  font: 400 12px/1.45 var(--sans);
+  color: var(--muted);
+}
+.role-option .role-model {
+  grid-area: model;
+  font: 400 10px/1.3 var(--mono);
+  letter-spacing: 0.03em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.role-option:hover:not(:disabled), .role-option:focus-visible {
+  border-color: var(--line-firm);
+  outline: none;
+}
+.role-option[data-current="true"] { border-color: var(--wants); color: var(--wants); }
+.role-option[data-current="true"] b::after {
+  content: " ·  now";
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.role-option:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* Not uppercase: it is a branch name and has to be read as written. */
 .badge-branch { text-transform: none; letter-spacing: 0; color: var(--muted); }
 

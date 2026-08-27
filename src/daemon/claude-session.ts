@@ -7,6 +7,7 @@ import type { Context } from "../shared/context-window.js";
 import { buildSettings } from "./gates/settings.js";
 import { credentialEnv } from "./anthropic-key.js";
 import { sessionEnv as openRouterEnv } from "./openrouter.js";
+import { ROLE_BRIEF, DEFAULT_ROLE, type Role } from "../shared/roles.js";
 
 /** Enough for a refusal and a stack trace, not enough to hold a log file. */
 const STDERR_KEPT = 4000;
@@ -19,6 +20,14 @@ export interface SessionOptions {
   hookCommand: string;
   pluginDir: string;
   model: string;
+  /**
+   * What kind of agent this is, which it is told at spawn.
+   *
+   * It used to reach the model picker and the roster row and stop there, so a
+   * reviewer and an implementer were handed identical text and behaved
+   * identically - choosing a role bought a cheaper model and a word on a row.
+   */
+  role?: Role;
   port: number;
   /** Where the cockpit answers, so a specialist can staff its own project. */
   cockpitUrl?: string;
@@ -123,6 +132,15 @@ export class ClaudeSession extends EventEmitter {
       // through to the endpoint, which is exactly what is wanted.
       "--model", this.opts.model,
       "--permission-mode", "acceptEdits",
+      // Who this agent is, said once rather than on every turn.
+      //
+      // The system prompt is the right channel for a standing fact: it is
+      // fixed for the life of the process, which is exactly what a role is,
+      // and it does not cost tokens again on turn forty. House rules go in
+      // the framing instead because those are read fresh each turn - a rule
+      // saved now has to reach a specialist already running, and a role
+      // cannot change without a restart anyway.
+      "--append-system-prompt", ROLE_BRIEF[this.opts.role ?? DEFAULT_ROLE],
       // The reports directory lives with the project, not inside the
       // worktree, so it outlives a worktree that gets removed. Without this
       // it is simply outside the workspace and every write to it is refused.

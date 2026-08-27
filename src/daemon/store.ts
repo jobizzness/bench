@@ -204,6 +204,17 @@ export class SessionStore {
     });
   }
 
+  /** What kind of agent it is, which survives the daemon that was told. */
+  async reroute(id: string, role: string): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.role = role;
+      await this.write(all);
+    });
+  }
+
   async remove(id: string): Promise<void> {
     return this.change(async () => {
       await this.write((await this.all()).filter((r) => r.id !== id));

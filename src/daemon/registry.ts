@@ -14,7 +14,7 @@ import { appendActivity } from "./activity.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
 import { appendEntry, readThread } from "./thread.js";
 import { answeredReportSeq } from "./answered.js";
-import { asRole, type Role } from "../shared/roles.js";
+import { asRole, isRole, type Role } from "../shared/roles.js";
 import { modelForRole } from "../shared/role-models.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
@@ -466,6 +466,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     label: string;
     worktree: string;
     model: string;
+    /** What this agent is told it is, at spawn. Fixed for the life of the
+     * process, which is why changing it lets the process go. */
+    role: Role;
     port: number;
     resume?: boolean;
     startTurn?: number;
@@ -483,6 +486,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       hookCommand: this.config.hookCommand,
       pluginDir: this.config.pluginDir,
       model: opts.model,
+      role: opts.role,
       port: opts.port,
       resume: opts.resume,
       cockpitUrl: `http://127.0.0.1:${this.config.port}`,
@@ -713,6 +717,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         label: input.label,
         worktree,
         model,
+        role,
         port,
         via,
       });
@@ -741,6 +746,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       label: entry.row.label,
       worktree: entry.worktree,
       model: entry.model,
+      role: entry.row.role,
       port: entry.port,
       // Only ever resume a conversation that exists. Asking the CLI to
       // resume one that does not prints "No conversation found with session
@@ -875,6 +881,52 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     if (entry.session) {
       entry.stopping = true;
       entry.stoppedBecause = `moved to ${modelLabel(model)}`;
+      entry.session.stop();
+    } else {
+      this.emit("roster");
+    }
+  }
+
+  /**
+   * Change what kind of agent this is.
+   *
+   * The same shape as setModel, and for the same reason: the role reaches the
+   * process as a system prompt, and a system prompt is fixed at spawn. So the
+   * change is recorded and the running process is let go - the next prompt
+   * revives it on the new role, resuming the same transcript.
+   *
+   * The model follows only when it was this role's own default and nobody
+   * has said otherwise. A developer who went to the picker and chose Opus
+   * meant Opus; moving them off it because they relabelled the tab would be
+   * throwing away the more specific of two answers. But a tab that has simply
+   * been taking whatever its role runs on should keep doing that, or changing
+   * a reviewer to an implementer leaves it on the cheap model the review was
+   * costed for.
+   */
+  async setRole(id: string, role: Role): Promise<void> {
+    const entry = this.entries.get(id);
+    if (!entry) throw new Error("no such specialist");
+    // Checked here as well as at the route, because an unrecognised word
+    // written onto the row is one that reaches the spawn, where it indexes
+    // ROLE_BRIEF and hands the agent `undefined` as its whole system prompt.
+    if (!isRole(role)) throw new Error("not a role this bench has");
+    if (entry.row.role === role) return;
+
+    const wasDefault = entry.model === this.modelFor(entry.row.role);
+    entry.row.role = role;
+    this.remember(this.store.reroute(id, role));
+
+    // Before the role is announced: moving onto a model that needs a key
+    // there is not should fail while the developer is still looking at the
+    // dialog, not on the next prompt.
+    if (wasDefault) {
+      const next = this.modelFor(role);
+      if (next !== entry.model) await this.setModel(id, next);
+    }
+
+    if (entry.session) {
+      entry.stopping = true;
+      entry.stoppedBecause = `now a ${role}`;
       entry.session.stop();
     } else {
       this.emit("roster");

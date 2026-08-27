@@ -21,13 +21,19 @@ import { ContextMeter } from "./ContextMeter.js";
  * The role leads every line, so the left edge of the column tells you what
  * your bench is made of without reading a word of the rest.
  */
-export function Meta({ row, status = false, branch = false, badges = false }: {
+export function Meta({ row, status = false, branch = false, badges = false, onRole }: {
   row: RosterRow;
   /** The stage has no status rail to read the colour off, so it says it. */
   status?: boolean;
   branch?: boolean;
   /** Set the facts as badges rather than as one line. Header only. */
   badges?: boolean;
+  /**
+   * Opens the role picker. Header only, and only when there is one to open -
+   * a roster row has no room for a control, and twenty of them would be
+   * twenty things that look clickable in a column you scan.
+   */
+  onRole?: () => void;
 }) {
   const shared = !row.isolated && row.branch !== "";
   // Absent on a row from a daemon that predates the field, and on nothing
@@ -74,7 +80,23 @@ export function Meta({ row, status = false, branch = false, badges = false }: {
   // is one of them saying nothing.
   return (
     <div className="meta meta-badges">
-      <span className="badge badge-role">{row.role}</span>
+      {/* The role is changed where it is read, the way the name above it is.
+          It was a word on a header and a word on a row and nothing else you
+          could do anything about - and it is now the one fact here that
+          changes how the agent behaves, so it had better be reachable. */}
+      {onRole
+        ? (
+          <button
+            type="button"
+            id="stage-role"
+            className="badge badge-role"
+            title={`This agent is a ${row.role}. Change what it is.`}
+            onClick={onRole}
+          >
+            {row.role}
+          </button>
+        )
+        : <span className="badge badge-role">{row.role}</span>}
       {status && <span className="badge">{row.status.replace(/_/g, " ")}</span>}
       {/* What it has run up. On the header only: it is a fact you check when
           you are looking at one specialist, not one you scan a column for.
