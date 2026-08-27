@@ -933,6 +933,44 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     }
   }
 
+  /**
+   * Drop a specialist's conversation, and nothing else.
+   *
+   * The worktree, the branch, the reports and the spend all stay; what goes
+   * is the memory the CLI was carrying. The next prompt starts a fresh
+   * conversation, which is the one thing that fixes a specialist whose
+   * context has filled to the point of dropping the start of itself, or
+   * whose long history has it going in circles.
+   *
+   * The thread keeps its record, marked with a line saying what happened: a
+   * visible history with a specialist that suddenly remembers none of it is
+   * a history that lies, and the line is what makes it tell the truth.
+   */
+  clearContext(id: string): boolean {
+    const entry = this.entries.get(id);
+    if (!entry) return false;
+
+    entry.resumable = false;
+    entry.row.context = null;
+    this.remember(this.store.forgetConversation(id));
+    void appendEntry(entry.threadPath, {
+      kind: "system",
+      body: "Context cleared — the next prompt starts a fresh conversation.",
+    });
+
+    // A live process is still holding the old conversation. Let it go; the
+    // next prompt brings it back empty. The same shape as setModel/setRole:
+    // marked before the kill so the exit reads as a decision, not a crash.
+    if (entry.session) {
+      entry.stopping = true;
+      entry.stoppedBecause = "context cleared";
+      entry.session.stop();
+    } else {
+      this.emit("roster");
+    }
+    return true;
+  }
+
   stop(id: string): void {
     const entry = this.entries.get(id);
     if (!entry?.session) return;

@@ -50,6 +50,7 @@ export interface SessionRegistryLike {
   send(id: string, text: string): void;
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
   stop(id: string): void;
+  clearContext(id: string): boolean;
   rename(id: string, label: string): boolean;
   setModel(id: string, model: string): Promise<void>;
   setRole(id: string, role: Role): Promise<void>;
@@ -823,6 +824,14 @@ export function createServer(opts: {
     if (stop && req.method === "POST") {
       if (!registry.get(stop[1])) { json(res, 404, { error: "no such session" }); return; }
       registry.stop(stop[1]);
+      json(res, 200, { ok: true });
+      return;
+    }
+
+    const clear = path.match(/^\/api\/sessions\/([^/]+)\/clear$/);
+    if (clear && req.method === "POST") {
+      if (!registry.get(clear[1])) { json(res, 404, { error: "no such session" }); return; }
+      registry.clearContext(clear[1]);
       json(res, 200, { ok: true });
       return;
     }

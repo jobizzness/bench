@@ -693,6 +693,22 @@ button.badge-role:hover, button.badge-role:focus-visible {
   outline: none;
 }
 
+/* The action on the context dial. Quiet like the badge it sits in, but a
+   button - and its hover uses amber, not the green of "do this", because
+   forgetting a conversation is a thing you should only mean. */
+.badge-clear {
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+button.badge-clear { font: inherit; letter-spacing: inherit; }
+.badge-clear:hover:not(:disabled), .badge-clear:focus-visible {
+  border-color: var(--busy);
+  color: var(--busy);
+  outline: none;
+}
+.badge-clear:disabled { opacity: 0.5; cursor: default; }
+
 /* ── The role modal ──────────────────────────────────────────────────
 
    Six of them and a sentence each, so a column of reasons rather than the
@@ -889,6 +905,23 @@ button.badge-role:hover, button.badge-role:focus-visible {
      right-aligned. */
   border-radius: 3px 10px 10px 10px;
   color: var(--muted);
+}
+
+/* A system line - "context cleared" and its kind - reads as something that
+   happened, not something somebody said. The default bubble treatment would
+   put it in the same chat balloon as a specialist reply and nothing else
+   would tell the two apart. */
+.entry.system {
+  text-align: center;
+  margin: 18px 0;
+}
+.entry.system .bubble {
+  display: inline-block;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--faint);
+  font-size: 12px;
 }
 
 /* Artifact cards: reports and answers. The card is a door, not a drawer -

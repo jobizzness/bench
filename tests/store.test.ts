@@ -231,4 +231,39 @@ describe("SessionStore", () => {
     await writeFile(join(home, "sessions.json"), JSON.stringify([record("a"), { nonsense: true }, null]));
     expect((await new SessionStore(home).all()).map((r) => r.id)).toEqual(["a"]);
   });
+
+  describe("forgetting a conversation", () => {
+    it("marks the record as having nothing to resume, and drops the context reading", async () => {
+      const home = await mkdtemp(join(tmpdir(), "bench-store-"));
+      const store = new SessionStore(home);
+      await store.put(record("a", { resumable: true, context: { used: 190_000, window: 200_000 } }));
+
+      await store.forgetConversation("a");
+
+      const [saved] = await store.all();
+      expect(saved.resumable).toBe(false);
+      expect(saved.context).toBeUndefined();
+    });
+
+    it("leaves everything else on the record alone", async () => {
+      const home = await mkdtemp(join(tmpdir(), "bench-store-"));
+      const store = new SessionStore(home);
+      await store.put(record("a", { label: "auth", model: "opus" }));
+
+      await store.forgetConversation("a");
+
+      const [saved] = await store.all();
+      expect(saved.label).toBe("auth");
+      expect(saved.model).toBe("opus");
+    });
+
+    it("does nothing for a record that does not exist", async () => {
+      const home = await mkdtemp(join(tmpdir(), "bench-store-"));
+      const store = new SessionStore(home);
+      await store.put(record("a"));
+
+      await expect(store.forgetConversation("nope")).resolves.toBeUndefined();
+      expect(await store.all()).toHaveLength(1);
+    });
+  });
 });

@@ -58,6 +58,12 @@ class StubRegistry extends EventEmitter {
     return this.closeResult;
   }
   stop() {}
+  cleared: string[] = [];
+  clearContext(id: string) {
+    if (id !== "s1") return false;
+    this.cleared.push(id);
+    return true;
+  }
   renamed: Array<{ id: string; label: string }> = [];
   rename(id: string, label: string) {
     if (id !== "s1") return false;
@@ -563,6 +569,28 @@ describe("POST /api/sessions/:id/close", () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /api/sessions/:id/clear", () => {
+  it("clears the specialist's conversation", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/clear`, {
+      method: "POST", headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(registry.cleared.at(-1)).toBe("s1");
+  });
+
+  it("404s for a session that does not exist", async () => {
+    const before = registry.cleared.length;
+    const res = await fetch(`${base}/api/sessions/nope/clear`, {
+      method: "POST", headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(404);
+    expect(registry.cleared.length).toBe(before);
   });
 });
 
