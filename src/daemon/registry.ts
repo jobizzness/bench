@@ -56,6 +56,12 @@ interface Entry {
   stoppedBecause?: string;
   model: string;
   port: number;
+  /** The specialist whose `bench new` opened this tab, if one did. Not
+   * persisted: it only matters before the first turn, which cannot survive
+   * a restart anyway (see `resumable`). */
+  createdBy: string | null;
+  /** What an agent told this tab, waiting on the developer to dispatch it. */
+  pendingDispatch: string | null;
 }
 
 export class SessionRegistry extends EventEmitter implements SessionRegistryLike {
@@ -407,6 +413,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         resumable: rec.resumable ?? thread.length > 0,
         model: rec.model,
         port: rec.port,
+        // Not persisted: whatever was pending before a restart cannot
+        // survive one anyway, since the idle process it was waiting on is
+        // gone too.
+        createdBy: null,
+        pendingDispatch: null,
         row: {
           id: rec.id,
           label: rec.label,
@@ -426,6 +437,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           context: rec.context ?? null,
           activity: [],
           spend: rec.spend ?? null,
+          createdBy: null,
+          pendingPrompt: null,
         },
       });
     }
@@ -641,6 +654,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     role?: string;
     /** Default true: isolation is what a specialist is normally for. */
     isolated?: boolean;
+    /** The specialist opening this tab with `bench new`, if any. Absent for
+     * a tab the developer opened themselves, from the cockpit. */
+    createdBy?: string;
   }): Promise<string> {
     const isolated = input.isolated ?? true;
     const role = asRole(input.role);
@@ -667,6 +683,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       turnsTaken: 0,
       model,
       port: 0,
+      createdBy: input.createdBy ?? null,
+      pendingDispatch: null,
       row: {
         id,
         label: input.label,
@@ -684,6 +702,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         context: null,
         activity: [],
         spend: null,
+        createdBy: input.createdBy ?? null,
+        pendingPrompt: null,
       },
     });
     this.emit("roster");
@@ -763,6 +783,49 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     const entry = this.entries.get(id);
     if (!entry) return;
 
+    // A tab another specialist opened gets its first message held rather
+    // than delivered, so the developer can read it - and change the model,
+    // which costs nothing while the process is still the idle one this tab
+    // was made with - before it actually runs. `entry.turnsTaken` is only
+    // live right after create()/restore(); once a session is running, its
+    // own counter is the true one, which is why both are checked.
+    const neverDispatched = (entry.session?.turn ?? entry.turnsTaken) === 0;
+    if (entry.createdBy !== null && neverDispatched) {
+      entry.pendingDispatch = text;
+      entry.row.pendingPrompt = text;
+      this.update(id, "awaiting_dispatch", "waiting on you to dispatch");
+      return;
+    }
+
+    this.deliver(id, entry, text);
+  }
+
+  /** Release a held message, exactly as if it had just arrived. */
+  async dispatch(id: string): Promise<void> {
+    const entry = this.entries.get(id);
+    if (!entry) throw new Error("no such specialist");
+    const text = entry.pendingDispatch;
+    if (text === null) throw new Error("nothing is waiting to be dispatched");
+    entry.pendingDispatch = null;
+    entry.row.pendingPrompt = null;
+    this.deliver(id, entry, text);
+  }
+
+  /** Discard a held message. The tab goes back to exactly its just-created
+   * state - empty, waiting, as if `bench tell` had never been called. Bench
+   * has no way to close a tab it did not open itself (see bench-roster), so
+   * this is the whole of what a decline does. */
+  decline(id: string): void {
+    const entry = this.entries.get(id);
+    if (!entry) return;
+    entry.pendingDispatch = null;
+    entry.row.pendingPrompt = null;
+    this.update(id, "awaiting_decision", "ready");
+  }
+
+  /** The part of prompting a specialist that a held message also has to go
+   * through once it is released: the same path `send()` always took. */
+  private deliver(id: string, entry: Entry, text: string): void {
     // A specialist restored from disk has no process yet. Bring it back on
     // the first prompt, resuming the transcript the CLI still holds, so it
     // remembers what it was doing.

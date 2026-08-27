@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isWaiting } from "../src/client/waiting.js";
+import { isWaiting, wantsAttention } from "../src/client/waiting.js";
 import type { RosterRow } from "../src/shared/types.js";
 
 const row = (over: Partial<RosterRow> = {}): RosterRow => ({
@@ -29,5 +29,19 @@ describe("isWaiting", () => {
 
   it("is not waiting while it is still working", () => {
     expect(isWaiting(row({ status: "working" }))).toBe(false);
+  });
+});
+
+describe("wantsAttention", () => {
+  it("is true for an unanswered report, same as isWaiting", () => {
+    expect(wantsAttention(row())).toBe(true);
+  });
+
+  it("is true for a tab held on a specialist's message, which has no report", () => {
+    expect(wantsAttention(row({ status: "awaiting_dispatch", latestReportSeq: null }))).toBe(true);
+  });
+
+  it("is false for an idle tab with nothing waiting", () => {
+    expect(wantsAttention(row({ status: "awaiting_decision", latestReportSeq: null }))).toBe(false);
   });
 });

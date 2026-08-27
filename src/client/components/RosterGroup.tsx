@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { RosterRow } from "../../shared/types.js";
-import { isWaiting } from "../waiting.js";
+import { wantsAttention } from "../waiting.js";
 import { projectName } from "../format.js";
 import { inOrder, rememberOrder, savedOrder } from "../order.js";
 import { hideProject } from "../hidden.js";
@@ -30,14 +30,14 @@ export function RosterGroup({ project, rows, selectedId, open, onFold }: {
   const [hand, setHand] = useState<string[] | null>(() => savedOrder()[project] ?? null);
 
   const settled = hand === null
-    ? [...rows].sort((a, b) => Number(isWaiting(b)) - Number(isWaiting(a)))
+    ? [...rows].sort((a, b) => Number(wantsAttention(b)) - Number(wantsAttention(a)))
     : inOrder(rows, hand);
   const { rows: drawn, held, take, nudge } = useRowOrder(settled, (ids) => {
     setHand(ids);
     rememberOrder(project, ids);
   });
 
-  const waiting = rows.filter(isWaiting).length;
+  const waiting = rows.filter(wantsAttention).length;
 
   return (
     <details

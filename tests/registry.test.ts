@@ -1030,3 +1030,110 @@ describe("what a new specialist runs on", () => {
     expect(registry.modelFor("researcher")).toBe("sonnet");
   });
 });
+
+/** A real repo, since `create()` provisions a real worktree. A fake CLI so
+ * the process it spawns is not an unhandled ENOENT on a machine with no
+ * `claude` installed. */
+async function setupForCreate() {
+  const home = await mkdtemp(join(tmpdir(), "bench-home-"));
+  const project = await mkdtemp(join(tmpdir(), "bench-proj-"));
+  await exec("git", ["init", "-q", "-b", "main"], { cwd: project });
+  await exec("git", ["config", "user.email", "t@t.io"], { cwd: project });
+  await exec("git", ["config", "user.name", "t"], { cwd: project });
+  await writeFile(join(project, "README.md"), "x");
+  await exec("git", ["add", "-A"], { cwd: project });
+  await exec("git", ["commit", "-qm", "init"], { cwd: project });
+
+  const config = {
+    home, port: 7420, token: "t",
+    pluginDir: "/nonexistent/plugin",
+    hookCommand: "node /nonexistent/hook.js",
+    projectsRoot: project,
+    claudeBin: await fakeCli(REPLYING_CLI),
+  };
+
+  const registry = new SessionRegistry(config as any);
+  return { project, registry };
+}
+
+const rowOf = (registry: SessionRegistry, id: string) => registry.list().find((r) => r.id === id)!;
+
+describe("a tab another specialist spins up", () => {
+  it("holds the first message instead of sending it", async () => {
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+
+    registry.send(id, "build the thing");
+
+    const row = rowOf(registry, id);
+    expect(row.status).toBe("awaiting_dispatch");
+    expect(row.pendingPrompt).toBe("build the thing");
+  });
+
+  it("does not hold a message for a tab the developer opened themselves", async () => {
+    // No createdBy: this came from the cockpit's own "New specialist"
+    // dialog, not from another specialist's `bench new`.
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "child", model: "opus" });
+
+    registry.send(id, "hello");
+
+    const row = rowOf(registry, id);
+    expect(row.status).toBe("working");
+    expect(row.pendingPrompt).toBeNull();
+  });
+
+  it("replaces the held message when told again before it is dispatched", async () => {
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+
+    registry.send(id, "first");
+    registry.send(id, "second");
+
+    expect(rowOf(registry, id).pendingPrompt).toBe("second");
+  });
+
+  it("dispatches the held message on request", async () => {
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+    registry.send(id, "build the thing");
+
+    await registry.dispatch(id);
+
+    const row = rowOf(registry, id);
+    expect(row.status).toBe("working");
+    expect(row.pendingPrompt).toBeNull();
+  });
+
+  it("refuses to dispatch when nothing is held", async () => {
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+
+    await expect(registry.dispatch(id)).rejects.toThrow(/nothing/i);
+  });
+
+  it("declines the held message, leaving the tab as if it were never told", async () => {
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+    registry.send(id, "build the thing");
+
+    registry.decline(id);
+
+    const row = rowOf(registry, id);
+    expect(row.status).toBe("awaiting_decision");
+    expect(row.pendingPrompt).toBeNull();
+  });
+
+  it("does not hold a second message once the tab has taken its first turn", async () => {
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+    registry.send(id, "first");
+    await registry.dispatch(id);
+
+    registry.send(id, "second");
+
+    const row = rowOf(registry, id);
+    expect(row.status).toBe("working");
+    expect(row.pendingPrompt).toBeNull();
+  });
+});

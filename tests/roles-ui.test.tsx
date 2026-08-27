@@ -44,7 +44,7 @@ describe("what kind of agent each one is", () => {
       row({ label: "payouts", role: "implementer", status: "working", detail: "Bash pnpm test" }),
     ] });
 
-    expect(metaOf(ui.$(".row")!)).toEqual(["implementer", "Bash pnpm test", "Opus 5"]);
+    expect(metaOf(ui.$(".row")!)).toEqual(["implementer", "Bash pnpm test"]);
   });
 
   it("says the status on the stage, where there is no rail to read it off", async () => {

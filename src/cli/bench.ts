@@ -121,7 +121,15 @@ async function main(): Promise<void> {
       // daemon otherwise fills it from the role, which is what knows that a
       // researcher should not be opened on Opus. Auto mode is not a model
       // choice, so it is the one thing that follows into the tab it opens.
-      body: JSON.stringify({ label, project, role, model: inheritedModel(process.env.BENCH_SELF_MODEL) }),
+      // Who is asking, so the daemon can hold the first message this
+      // specialist sends it for the developer to read, rather than let it
+      // run unseen. Always set: this command only ever runs inside a
+      // specialist's own shell.
+      body: JSON.stringify({
+        label, project, role,
+        model: inheritedModel(process.env.BENCH_SELF_MODEL),
+        createdBy: process.env.BENCH_SESSION_ID,
+      }),
     });
 
     // It opens empty on purpose: what it is for is the first thing you tell

@@ -786,17 +786,19 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 .badge-spend[data-billed="plan"] { color: var(--faint); }
 /* The row only, and the same treatment for whichever of the two is drawn
    there - the money once a specialist has cost something, the model until
-   then. In the header they belong beside the role, not at the far edge. */
-.meta:not(.meta-badges) > .badge-model,
-.meta:not(.meta-badges) > .badge-spend {
-  margin-left: auto;
+   then. In the header they belong beside the role, not at the far edge.
+   Its own line under the meta line rather than the end of it, still held to
+   the right edge so the models line up down the column. */
+.meta-trailer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+.meta-trailer .badge-model,
+.meta-trailer .badge-spend {
   padding: 1px 5px;
   font-size: 9px;
 }
-/* The dot belongs between words. This is not one, and it needs air on its
-   left or it welds itself to whatever the specialist is doing. */
-.meta:not(.meta-badges) > .badge-model::before,
-.meta:not(.meta-badges) > .badge-spend::before { content: ""; margin: 0 0 0 10px; }
 
 /* How full the conversation is. Furniture until three quarters, then amber,
    then red - the same three steps the rest of the cockpit uses for "fine",
@@ -1868,12 +1870,27 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   transition: background 120ms var(--ease), border-color 120ms var(--ease);
 }
 .sheet form .actions button:hover { background: var(--hover); }
-#f-create, #s-save {
+#f-create, #s-save, #dispatch-dispatch {
   border-color: var(--wants-dim);
   color: var(--wants);
   border-bottom-width: 2px;
 }
-#f-create:hover, #s-save:hover { border-color: var(--wants); }
+#f-create:hover, #s-save:hover, #dispatch-dispatch:hover { border-color: var(--wants); }
+
+/* The prompt another specialist wrote, read-only: quoted rather than
+   editable, since dispatching this is a review and not a rewrite. */
+#dispatch-prompt {
+  margin: 0 0 18px;
+  padding: 10px 13px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: 13px/1.55 var(--mono);
+  color: var(--text);
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow: auto;
+}
 
 /* ── The intake sheet, and the card that reopens it ─────────────────── */
 

@@ -77,6 +77,14 @@ class StubRegistry extends EventEmitter {
     if (this.remodelError !== null) throw new Error(this.remodelError);
     this.remodelled.push({ id, model });
   }
+  dispatched: string[] = [];
+  dispatchError: string | null = null;
+  async dispatch(id: string) {
+    if (this.dispatchError !== null) throw new Error(this.dispatchError);
+    this.dispatched.push(id);
+  }
+  declined: string[] = [];
+  decline(id: string) { this.declined.push(id); }
 
   /** The OpenRouter key. Held the same way the Anthropic one is, and reported
    * the same way: whether there is one, never which one. */
@@ -431,6 +439,24 @@ describe("POST /api/sessions", () => {
       body: JSON.stringify({ project: "/var/www/demo" }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it("carries who is asking through to the registry", async () => {
+    await fetch(`${base}/api/sessions`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ project: "/var/www/demo", label: "auth", createdBy: "sess-parent" }),
+    });
+    expect(registry.created.at(-1).createdBy).toBe("sess-parent");
+  });
+
+  it("says nothing was asking when the cockpit itself made the request", async () => {
+    await fetch(`${base}/api/sessions`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ project: "/var/www/demo", label: "auth" }),
+    });
+    expect(registry.created.at(-1).createdBy).toBeUndefined();
   });
 });
 
@@ -1070,6 +1096,56 @@ describe("what a specialist runs on", () => {
 
     expect(res.status).toBe(401);
     expect(registry.remodelled).toEqual([]);
+  });
+});
+
+describe("a tab held for the developer to dispatch or decline", () => {
+  beforeEach(() => {
+    registry.dispatched = [];
+    registry.dispatchError = null;
+    registry.declined = [];
+  });
+
+  it("dispatches on request", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/dispatch`, { method: "POST", ...auth });
+
+    expect(res.status).toBe(200);
+    expect(registry.dispatched).toEqual(["s1"]);
+  });
+
+  it("carries back the reason it could not be dispatched", async () => {
+    registry.dispatchError = "nothing is waiting to be dispatched";
+    const res = await fetch(`${base}/api/sessions/s1/dispatch`, { method: "POST", ...auth });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("nothing is waiting to be dispatched");
+  });
+
+  it("404s dispatching a specialist that is not there", async () => {
+    const res = await fetch(`${base}/api/sessions/nobody/dispatch`, { method: "POST", ...auth });
+    expect(res.status).toBe(404);
+  });
+
+  it("declines on request", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/decline`, { method: "POST", ...auth });
+
+    expect(res.status).toBe(200);
+    expect(registry.declined).toEqual(["s1"]);
+  });
+
+  it("404s declining a specialist that is not there", async () => {
+    const res = await fetch(`${base}/api/sessions/nobody/decline`, { method: "POST", ...auth });
+    expect(res.status).toBe(404);
+  });
+
+  it("lets nobody without the token dispatch or decline", async () => {
+    const dispatchRes = await fetch(`${base}/api/sessions/s1/dispatch`, { method: "POST" });
+    const declineRes = await fetch(`${base}/api/sessions/s1/decline`, { method: "POST" });
+
+    expect(dispatchRes.status).toBe(401);
+    expect(declineRes.status).toBe(401);
+    expect(registry.dispatched).toEqual([]);
+    expect(registry.declined).toEqual([]);
   });
 });
 

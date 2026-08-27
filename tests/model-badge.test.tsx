@@ -39,10 +39,11 @@ describe("what a specialist is running on", () => {
     expect(badge(render(<Meta row={row({ model: "sonnet" })} status branch badges />))).toBeUndefined();
   });
 
-  it("comes last on the row, after what it is doing", () => {
+  it("is on its own line, after the meta line rather than inside it", () => {
     const host = render(<Meta row={row()} />);
     expect([...host.querySelectorAll(".meta > *")].map((s) => s.textContent))
-      .toEqual(["specialist", "Bash", "Opus 5"]);
+      .toEqual(["specialist", "Bash"]);
+    expect(host.querySelector(".meta-trailer")!.textContent).toBe("Opus 5");
   });
 
   it("shows a model this cockpit has never heard of as itself", () => {

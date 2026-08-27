@@ -8,6 +8,7 @@ import type { ArtifactRef } from "./ArtifactCard.js";
 import { ArtifactDialog } from "./ArtifactDialog.js";
 import { Composer } from "./Composer.js";
 import { DecisionPanel, isIntake } from "./DecisionPanel.js";
+import { DispatchModal } from "./DispatchModal.js";
 import { Gear } from "./Gear.js";
 import { GithubDrawer } from "./GithubDrawer.js";
 import { IntakeCard } from "./IntakeCard.js";
@@ -65,6 +66,7 @@ export function App() {
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [dispatchOpen, setDispatchOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   // A copy of the cockpit on static hosting opens knowing nothing about any
@@ -101,6 +103,14 @@ export function App() {
   const steps = useSessionPlan(selectedId, row?.status === "working");
 
   useEffect(() => { if (live === true) everConnected.current = true; }, [live]);
+
+  // Nothing else worth showing exists yet for a tab that has taken no turn,
+  // so selecting one held on another specialist's message is the moment to
+  // read it. Keyed on the row rather than a click: dismissing it stays
+  // dismissed until you leave and come back to it.
+  useEffect(() => {
+    if (row?.status === "awaiting_dispatch") setDispatchOpen(true);
+  }, [row?.id, row?.status]);
 
   // Silence from a daemon that has answered before is a restart, and the
   // banner says so. Silence from one that has never answered is usually the
@@ -371,6 +381,11 @@ export function App() {
           onNeedKey={() => { setModelOpen(false); setSettingsOpen(true); }}
         />
       )}
+      <DispatchModal
+        open={dispatchOpen}
+        row={row?.status === "awaiting_dispatch" ? row : null}
+        onClose={() => setDispatchOpen(false)}
+      />
     </BenchProvider>
   );
 }

@@ -55,8 +55,12 @@ export interface SessionRegistryLike {
   setModel(id: string, model: string): Promise<void>;
   setRole(id: string, role: Role): Promise<void>;
   create(input: {
-    project: string; label: string; model: string; role?: string; isolated?: boolean;
+    project: string; label: string; model: string; role?: string; isolated?: boolean; createdBy?: string;
   }): Promise<string>;
+  /** Release a tab's held first message. */
+  dispatch(id: string): Promise<void>;
+  /** Discard a tab's held first message. */
+  decline(id: string): void;
   on(event: "roster", listener: () => void): unknown;
 }
 
@@ -507,6 +511,10 @@ export function createServer(opts: {
           // Absent means isolated. A caller that has not heard of the toggle
           // gets the safer of the two.
           isolated: body.isolated !== false,
+          // Present only when another specialist's `bench new` made the
+          // request - the CLI sends its own session id, the cockpit sends
+          // nothing. What that decides is in registry.send().
+          ...(typeof body.createdBy === "string" ? { createdBy: body.createdBy } : {}),
         });
         json(res, 200, { id });
       } catch (error) {
@@ -708,6 +716,31 @@ export function createServer(opts: {
         process.stderr.write(`bench: could not change the model: ${String(error)}\n`);
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
       }
+      return;
+    }
+
+    /**
+     * Releasing a tab another specialist spun up: the message it was told,
+     * finally reaching the process.
+     */
+    const dispatch = path.match(/^\/api\/sessions\/([^/]+)\/dispatch$/);
+    if (dispatch && req.method === "POST") {
+      if (!registry.get(dispatch[1])) { json(res, 404, { error: "no such session" }); return; }
+      try {
+        await registry.dispatch(dispatch[1]);
+        json(res, 200, { ok: true });
+      } catch (error) {
+        json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
+    /** Discarding a held message. The tab stays, empty, as if it were never told. */
+    const decline = path.match(/^\/api\/sessions\/([^/]+)\/decline$/);
+    if (decline && req.method === "POST") {
+      if (!registry.get(decline[1])) { json(res, 404, { error: "no such session" }); return; }
+      registry.decline(decline[1]);
+      json(res, 200, { ok: true });
       return;
     }
 

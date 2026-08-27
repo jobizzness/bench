@@ -64,15 +64,17 @@ export function Meta({ row, status = false, branch = false, badges = false, onRo
     // row it appeared on. The header says it, where there is space to say it
     // properly.
     return (
-      <div className="meta">
-        <span className="meta-role">{row.role}</span>
-        <span className="meta-detail">{row.detail}</span>
-        {fill && <ContextMeter context={row.context} />}
-        {/* Held to the right edge rather than set in the run of the line:
-            twenty rows put twenty of these in a column, and a column reads
-            at a glance in a way a mid-sentence word does not. */}
-        {spent ?? model}
-      </div>
+      <>
+        <div className="meta">
+          <span className="meta-role">{row.role}</span>
+          <span className="meta-detail">{row.detail}</span>
+          {fill && <ContextMeter context={row.context} />}
+        </div>
+        {/* Its own line rather than the end of the meta line: held to the
+            right edge, twenty rows put twenty of these in a column, and a
+            column reads at a glance in a way a mid-sentence word does not. */}
+        {(spent ?? model) && <div className="meta-trailer">{spent ?? model}</div>}
+      </>
     );
   }
 

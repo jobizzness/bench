@@ -1,7 +1,7 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { RosterRow } from "../../shared/types.js";
 import { useBenchActions } from "./context.js";
-import { isWaiting } from "../waiting.js";
+import { wantsAttention } from "../waiting.js";
 import { Meta } from "./Meta.js";
 import { GripMark } from "./GripMark.js";
 
@@ -25,8 +25,9 @@ export function Row({ row, selected, held, onTake, onNudge }: {
       // Status is not the same question as "does this want me". A specialist
       // that answered and wrote no report is awaiting_decision too, and the
       // roster was colouring it green while its own group count said nothing
-      // was waiting.
-      data-waiting={isWaiting(row)}
+      // was waiting. A tab held on another specialist's message wants you
+      // too, and has no report to be the same kind of waiting as.
+      data-waiting={wantsAttention(row)}
       data-held={held}
       aria-selected={selected}
       onClick={() => select(row.id)}

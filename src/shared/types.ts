@@ -7,6 +7,9 @@ export type SessionStatus =
   | "provisioning_failed"
   | "working"
   | "awaiting_decision"
+  /** Another specialist told it to do something, and the message is held
+   * for the developer to read before it runs. */
+  | "awaiting_dispatch"
   | "crashed"
   | "done";
 
@@ -48,6 +51,13 @@ export interface RosterRow {
   /** What it has cost since it was made. Null until it has finished a turn,
    * and on every specialist that ran before this was recorded. */
   spend: Spend | null;
+  /** The specialist that opened this tab with `bench new`, if one did.
+   * Null for a tab the developer opened themselves, and for anything
+   * restored from before a daemon restart - it is not persisted. */
+  createdBy: string | null;
+  /** The message an agent told this tab, held back until the developer
+   * dispatches it. Null once dispatched, declined, or never held. */
+  pendingPrompt: string | null;
 }
 
 /**

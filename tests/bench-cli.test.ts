@@ -83,4 +83,14 @@ describe("bench new", () => {
 
     expect(daemon.lastBody().model).toBeUndefined();
   });
+
+  it("says which specialist is asking, so a tab it opens can be held for review", async () => {
+    daemon = await fakeDaemon();
+    await runBenchNew(
+      { BENCH_URL: daemon.url, BENCH_TOKEN: "tok", BENCH_SESSION_ID: "sess-parent" },
+      ["implementer", "--as", "implementer"],
+    );
+
+    expect(daemon.lastBody().createdBy).toBe("sess-parent");
+  });
 });
