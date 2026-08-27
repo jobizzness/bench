@@ -28,6 +28,11 @@ export interface SessionRecord {
   /** How full the conversation was when it last finished a turn. Kept so a
    * cold specialist can still say whether it is worth reviving. */
   context?: { used: number; window: number };
+  /** Which models actually answered the last finished turn, on a specialist
+   * running a router rather than a model. Kept for the same reason as
+   * `context`: a cold specialist on an auto router should still be able to
+   * say what it last ran on without being prompted first. */
+  answeredBy?: string[];
   /** What it has cost so far. Kept on disk because it is cumulative: held in
    * memory only, a restart would report every specialist as free. */
   spend?: Spend;
@@ -179,6 +184,18 @@ export class SessionStore {
       const record = all.find((r) => r.id === id);
       if (!record) return;
       record.context = context;
+      await this.write(all);
+    });
+  }
+
+  /** Which models answered a router's last turn. Written alongside context,
+   * for the same cold-specialist reason. */
+  async rememberAnsweredBy(id: string, answeredBy: string[]): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.answeredBy = answeredBy;
       await this.write(all);
     });
   }

@@ -1,3 +1,5 @@
+import { isAutoRouter } from "./auto-routers.js";
+
 /**
  * The models a specialist can be run on.
  *
@@ -67,4 +69,19 @@ export function modelLabel(id: string): string {
   if (known) return known.label;
   const slash = id.indexOf("/");
   return slash === -1 ? id : id.slice(slash + 1);
+}
+
+/**
+ * What to call the model a specialist is actually running on right now.
+ *
+ * `openrouter/auto` names a policy, not a model - it says nothing about what
+ * the last turn ran on or cost. Once a turn has actually been answered, that
+ * is the more honest thing to show, with the policy kept alongside as a tag
+ * rather than dropped. A router that changed its mind mid-turn can have
+ * answered under more than one model; the first is shown, in the order it was
+ * first seen, which is the same ordering `turnAnsweredBy` already keeps.
+ */
+export function runningModelLabel(model: string, answeredBy: readonly string[] | null | undefined): string {
+  if (!isAutoRouter(model) || !answeredBy || answeredBy.length === 0) return modelLabel(model);
+  return `${modelLabel(answeredBy[0])} <auto>`;
 }

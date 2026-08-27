@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { modelLabel, isProxied } from "../../shared/models.js";
+import { runningModelLabel, isProxied } from "../../shared/models.js";
 import { ComposerHint } from "./ComposerHint.js";
 import { UsagePopover } from "./UsagePopover.js";
 import { CreditPopover } from "./CreditPopover.js";
@@ -18,7 +18,7 @@ import { useAutoGrow } from "./useAutoGrow.js";
  */
 export function Composer({
   text, setText, onSubmit, disabled, placeholder, hint, optionCount, send, inputRef, error,
-  model, onChangeModel, project,
+  model, answeredBy, onChangeModel, project,
 }: {
   text: string;
   setText: (value: string) => void;
@@ -33,6 +33,9 @@ export function Composer({
   /** What the selected specialist runs on. Absent when none is selected, and
    * on a row from a daemon that predates the field. */
   model?: string;
+  /** Which models actually answered its last turn, where `model` is a router
+   * rather than a model in its own right. */
+  answeredBy?: string[] | null;
   onChangeModel?: () => void;
   /** Which project the selected specialist belongs to, so the spend meter can
    * report this piece of work rather than the whole bench. Absent when none is
@@ -97,7 +100,7 @@ export function Composer({
             title="Change the model this specialist runs on"
             onClick={onChangeModel}
           >
-            {modelLabel(model)}
+            {runningModelLabel(model, answeredBy)}
           </button>
         )}
         {/* What this work has already cost, before what is left to spend on

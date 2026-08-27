@@ -617,6 +617,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           context: rec.context ?? null,
           activity: [],
           spend: rec.spend ?? null,
+          answeredBy: rec.answeredBy ?? null,
           createdBy: null,
           pendingPrompt: null,
         },
@@ -831,6 +832,16 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         this.remember(this.store.rememberContext(id, context));
       }
 
+      // Who actually answered, on a specialist running a router rather than a
+      // model of its own. Empty on everything else - a model that answers for
+      // itself has nothing to report here - so only written when there is
+      // something to say.
+      const answeredBy = session.turnAnsweredBy;
+      if (answeredBy.length > 0) {
+        entry.row.answeredBy = answeredBy;
+        this.remember(this.store.rememberAnsweredBy(id, answeredBy));
+      }
+
       // What the turn moved, and what that came to. Recorded here rather than
       // in the session because this is the only place that knows which
       // account answered - and the two are not the same kind of money.
@@ -925,6 +936,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         context: null,
         activity: [],
         spend: null,
+        answeredBy: null,
         createdBy: input.createdBy ?? null,
         pendingPrompt: null,
       },

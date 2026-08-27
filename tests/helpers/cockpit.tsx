@@ -110,7 +110,7 @@ export const row = (over: Partial<RosterRow> = {}): RosterRow => ({
   project: "/var/www/demo", model: "opus", status: "awaiting_decision",
   detail: "ready", latestReportSeq: null, answeredReportSeq: null,
   startedAt: null, tokens: 0, context: null, activity: [],
-  createdBy: null, pendingPrompt: null, ...over,
+  answeredBy: null, createdBy: null, pendingPrompt: null, ...over,
 });
 
 export const entry = (over: Partial<ThreadEntry> = {}): ThreadEntry => ({

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   MODELS,
   modelLabel,
+  runningModelLabel,
   isProxied,
   isModelId,
   DEFAULT_MODEL,
@@ -66,5 +67,32 @@ describe("what a model is called", () => {
 
   it("shows a name it has never heard of as itself", () => {
     expect(modelLabel("claude-3-5-sonnet-20241022")).toBe("claude-3-5-sonnet-20241022");
+  });
+});
+
+describe("what a specialist is actually running on", () => {
+  it("is just the model, pinned", () => {
+    expect(runningModelLabel("haiku", null)).toBe("Haiku 4.5");
+    expect(runningModelLabel("google/gemini-3.7-flash", null)).toBe("gemini-3.7-flash");
+  });
+
+  it("is the router's own name, on an auto router that has not answered yet", () => {
+    expect(runningModelLabel("openrouter/auto", null)).toBe("auto");
+    expect(runningModelLabel("openrouter/auto", [])).toBe("auto");
+  });
+
+  it("is what actually answered, tagged as auto, once it has", () => {
+    expect(runningModelLabel("openrouter/auto", ["z-ai/glm-5.2"])).toBe("glm-5.2 <auto>");
+  });
+
+  it("uses the first model where a router answered under more than one", () => {
+    expect(runningModelLabel("openrouter/auto", ["z-ai/glm-5.2", "deepseek/deepseek-v4-flash"]))
+      .toBe("glm-5.2 <auto>");
+  });
+
+  it("leaves a pinned model alone even if answeredBy is somehow set", () => {
+    // Should not happen - a model that answers for itself has nothing to
+    // report there - but a stale field must not lie about what is pinned.
+    expect(runningModelLabel("haiku", ["haiku"])).toBe("Haiku 4.5");
   });
 });

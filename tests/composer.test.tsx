@@ -119,6 +119,21 @@ describe("the model, from the composer", () => {
     expect(ui.$("#composer-model")!.textContent).toBe("Sonnet 5");
   });
 
+  it("names the router, not a model, on an auto tab that has not answered yet", async () => {
+    ui = await bootCockpit({ rows: [row({ model: "openrouter/auto", answeredBy: null })], entries: [entry()] });
+    await ui.open("auth");
+    expect(ui.$("#composer-model")!.textContent).toBe("auto");
+  });
+
+  it("names what actually answered, tagged as auto, once an auto tab has taken a turn", async () => {
+    ui = await bootCockpit({
+      rows: [row({ model: "openrouter/auto", answeredBy: ["z-ai/glm-5.2"] })],
+      entries: [entry()],
+    });
+    await ui.open("auth");
+    expect(ui.$("#composer-model")!.textContent).toBe("glm-5.2 <auto>");
+  });
+
   it("says a model this cockpit has never heard of as itself", async () => {
     // The CLI takes full model names, and a specialist made with one is still
     // a specialist. Saying nothing would be a lie about the box you are

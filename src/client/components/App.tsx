@@ -314,6 +314,7 @@ export function App() {
               inputRef={input}
               error={error}
               model={row?.model}
+              answeredBy={row?.answeredBy}
               onChangeModel={() => setModelOpen(true)}
               project={row?.project}
             />

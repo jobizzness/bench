@@ -51,6 +51,10 @@ export interface RosterRow {
   /** What it has cost since it was made. Null until it has finished a turn,
    * and on every specialist that ran before this was recorded. */
   spend: Spend | null;
+  /** Which models actually answered the last finished turn, where `model` is
+   * a router rather than a model in its own right. Null until a turn has
+   * finished, and always null on a model that answers for itself. */
+  answeredBy: string[] | null;
   /** The specialist that opened this tab with `bench new`, if one did.
    * Null for a tab the developer opened themselves, and for anything
    * restored from before a daemon restart - it is not persisted. */
