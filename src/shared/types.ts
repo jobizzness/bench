@@ -132,7 +132,7 @@ export interface IntakeAnswer {
   defaulted: boolean;
 }
 
-export type ThreadEntryKind = "user" | "reply" | "report";
+export type ThreadEntryKind = "user" | "reply" | "report" | "system";
 
 export interface ThreadEntryInput {
   kind: ThreadEntryKind;

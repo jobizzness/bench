@@ -133,6 +133,26 @@ export class SessionStore {
   }
 
   /**
+   * Drop the conversation the CLI was holding, so the next prompt starts
+   * fresh rather than resuming it.
+   *
+   * Clearing the context is the one thing the developer can do about a
+   * conversation near its window, and the record has to mean "there is
+   * nothing to resume" from the moment it is written: a restart in between
+   * must not quietly bring the old conversation back.
+   */
+  async forgetConversation(id: string): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.resumable = false;
+      delete record.context;
+      await this.write(all);
+    });
+  }
+
+  /**
    * Recorded when a turn ends rather than when one starts. A turn that never
    * finished may have left no conversation behind, and the record has to mean
    * "there is something to resume", not "we tried".

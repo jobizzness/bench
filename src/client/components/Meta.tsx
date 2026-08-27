@@ -2,6 +2,7 @@ import { contextTone } from "../../shared/context-window.js";
 import { dollars } from "../../shared/cost.js";
 import { modelLabel } from "../../shared/models.js";
 import type { RosterRow } from "../../shared/types.js";
+import { ClearContext } from "./ClearContext.js";
 import { ContextMeter } from "./ContextMeter.js";
 
 /**
@@ -122,6 +123,10 @@ export function Meta({ row, status = false, branch = false, badges = false, onRo
           a bordered pill makes it look like one more thing to read. */}
       <span className="meta-detail">{row.detail}</span>
       {fill && <ContextMeter context={row.context} />}
+      {/* The action on the dial beside it. Only when there is a conversation
+          to forget: a "clear" with nothing to clear is a control that has to
+          be read before it can be ignored, and it is read past on every row. */}
+      {row.context && <ClearContext id={row.id} />}
     </div>
   );
 }
