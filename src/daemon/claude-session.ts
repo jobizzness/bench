@@ -155,6 +155,9 @@ export class ClaudeSession extends EventEmitter {
         ...process.env,
         BENCH_SESSION_ID: this.opts.id,
         BENCH_REPORTS_DIR: this.opts.reportsDir,
+        // What `bench new` needs to decide whether a child it opens should
+        // inherit this model: only true when this is itself an auto router.
+        BENCH_SELF_MODEL: this.opts.model,
         PORT: String(this.opts.port),
         // What the `bench` command needs to find the cockpit. The token is
         // deliberately not here: the command reads it from ~/.bench/token so

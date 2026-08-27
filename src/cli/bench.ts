@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { isRole, ROLES } from "../shared/roles.js";
 import { slugify } from "../shared/slug.js";
+import { inheritedModel } from "../shared/auto-routers.js";
 
 /**
  * The bench, from inside it.
@@ -116,9 +117,11 @@ async function main(): Promise<void> {
     const project = ownProject(all);
     const { id } = await call("/api/sessions", {
       method: "POST",
-      // No model unless one was asked for: the daemon fills it from the role,
-      // which is what knows that a researcher should not be opened on Opus.
-      body: JSON.stringify({ label, project, role, model: process.env.BENCH_MODEL }),
+      // No model unless this specialist is itself on an auto router: the
+      // daemon otherwise fills it from the role, which is what knows that a
+      // researcher should not be opened on Opus. Auto mode is not a model
+      // choice, so it is the one thing that follows into the tab it opens.
+      body: JSON.stringify({ label, project, role, model: inheritedModel(process.env.BENCH_SELF_MODEL) }),
     });
 
     // It opens empty on purpose: what it is for is the first thing you tell
