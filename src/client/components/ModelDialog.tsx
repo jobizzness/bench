@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { MODELS } from "../../shared/models.js";
 import { costOfTurn, dollars, multipleLabel, multipleOf, type Price } from "../../shared/cost.js";
+import { AutoRouters, isAutoRouter } from "./AutoRouters.js";
 import { ModelRow, shortName, windowLabel, type Listed } from "./ModelRow.js";
 import { useTurnShape } from "./useTurnShape.js";
 
@@ -251,6 +252,9 @@ export function ModelDialog({
   const { rows, total } = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const scored = listed
+      // Drawn in their own block above, where their not having a price is the
+      // point rather than a hole in a column of figures.
+      .filter((model) => !isAutoRouter(model.id))
       .map((model) => ({ model, hit: score(model, needle) }))
       .filter((row) => row.hit > 0)
       .sort((a, b) => {
@@ -388,6 +392,13 @@ export function ModelDialog({
           ))}
         </div>
       </section>
+
+      {/* Above the catalogue, and only where a key can reach them. A block
+          offering to route requests on an account that does not exist is a
+          block that cannot do anything. */}
+      {hasKey && (
+        <AutoRouters current={current} disabled={busy} onPick={(model) => void choose(model)} />
+      )}
 
       <section id={own("router")} className="model-house model-router">
         <h3>Everything else</h3>

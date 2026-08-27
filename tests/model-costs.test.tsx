@@ -94,13 +94,13 @@ describe("what a turn would cost", () => {
   it("says the price is not quoted rather than drawing a figure", async () => {
     await openPicker({
       ...onSonnet,
-      models: [SONNET, model("openrouter/auto", {})],
+      models: [SONNET, model("mystery/per-request", {})],
       turnShape: MINE,
     });
 
     // Never a nought. A model billed per request drawn as free is the one
     // mistake this row exists to prevent.
-    expect(text("openrouter/auto", ".model-turn")).toBe("not quoted");
+    expect(text("mystery/per-request", ".model-turn")).toBe("not quoted");
   });
 });
 
@@ -218,14 +218,14 @@ describe("ordering the list by price", () => {
   it("sorts a model with no price last, never first", async () => {
     await openPicker({
       ...onSonnet,
-      models: [model("openrouter/auto", {}), CHEAP],
+      models: [model("mystery/per-request", {}), CHEAP],
       turnShape: MINE,
     });
 
     await ui.click(ui.$("#model-dialog-cheapest"));
 
     const order = ui.$$("#model-dialog .model-row").map((el) => el.dataset.model);
-    expect(order.at(-1)).toBe("openrouter/auto");
+    expect(order.at(-1)).toBe("mystery/per-request");
   });
 
   it("goes back to best-match when switched off", async () => {
@@ -283,5 +283,52 @@ describe("what a specialist has run up", () => {
     await ui.open("auth");
 
     expect(ui.$("#stage-head .badge-spend")).toBeNull();
+  });
+});
+
+describe("letting OpenRouter route each request", () => {
+  const AUTO = model("openrouter/auto", {}, 2_000_000);
+  const BETA = model("openrouter/auto-beta", {}, 2_000_000);
+
+  it("offers both routers, above the catalogue", async () => {
+    await openPicker({ ...onSonnet, models: [SONNET, AUTO, BETA], turnShape: MINE });
+
+    expect(ui.$("#model-dialog .model-auto .model-option[data-model='openrouter/auto']")).not.toBeNull();
+    expect(ui.$("#model-dialog .model-auto .model-option[data-model='openrouter/auto-beta']")).not.toBeNull();
+  });
+
+  it("says what the trade is, and where to read about it", async () => {
+    // A developer choosing one of these should know Bench cannot price the
+    // turn or record what it cost, rather than find out from an empty ledger.
+    await openPicker({ ...onSonnet, models: [SONNET, AUTO], turnShape: MINE });
+    const note = ui.$('[data-house-note="auto"]')!;
+
+    expect(note.textContent).toMatch(/cannot quote/i);
+    expect(note.querySelector("a")!.getAttribute("href")).toContain("openrouter.ai");
+  });
+
+  it("keeps them out of the priced list, where they would read as missing data", async () => {
+    // Two rows saying "not quoted" among three hundred that quote looks like
+    // a hole in the catalogue. They have no price until they have chosen.
+    await openPicker({ ...onSonnet, models: [SONNET, AUTO, BETA], turnShape: MINE });
+
+    expect(ui.$$("#model-dialog .model-rows .model-row[data-model^='openrouter/']")).toHaveLength(0);
+  });
+
+  it("picks one", async () => {
+    await openPicker({ ...onSonnet, models: [SONNET, AUTO], turnShape: MINE });
+
+    await ui.click(ui.$("#model-dialog .model-auto .model-option[data-model='openrouter/auto']"));
+
+    expect(ui.sent.at(-1)!.body.model).toBe("openrouter/auto");
+  });
+
+  it("offers nothing to route with when there is no key to route on", async () => {
+    ui = await bootCockpit({ rows: [row()], entries: [entry()], models: [] });
+    await ui.open("auth");
+    await ui.click(ui.$("#composer-model"));
+    await waitFor(() => ui.$("#model-dialog-search"), "the picker");
+
+    expect(ui.$("#model-dialog .model-auto")).toBeNull();
   });
 });

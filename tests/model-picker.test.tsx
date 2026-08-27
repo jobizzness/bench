@@ -161,7 +161,7 @@ describe("the model picker", () => {
     await openPicker({
       ...one,
       routerKey: { present: true, hint: "…4f2a" },
-      models: [model({ id: "openrouter/auto", name: "Auto Router", dollarsPerMillion: null })],
+      models: [model({ id: "mystery/per-request", name: "Priced Per Request", dollarsPerMillion: null })],
     });
     expect(ui.$("#model-dialog .model-row")!.getAttribute("title"))
       .toBe("This one is not priced per token.");

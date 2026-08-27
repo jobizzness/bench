@@ -1,4 +1,5 @@
 import { comparisonLabel, dollars, perMillionLabel, type Price } from "../../shared/cost.js";
+import { isAutoRouter } from "./AutoRouters.js";
 
 /** One model in the picker, as much of it as the daemon hands over. */
 export interface Listed {
@@ -51,7 +52,10 @@ export function ModelRow({ model, at, active, current, disabled, turn, multiple,
       aria-selected={current}
       aria-current={current}
       disabled={disabled}
-      title={rates(model.price)}
+      title={routed(model)
+        ? "OpenRouter chooses a model per request. Bench cannot price a turn in "
+          + "advance on this one, and cannot record what it cost afterwards."
+        : rates(model.price)}
       onMouseEnter={onHover}
       onClick={onPick}
     >
@@ -66,11 +70,24 @@ export function ModelRow({ model, at, active, current, disabled, turn, multiple,
           ones are the good case and do not need alerting; a picker that
           colours every row has no colour left for the one worth noticing. */}
       <span className="model-versus" data-dear={multiple !== null && multiple >= 2}>
-        {current ? "what you are on" : comparisonLabel(multiple)}
+        {current ? "what you are on" : routed(model) ? "picks for itself" : comparisonLabel(multiple)}
       </span>
       <span className="model-window">{windowLabel(model.contextLength)}</span>
     </button>
   );
+}
+
+/**
+ * A router rather than a model.
+ *
+ * `openrouter/auto` decides per request, which is why the catalogue quotes it
+ * a sentinel price rather than a real one. Worth saying on the row: "not
+ * quoted" beside every other row's figure reads as a gap in our data, and it
+ * is not - it is the honest answer about a thing that has no price until it
+ * has chosen.
+ */
+function routed(model: Listed): boolean {
+  return isAutoRouter(model.id);
 }
 
 /**

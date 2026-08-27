@@ -1455,6 +1455,18 @@ button.badge-role:hover, button.badge-role:focus-visible {
 .model-option:hover:not(:disabled),
 .model-option:focus-visible { border-color: var(--line-firm); }
 
+/* The routers. Two options rather than four, so they fill the row they are on
+   and read as a pair of alternatives rather than an incomplete set. */
+.model-auto .model-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* The one link in this dialog. Underlined rather than coloured: the palette's
+   green means "this wants you", and a documentation link does not. */
+.model-auto a {
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.model-auto a:hover { color: var(--text); }
+
 /* The one it is already on. Marked rather than hidden - a modal that drops
    the current answer makes you work out what you would be changing from. */
 .model-option[data-current="true"] {
