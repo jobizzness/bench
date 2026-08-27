@@ -56,12 +56,14 @@ export interface RosterRow {
    * finished, and always null on a model that answers for itself. */
   answeredBy: string[] | null;
   /** The specialist that opened this tab with `bench new`, if one did.
-   * Null for a tab the developer opened themselves, and for anything
-   * restored from before a daemon restart - it is not persisted. */
+   * Null for a tab the developer opened themselves. Persisted, so a daemon
+   * restart keeps the nesting the roster draws from it. */
   createdBy: string | null;
   /** The message an agent told this tab, held back until the developer
    * dispatches it. Null once dispatched, declined, or never held. */
   pendingPrompt: string | null;
+  /** Model reasoning/thinking effort level. */
+  reasoningEffort?: "none" | "low" | "medium" | "high";
 }
 
 /**

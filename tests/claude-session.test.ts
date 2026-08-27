@@ -412,6 +412,32 @@ describe("ClaudeSession", () => {
     session.stop();
   });
 
+  it("folds several mid-turn prompts into one turn instead of one each", async () => {
+    // Three quick follow-ups typed while turn 1 was still running used to
+    // cost three resends of the whole conversation - one per queued turn.
+    // They should land as a single turn 2 instead.
+    const session = await makeSession(SLOW_CLI);
+    const results: string[] = [];
+    session.on("turn-end", (ev: any) => results.push(String(ev.result)));
+
+    session.open();
+    session.send("do the work");
+    session.send("quick question one");
+    session.send("quick question two");
+
+    await once(session, "turn-end");
+    expect(results[0]).toContain("received=1");
+
+    await once(session, "turn-end");
+    // Only turn 2 - a third queued turn would mean a third resend.
+    expect(results).toHaveLength(2);
+    expect(results[1]).toContain("received=2");
+    expect(results[1]).toContain("quick question one");
+    expect(results[1]).toContain("quick question two");
+
+    session.stop();
+  });
+
   it("advances the marker to the queued turn once the running turn ends", async () => {
     const session = await makeSession();
     const opts = (session as any).opts;

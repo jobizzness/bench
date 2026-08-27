@@ -19,7 +19,7 @@ import { modelForRole } from "../shared/role-models.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
 import { keyHint } from "./anthropic-key.js";
-import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./openrouter.js";
+import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
 import { describeOrigin, type Origin } from "./env-file.js";
 import { writeParked } from "./key-park.js";
 import { isModelId, modelLabel } from "../shared/models.js";
@@ -58,9 +58,12 @@ interface Entry {
   stoppedBecause?: string;
   model: string;
   port: number;
-  /** The specialist whose `bench new` opened this tab, if one did. Not
-   * persisted: it only matters before the first turn, which cannot survive
-   * a restart anyway (see `resumable`). */
+  /** The specialist whose `bench new` opened this tab, if one did. Persisted:
+   * the roster nests a child under its opener, and the nesting has to survive
+   * a restart. It does double duty before the first turn, where it is also how
+   * the daemon knows to hold a sender's message for dispatch - but that part
+   * cannot outlive a restart anyway (see `resumable`), which is why it used to
+   * be held in memory only. */
   createdBy: string | null;
   /** What an agent told this tab, waiting on the developer to dispatch it. */
   pendingDispatch: string | null;
@@ -602,7 +605,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // Not persisted: whatever was pending before a restart cannot
         // survive one anyway, since the idle process it was waiting on is
         // gone too.
-        createdBy: null,
+        createdBy: rec.createdBy ?? null,
         pendingDispatch: null,
         nudged: rec.nudged ?? {},
         row: {
@@ -625,8 +628,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           activity: [],
           spend: rec.spend ?? null,
           answeredBy: rec.answeredBy ?? null,
-          createdBy: null,
+          createdBy: rec.createdBy ?? null,
           pendingPrompt: null,
+          reasoningEffort: rec.reasoningEffort,
         },
       });
     }
@@ -920,10 +924,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     /** The specialist opening this tab with `bench new`, if any. Absent for
      * a tab the developer opened themselves, from the cockpit. */
     createdBy?: string;
+    /** Model reasoning/thinking effort level. */
+    reasoningEffort?: "none" | "low" | "medium" | "high";
   }): Promise<string> {
     const isolated = input.isolated ?? true;
     const role = asRole(input.role);
     const model = input.model === "" ? this.modelFor(role) : input.model;
+    const reasoningEffort = input.reasoningEffort ?? this.settings.reasoningEffort ?? "medium";
 
     // Before anything is created. A model that needs an OpenRouter key and
     // has none is the developer's problem while they are still looking at the
@@ -969,6 +976,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         answeredBy: null,
         createdBy: input.createdBy ?? null,
         pendingPrompt: null,
+        reasoningEffort,
       },
     });
     this.emit("roster");
@@ -1011,6 +1019,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       await this.store.put({
         id, label: input.label, role, project: input.project, worktree, branch, reportsDir,
         model, port, createdAt: new Date().toISOString(), isolated,
+        createdBy: input.createdBy ?? null, reasoningEffort,
       });
       this.update(id, "awaiting_decision", "ready");
     } catch (error) {
@@ -1214,6 +1223,24 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     if (entry.session) {
       entry.stopping = true;
       entry.stoppedBecause = `moved to ${modelLabel(model)}`;
+      entry.session.stop();
+    } else {
+      this.emit("roster");
+    }
+  }
+
+  /** Change reasoning effort level. */
+  async setReasoningEffort(id: string, reasoningEffort: "none" | "low" | "medium" | "high"): Promise<void> {
+    const entry = this.entries.get(id);
+    if (!entry) throw new Error("no such specialist");
+    if (entry.row.reasoningEffort === reasoningEffort) return;
+
+    entry.row.reasoningEffort = reasoningEffort;
+    this.remember(this.store.setReasoningEffort(id, reasoningEffort));
+
+    if (entry.session) {
+      entry.stopping = true;
+      entry.stoppedBecause = `changed reasoning effort to ${reasoningEffort}`;
       entry.session.stop();
     } else {
       this.emit("roster");

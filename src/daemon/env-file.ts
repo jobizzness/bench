@@ -37,7 +37,7 @@ import { isOauthToken } from "./anthropic-key.js";
  * has not done the thing they asked for.
  */
 const ANTHROPIC_NAMES = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] as const;
-const ROUTER_NAMES = ["OPENROUTER_API_KEY", "OPEN_ROUTER_KEY", "OPENROUTER_KEY"] as const;
+const GEMINI_NAMES = ["GEMINI_API_KEY", "GEMINI_KEY", "GOOGLE_API_KEY", "GOOGLE_KEY"] as const;
 
 /** Where a key was found, so the cockpit can say. */
 export type Origin =
@@ -179,7 +179,7 @@ export function findCredentials(opts: {
 
   const pick = (names: readonly string[]) => fromEnvironment(names) ?? fromFiles(names);
 
-  return { anthropic: pick(ANTHROPIC_NAMES), router: pick(ROUTER_NAMES), searched };
+  return { anthropic: pick(ANTHROPIC_NAMES), router: pick(GEMINI_NAMES), searched };
 }
 
 /**

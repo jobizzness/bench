@@ -16,7 +16,7 @@ import { houseRules, type Settings } from "./settings.js";
 import { checkKey, type KeyCheck } from "./anthropic-key.js";
 import type { TurnShape } from "../shared/cost.js";
 import { isRole, type Role } from "../shared/roles.js";
-import { checkKey as checkRouterKey, creditSource, type Listed } from "./openrouter.js";
+import { checkKey as checkRouterKey, creditSource, handleGeminiProxy, type Listed } from "./gemini.js";
 import type { Credit } from "../shared/credit.js";
 import type { Total } from "./ledger.js";
 import { usageSource, type Usage } from "./usage.js";
@@ -57,6 +57,7 @@ export interface SessionRegistryLike {
   clearContext(id: string): boolean;
   rename(id: string, label: string): boolean;
   setModel(id: string, model: string): Promise<void>;
+  setReasoningEffort(id: string, reasoningEffort: "none" | "low" | "medium" | "high"): Promise<void>;
   setRole(id: string, role: Role): Promise<void>;
   create(input: {
     project: string; label: string; model: string; role?: string; isolated?: boolean; createdBy?: string;
@@ -274,6 +275,13 @@ export function createServer(opts: {
       } catch {
         res.writeHead(404).end("not found");
       }
+      return;
+    }
+
+    const openRouterProxy = path.match(/^\/api\/openrouter(?:\/([^/]+))?\/v1\/messages$/);
+    if (openRouterProxy && req.method === "POST") {
+      const sessionId = openRouterProxy[1];
+      await handleGeminiProxy(req, res, sessionId, registry);
       return;
     }
 
@@ -745,6 +753,24 @@ export function createServer(opts: {
         json(res, 200, { model });
       } catch (error) {
         process.stderr.write(`bench: could not change the model: ${String(error)}\n`);
+        json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
+    const reasoningEffortRoute = path.match(/^\/api\/sessions\/([^/]+)\/reasoning-effort$/);
+    if (reasoningEffortRoute && req.method === "POST") {
+      if (!registry.get(reasoningEffortRoute[1])) { json(res, 404, { error: "no such session" }); return; }
+      const reasoningEffort = String((await readBody(req))?.reasoningEffort ?? "");
+      if (!["none", "low", "medium", "high"].includes(reasoningEffort)) {
+        json(res, 400, { error: "invalid reasoning effort level" });
+        return;
+      }
+      try {
+        await registry.setReasoningEffort(reasoningEffortRoute[1], reasoningEffort as any);
+        json(res, 200, { reasoningEffort });
+      } catch (error) {
+        process.stderr.write(`bench: could not change reasoning effort: ${String(error)}\n`);
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
       }
       return;

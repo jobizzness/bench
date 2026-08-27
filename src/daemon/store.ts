@@ -66,6 +66,19 @@ export interface SessionRecord {
    * isolated; absent means true.
    */
   isolated?: boolean;
+  /**
+   * The specialist whose `bench new` opened this tab, if one did. Null - or
+   * absent on a record written before the field existed - for a tab the
+   * developer opened themselves. The roster nests a child under its opener,
+   * so this has to survive a restart; it is no longer the transient
+   * pre-dispatch state it once shared a field with.
+   */
+  createdBy?: string | null;
+  /**
+   * Model reasoning/thinking effort level for reasoning models.
+   * Maps to Google's thinking_level or OpenAI's reasoning_effort.
+   */
+  reasoningEffort?: "none" | "low" | "medium" | "high";
 }
 
 const REQUIRED = ["id", "label", "project", "worktree", "reportsDir", "model"] as const;
@@ -244,6 +257,17 @@ export class SessionStore {
       const record = all.find((r) => r.id === id);
       if (!record) return;
       record.model = model;
+      await this.write(all);
+    });
+  }
+
+  /** Change reasoning effort level. */
+  async setReasoningEffort(id: string, reasoningEffort: "none" | "low" | "medium" | "high"): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.reasoningEffort = reasoningEffort;
       await this.write(all);
     });
   }

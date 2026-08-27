@@ -9,11 +9,26 @@ import {
 import type { Context } from "../shared/context-window.js";
 import { buildSettings } from "./gates/settings.js";
 import { credentialEnv } from "./anthropic-key.js";
-import { sessionEnv as openRouterEnv } from "./openrouter.js";
+import { sessionEnv as openRouterEnv } from "./gemini.js";
 import { ROLE_BRIEF, COST_AWARENESS_BRIEF, DEFAULT_ROLE, type Role } from "../shared/roles.js";
 
 /** Enough for a refusal and a stack trace, not enough to hold a log file. */
 const STDERR_KEPT = 4000;
+
+/**
+ * Several prompts arrived while one turn was running. Answering each as its
+ * own turn would resend the whole conversation once per message instead of
+ * once for the lot - exactly the cost holding them in a queue was supposed
+ * to avoid, just paid out one turn later instead of immediately. So they are
+ * folded into a single turn, in the order they arrived, rather than each
+ * getting its own trip through the conversation so far.
+ */
+function compacted(prompts: string[]): string {
+  const intro =
+    "The developer sent these while you were still on the turn before this "
+    + "one. Answer them together, as one turn, not one at a time:";
+  return [intro, ...prompts.map((p, i) => `${i + 1}. ${p}`)].join("\n\n");
+}
 
 export interface SessionOptions {
   id: string;
@@ -241,7 +256,7 @@ export class ClaudeSession extends EventEmitter {
         // the Anthropic case, and it has to leave the environment exactly as
         // it found it: a bench with no key of its own must not take away the
         // login the daemon was started with.
-        ...(via ? openRouterEnv(via) : {}),
+        ...(via ? openRouterEnv({ ...via, id: this.opts.id, cockpitUrl: this.opts.cockpitUrl }) : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -408,11 +423,15 @@ export class ClaudeSession extends EventEmitter {
         this.lastAnsweredBy = [...this.answeredBy];
 
         // The turn that just finished releases the markers to the next
-        // queued turn, which only now becomes the running one.
+        // queued turn, which only now becomes the running one. Everything
+        // waiting goes together, as one turn - not one each, which is how a
+        // developer typing three quick follow-ups used to cost three resends
+        // of the whole conversation instead of one.
         this.running = false;
         this.startedAt = null;
-        const next = this.queued.shift();
-        if (next !== undefined) {
+        if (this.queued.length > 0) {
+          const next = this.queued.length === 1 ? this.queued[0] : compacted(this.queued);
+          this.queued = [];
           this.running = true;
           this.dispatch(next);
         }

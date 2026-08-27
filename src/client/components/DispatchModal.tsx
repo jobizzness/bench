@@ -101,6 +101,7 @@ export function DispatchModal({ open, row, onClose, onNeedKey }: {
         open={modelOpen}
         current={row.model}
         sessionId={row.id}
+        reasoningEffort={row.reasoningEffort}
         onClose={() => setModelOpen(false)}
         {...(onNeedKey ? { onNeedKey: () => { setModelOpen(false); onNeedKey(); } } : {})}
       />
