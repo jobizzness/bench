@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, chmod, readdir, readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readParked } from "../src/daemon/key-park.js";
@@ -232,6 +232,37 @@ process.stdin.on("data", (chunk) => {
       type: "result", subtype: "success", is_error: false,
       session_id: "sess-restore",
       result: "key:" + (process.env.ANTHROPIC_API_KEY ?? "none"),
+    }) + "\\n");
+  }
+});
+`;
+
+/** Writes a report before answering, the way a specialist does when a turn
+ * ends in a decision rather than a plain reply. Reads the turn number `.turn`
+ * the same way the real CLI's artifact directory is chosen, so it lands where
+ * `findReport` actually looks. */
+const REPORTING_CLI = `#!/usr/bin/env node
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    const reportsDir = process.env.BENCH_REPORTS_DIR;
+    const turn = readFileSync(join(reportsDir, ".turn"), "utf8").trim();
+    const dir = join(reportsDir, turn);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "report.html"), "<h1>done</h1>");
+    writeFileSync(join(dir, "decision.json"), JSON.stringify({
+      kind: "question", title: "Done", summary: "x", options: [], questions: [], allowFreeText: true,
+    }));
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "sess-restore", result: "ok",
     }) + "\\n");
   }
 });
@@ -1267,7 +1298,7 @@ describe("what a new specialist runs on", () => {
 /** A real repo, since `create()` provisions a real worktree. A fake CLI so
  * the process it spawns is not an unhandled ENOENT on a machine with no
  * `claude` installed. */
-async function setupForCreate() {
+async function setupForCreate(cli: string = REPLYING_CLI) {
   const home = await mkdtemp(join(tmpdir(), "bench-home-"));
   const project = await mkdtemp(join(tmpdir(), "bench-proj-"));
   await exec("git", ["init", "-q", "-b", "main"], { cwd: project });
@@ -1282,7 +1313,7 @@ async function setupForCreate() {
     pluginDir: "/nonexistent/plugin",
     hookCommand: "node /nonexistent/hook.js",
     projectsRoot: project,
-    claudeBin: await fakeCli(REPLYING_CLI),
+    claudeBin: await fakeCli(cli),
   };
 
   const registry = new SessionRegistry(config as any);
@@ -1424,5 +1455,46 @@ describe("a tab another specialist spins up", () => {
     const row = rowOf(registry, id);
     expect(row.status).toBe("working");
     expect(row.pendingPrompt).toBeNull();
+  });
+});
+
+describe("a report on a tab another specialist opened", () => {
+  it("wakes the parent with a pointer to the child's report", async () => {
+    const { project, registry } = await setupForCreate(REPORTING_CLI);
+    const parentId = await registry.create({ project, label: "parent", model: "opus" });
+    registry.send(parentId, "get started");
+    await waitFor(() => (rowOf(registry, parentId).status !== "working" ? true : null), "parent's own turn to finish");
+
+    const childId = await registry.create({ project, label: "child", model: "opus", createdBy: parentId });
+    registry.send(childId, "build the thing");
+    await registry.dispatch(childId);
+    await waitFor(() => (rowOf(registry, childId).status !== "working" ? true : null), "child's turn to finish");
+
+    // The append to the parent's thread is not awaited by the turn-end
+    // handler that triggers it (see registry.ts), so the child's own status
+    // can flip before that write has landed on disk - poll rather than
+    // read once. waitFor only takes a synchronous read, so a sync file read
+    // rather than readThread.
+    const parent = registry.get(parentId)!;
+    const line = await waitFor(() => {
+      let raw: string;
+      try { raw = readFileSync(parent.threadPath, "utf8"); } catch { return null; }
+      return raw.split("\n").find((l) => l.includes("wrote a report")) ?? null;
+    }, "the parent to hear about the child's report");
+    const notified = JSON.parse(line) as { body: string };
+    expect(notified.body).toContain("child wrote a report");
+    expect(notified.body).toContain("bench tell child");
+  });
+
+  it("does not try to notify a tab the developer opened themselves", async () => {
+    // No createdBy, so nobody made this one - and nobody is waiting to hear
+    // about its report.
+    const { project, registry } = await setupForCreate(REPORTING_CLI);
+    const soloId = await registry.create({ project, label: "solo", model: "opus" });
+
+    registry.send(soloId, "get started");
+
+    await waitFor(() => (rowOf(registry, soloId).status !== "working" ? true : null), "the turn to finish");
+    expect(rowOf(registry, soloId).status).not.toBe("crashed");
   });
 });

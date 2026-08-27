@@ -793,11 +793,26 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
       if (hasNewReport) {
         const report = await findReport(reportsDir, seq);
+        const title = report ? report.decision.title : `Report ${seq}`;
         await appendEntry(entry.threadPath, {
           kind: "report",
-          body: report ? report.decision.title : `Report ${seq}`,
+          body: title,
           reportSeq: seq,
         });
+
+        // A tab another specialist opened reports back to it, the same way a
+        // report already wakes the developer - reusing that exact signal
+        // rather than a second one, and only on a report: a plain reply stays
+        // as quiet for the parent as it is for the developer. `send` is the
+        // one path a message to a specialist ever takes, so a parent that
+        // hasn't dispatched this tab yet still gets it held for review first.
+        if (entry.createdBy !== null) {
+          const htmlPath = report?.htmlPath ?? join(reportsDir, String(seq), "report.html");
+          this.send(
+            entry.createdBy,
+            `${entry.row.label} wrote a report: "${title}". Read ${htmlPath}, or bench tell ${entry.row.label} to answer it.`,
+          );
+        }
       }
 
       // How full the conversation is now. Kept on disk as well as on the row:

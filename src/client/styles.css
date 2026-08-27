@@ -574,6 +574,34 @@ button, input, textarea, select { font: inherit; color: inherit; }
   padding: 0 0 0 18px;
 }
 
+/* Sub-agents: a tab another specialist opened with `bench new`, drawn under
+   it instead of loose in the group - so seeing one on the roster answers
+   "whose work is this" before you have opened either tab. Recursive: one of
+   these can open its own, and each level indents one step further for free,
+   because the nesting is real DOM nesting rather than a computed depth.
+
+   No line-drawing per row - the border on the list itself is the spine, the
+   same way the group's rail already reads as one down its own gutter (see
+   above). One continuous edge is calmer than a bracket redrawn per child. */
+.sub-rows {
+  list-style: none;
+  margin: 0 0 0 24px;
+  padding: 0;
+  border-left: 1px solid var(--line-firm);
+  transition: border-color 160ms var(--ease);
+}
+/* Lit the same hue as a rail, when something down this branch wants you -
+   findable without reading every row under it. */
+.sub-rows[data-waiting="true"] { border-left-color: var(--wants); }
+
+.row[data-nested="true"] {
+  padding-left: 20px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.row[data-nested="true"] .label { font-size: 13px; }
+.row[data-nested="true"] .meta { font-size: 10px; }
+
 /* Rows. Status lives in the rail, not in a third line of text. */
 .row {
   position: relative;
