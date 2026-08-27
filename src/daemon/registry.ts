@@ -19,7 +19,7 @@ import { modelForRole } from "../shared/role-models.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
 import { keyHint } from "./anthropic-key.js";
-import { catalogue, isOpenRouterModel, type Listed } from "./openrouter.js";
+import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./openrouter.js";
 import { describeOrigin, type Origin } from "./env-file.js";
 import { writeParked } from "./key-park.js";
 import { isModelId, modelLabel } from "../shared/models.js";
@@ -28,6 +28,7 @@ import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
 import { costFrom, shapeFrom } from "./stream-codec.js";
 import type { ResultEvent } from "./stream-codec.js";
 import { TurnLog } from "./turns.js";
+import { Ledger, type Total } from "./ledger.js";
 
 interface Entry {
   row: RosterRow;
@@ -70,6 +71,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   /** The shape of the last twenty turns, whoever ran them. What makes "a turn
    * like yours" a claim about this bench rather than about a brochure. */
   private readonly turns: TurnLog;
+  /**
+   * Every turn this bench has paid for, kept where closing a tab cannot reach
+   * it. The `spend` field on a specialist's record goes when the record does,
+   * which made the ordinary end of a piece of work also the end of knowing
+   * what it cost.
+   */
+  private readonly ledger: Ledger;
   /**
    * Held in memory as well as on disk because the framing is built
    * synchronously, at the instant a turn starts. Saving updates both, so a
@@ -120,6 +128,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     super();
     this.store = new SessionStore(config.home);
     this.turns = new TurnLog(config.home);
+    this.ledger = new Ledger(config.home);
 
     // Both keys, if the developer already wrote them down somewhere. Found
     // by loadConfig(), which is the file allowed to read the world - so a
@@ -173,6 +182,20 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    */
   async typicalTurn(): Promise<{ shape: TurnShape | null; turns: number }> {
     return this.turns.typical();
+  }
+
+  /**
+   * What this bench has spent, over its whole life or on one project.
+   *
+   * Read from the ledger rather than added up off the roster, because the
+   * roster only holds specialists that still exist. Every total taken from
+   * rows was a total of whoever had not been closed yet, which on this
+   * machine meant leaving out seven tabs.
+   */
+  async spend(project?: string | null): Promise<Total> {
+    return project
+      ? this.ledger.total((entry) => entry.project === project)
+      : this.ledger.total();
   }
 
   /**
@@ -325,11 +348,28 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * to Anthropic is paid for by a subscription already bought, and the CLI's
    * own `total_cost_usd` is what it would have cost at list price - worth
    * knowing, not a bill. A turn answered by OpenRouter is money out of the
-   * developer's balance today, and the CLI cannot price it: its table is
-   * Anthropic's, and this model is not in it. That one is costed from the
-   * catalogue, which is the same arithmetic the picker shows.
+   * developer's balance today.
+   *
+   * That second one used to be priced from the catalogue, and the catalogue is
+   * the wrong table. It quotes one provider; OpenRouter bills whichever
+   * provider actually served the request, and the two are not close. Measured
+   * against five hundred of this developer's own requests, the catalogue said
+   * $7.02 where $10.24 had been charged - `deepseek/deepseek-v4-pro` was
+   * quoted at $0.87 per million and served at about $1.60. No correction to
+   * the arithmetic can fix that, because the number it is reading is not the
+   * number being charged.
+   *
+   * So the true figure is fetched instead, one lookup per request the turn
+   * made, and the estimate is what happens when that cannot be reached. Which
+   * of the two a figure is travels with it into the ledger, because a total
+   * that mixes settled charges with guesses and does not say so is a total
+   * nobody can act on.
    */
-  private async bill(entry: Entry, result: ResultEvent | undefined): Promise<void> {
+  private async bill(
+    entry: Entry,
+    result: ResultEvent | undefined,
+    turn: { ids: readonly string[]; answeredBy: readonly string[] },
+  ): Promise<void> {
     const shape = result ? shapeFrom(result) : null;
     if (shape === null) return;
 
@@ -338,17 +378,157 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // sampled its cheap specialists would price everything against those.
     await this.turns.record(shape);
 
-    const proxied = isOpenRouterModel(entry.row.model);
-    const dollars = proxied
-      ? costOfTurn(shape, await this.priceOf(entry.row.model))
-      : costFrom(result!);
+    if (!isOpenRouterModel(entry.row.model)) {
+      // The CLI's own figure, from Anthropic's own table for an Anthropic
+      // model. That one is right, and it is the only case where it is.
+      const dollars = costFrom(result!);
+      if (dollars === null) return;
+      await this.charge(entry, dollars, "settled", "plan");
+      return;
+    }
+
+    await this.billProxied(entry, shape, turn);
+  }
+
+  /**
+   * What an OpenRouter turn really cost, or the best account of it available.
+   *
+   * Three outcomes, in descending order of how much they can be trusted, and
+   * the ledger is told which one it got.
+   */
+  private async billProxied(
+    entry: Entry,
+    shape: TurnShape,
+    turn: { ids: readonly string[]; answeredBy: readonly string[] },
+  ): Promise<void> {
+    const settled = this.routerKey !== null && turn.ids.length > 0
+      ? await settledCostOfTurn(turn.ids, this.routerKey)
+      : null;
+
+    // Every request the turn made came back with a price. This is the bill.
+    if (settled && settled.unpriced === 0 && settled.priced > 0) {
+      await this.charge(entry, settled.dollars, "settled", "account", turn.answeredBy);
+      return;
+    }
+
+    // Otherwise price it from the catalogue - against whatever actually
+    // answered, not against what was asked for. Under an auto router the two
+    // differ, and the requested one has no price at all: OpenRouter quotes
+    // `openrouter/auto` as a negative sentinel, which is why a router turn
+    // used to be recorded as nothing whatsoever, not even a turn.
+    const estimate = await this.estimateOf(shape, entry.row.model, turn.answeredBy);
+
+    // A part-settled sum is a floor on the bill rather than the bill, so it is
+    // labelled a guess like any other. It is still the better guess whenever
+    // it is the larger of the two: the catalogue has only ever been measured
+    // reading low, so the higher of two under-estimates is the nearer one.
+    const floor = settled?.priced ? settled.dollars : null;
+    const dollars = floor === null ? estimate : Math.max(floor, estimate ?? 0);
     if (dollars === null) return;
+
+    await this.charge(entry, dollars, "estimated", "account", turn.answeredBy);
+  }
+
+  /**
+   * What a turn that was killed had already run up.
+   *
+   * There is no result event for one of these, so there is no token shape and
+   * nothing for the catalogue to price - which is why every interrupted turn
+   * used to cost nothing on the record. The requests still happened and were
+   * still charged, and on a proxied specialist each one left an id behind, so
+   * the bill is recoverable even though the estimate never was.
+   *
+   * Nothing to do on an Anthropic specialist: its cost arrives only in the
+   * `total_cost_usd` of an event that will not be sent. That gap is named here
+   * rather than papered over, because a zero would read as a fact.
+   */
+  private async billInterrupted(
+    entry: Entry,
+    running: { ids: string[]; answeredBy: string[] } | null,
+  ): Promise<void> {
+    if (running === null || running.ids.length === 0 || this.routerKey === null) return;
+
+    const settled = await settledCostOfTurn(running.ids, this.routerKey);
+    if (settled.priced === 0) return;
+
+    // Part-settled is the ordinary case here rather than the exception: the
+    // last request of an interrupted turn may never have completed, so it may
+    // never have been billed either. What came back is what was charged.
+    await this.charge(
+      entry,
+      settled.dollars,
+      settled.unpriced === 0 ? "settled" : "estimated",
+      "account",
+      running.answeredBy,
+    );
+  }
+
+  /**
+   * The catalogue's account of a turn, priced against whichever model answered
+   * it where that is known.
+   *
+   * The models that answered are tried before the one on the row because the
+   * row's may be a router rather than a model. Where several answered - a
+   * router that changed its mind mid-turn - the dearest is used: this is a
+   * fallback that has already been measured reading low, and rounding it down
+   * again is the wrong direction to be wrong in.
+   */
+  private async estimateOf(
+    shape: TurnShape,
+    asked: string,
+    answeredBy: readonly string[],
+  ): Promise<number | null> {
+    const candidates = [...answeredBy, asked];
+    let best: number | null = null;
+    for (const model of candidates) {
+      const cost = costOfTurn(shape, await this.priceOf(model));
+      if (cost !== null && (best === null || cost > best)) best = cost;
+    }
+    return best;
+  }
+
+  /**
+   * Put a turn's cost on the row and in the ledger.
+   *
+   * Both, because they answer different questions and only one of them
+   * survives. The row is what the developer reads while the specialist is
+   * alive; the ledger is what is left when they close the tab, which is the
+   * ordinary end of a specialist's life and used to take the money with it.
+   *
+   * The ledger is written first. If only one of the two can happen, the one
+   * that cannot be reconstructed is the one worth keeping - a row's total is
+   * derivable from the ledger, and nothing derives the ledger from a row.
+   */
+  private async charge(
+    entry: Entry,
+    dollars: number,
+    basis: "settled" | "estimated",
+    billed: "plan" | "account",
+    served: readonly string[] = [],
+  ): Promise<void> {
+    await this.ledger.record({
+      at: new Date().toISOString(),
+      session: entry.row.id,
+      label: entry.row.label,
+      project: entry.row.project,
+      model: entry.row.model,
+      // Only where it says something the model above does not. On a router
+      // this is the whole point - it is the only record anywhere of what the
+      // router actually picked - and on a pinned model it is the same name
+      // twice.
+      ...(served.length > 0 && !(served.length === 1 && served[0] === entry.row.model)
+        ? { served: [...served] }
+        : {}),
+      dollars,
+      billed,
+      basis,
+    });
 
     const before = entry.row.spend;
     const spend: Spend = {
       dollars: (before?.dollars ?? 0) + dollars,
       turns: (before?.turns ?? 0) + 1,
-      billed: proxied ? "account" : "plan",
+      billed,
     };
     entry.row.spend = spend;
     await this.store.rememberSpend(entry.row.id, spend);
@@ -543,6 +723,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     session.on("exit", (code: number | null, stderr: string) => {
       const entry = this.entries.get(id);
       if (entry) {
+        // Whatever the turn that was interrupted had already spent. Read
+        // before anything else touches the session, because the reference is
+        // dropped two lines below and this is the last moment it exists.
+        this.remember(this.billInterrupted(entry, session.runningTurn));
         entry.alive = false;
         // Let go of it. A session whose process has gone refuses everything
         // sent to it, and holding the reference meant the next message took
@@ -628,7 +812,15 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       // What the turn moved, and what that came to. Recorded here rather than
       // in the session because this is the only place that knows which
       // account answered - and the two are not the same kind of money.
-      this.remember(this.bill(entry, result));
+      // Read here rather than inside `bill`, which is deliberately not
+      // awaited: by the time it runs, a queued next turn may already have
+      // started and be filling the session's own counters. The session
+      // freezes these at turn-end for exactly this reason, but reading them
+      // now keeps the dependency on that visible rather than assumed.
+      this.remember(this.bill(entry, result, {
+        ids: session.turnGenerationIds,
+        answeredBy: session.turnAnsweredBy,
+      }));
 
       // A turn has ended, so the CLI has written a conversation and the next
       // process can pick it up.

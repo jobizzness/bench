@@ -2,7 +2,10 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { LineDecoder, userMessageLine, isResultEvent, activityLine, replyText, contextFrom } from "./stream-codec.js";
+import {
+  LineDecoder, userMessageLine, isResultEvent, activityLine, replyText, contextFrom,
+  generationIdFrom, answeringModelFrom,
+} from "./stream-codec.js";
 import type { Context } from "../shared/context-window.js";
 import { buildSettings } from "./gates/settings.js";
 import { credentialEnv } from "./anthropic-key.js";
@@ -96,12 +99,66 @@ export class ClaudeSession extends EventEmitter {
     return this.context;
   }
 
+  /**
+   * The OpenRouter generation ids the last finished turn was answered under,
+   * in the order they were first seen.
+   *
+   * One id per API request, and a turn makes as many requests as it makes
+   * tool calls - so this has as many entries as `usage.iterations` on the
+   * same result event, which is a cheap way to notice the parser has begun
+   * missing some. Several consecutive assistant events repeat the same id,
+   * which is why they are de-duplicated on the way in.
+   *
+   * A getter, in the manner of `contextUsed` and `turnTokens`, rather than a
+   * payload on `turn-end`: the existing listeners take the raw result event
+   * and would all have to change to read a wrapper.
+   */
+  get turnGenerationIds(): string[] {
+    return this.lastGenerationIds;
+  }
+
+  /** Which models actually answered the last finished turn - the router's
+   * real choices, not the id that was asked for. Usually one, but a turn that
+   * spans a router's fallback can genuinely have been answered by two. */
+  get turnAnsweredBy(): string[] {
+    return this.lastAnsweredBy;
+  }
+
+  /**
+   * The same two for a turn that is still running.
+   *
+   * For the turn that never ends. Killing a specialist mid-turn is not an
+   * accident here - it is how the developer changes its model, changes its
+   * role, clears its context or simply stops it - and the money those requests
+   * cost was spent whatever happens next. Billing hangs off the result event,
+   * and a killed turn never emits one, so every one of those was free as far
+   * as the cockpit could tell.
+   *
+   * Live rather than frozen, because the point in time this is read at is the
+   * process exiting, which is precisely when there is no snapshot to have
+   * taken.
+   */
+  get runningTurn(): { ids: string[]; answeredBy: string[] } | null {
+    if (this.startedAt === null) return null;
+    return { ids: [...this.generationIds], answeredBy: [...this.answeredBy] };
+  }
+
   /** Prompts waiting for the running turn to end. */
   private queued: string[] = [];
   private running = false;
   private startedAt: number | null = null;
   private tokens = 0;
   private context: Context | null = null;
+  /** What the running turn has been answered by so far. Cleared per turn by
+   * `beginTurn`, exactly as `tokens` is: these belong to one turn's bill and
+   * carrying them into the next would charge it twice. */
+  private generationIds = new Set<string>();
+  private answeredBy = new Set<string>();
+  /** The same two, frozen at the moment a turn ended - which is what the
+   * getters expose. See `consume` for why the live sets are not safe to read
+   * from a `turn-end` listener. */
+  private lastGenerationIds: string[] = [];
+  private lastAnsweredBy: string[] = [];
   private lastStderr = "";
 
   /** Spawn the process and wait. A specialist with nothing to do costs
@@ -266,6 +323,8 @@ export class ClaudeSession extends EventEmitter {
     this.turnCount = turn;
     this.startedAt = Date.now();
     this.tokens = 0;
+    this.generationIds.clear();
+    this.answeredBy.clear();
     mkdirSync(this.opts.reportsDir, { recursive: true });
     writeFileSync(join(this.opts.reportsDir, ".turn"), String(turn));
   }
@@ -295,6 +354,15 @@ export class ClaudeSession extends EventEmitter {
       const line = activityLine(event);
       if (line) this.emit("activity", line);
 
+      // Which OpenRouter requests answered this turn, and what actually
+      // answered them. Sets, because one API request produces several
+      // consecutive assistant events that all repeat its id - counting them
+      // as separate requests would bill the developer once per paragraph.
+      const generation = generationIdFrom(event);
+      if (generation) this.generationIds.add(generation);
+      const answerer = answeringModelFrom(event);
+      if (answerer) this.answeredBy.add(answerer);
+
       // The CLI reports its own running estimate; no need to count tokens.
       if (event.type === "system" && event.subtype === "thinking_tokens") {
         const estimate = Number((event as { estimated_tokens?: unknown }).estimated_tokens);
@@ -311,6 +379,20 @@ export class ClaudeSession extends EventEmitter {
         // How full the conversation is now. Kept rather than emitted on its
         // own: it changes once a turn, and turn-end is that moment.
         this.context = contextFrom(event) ?? this.context;
+
+        // Freeze what the turn was answered under, here, before anything
+        // else in this block can run.
+        //
+        // The live sets are cleared by `beginTurn`, and the next queued turn
+        // is dispatched a few lines below - before `turn-end` is emitted. So
+        // a getter reading the live sets would hand the billing code an empty
+        // one precisely when a second prompt was already waiting: the turn
+        // that cost the most attention would be the one that appeared free.
+        // The listener is async as well, and can read the getter several
+        // awaits later, by which time a third turn may be under way. Neither
+        // can touch a copy taken now.
+        this.lastGenerationIds = [...this.generationIds];
+        this.lastAnsweredBy = [...this.answeredBy];
 
         // The turn that just finished releases the markers to the next
         // queued turn, which only now becomes the running one.

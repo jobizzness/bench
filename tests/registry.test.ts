@@ -7,6 +7,7 @@ import { readParked } from "../src/daemon/key-park.js";
 import { waitFor } from "./helpers/wait-for.js";
 import { SessionRegistry } from "../src/daemon/registry.js";
 import { SessionStore } from "../src/daemon/store.js";
+import { Ledger } from "../src/daemon/ledger.js";
 import { readThread } from "../src/daemon/thread.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -389,6 +390,238 @@ describe("closing a specialist that works in the checkout itself", () => {
 
     expect(result.closed).toBe(true);
     expect(existsSync(join(project, "notes.md"))).toBe(true);
+  });
+});
+
+/** A CLI that finishes a turn having cost something, so there is a bill. */
+const BILLING_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "sess-close", result: "done",
+      total_cost_usd: 6.44,
+      usage: {
+        input_tokens: 600, cache_creation_input_tokens: 4000,
+        cache_read_input_tokens: 260000, output_tokens: 3000,
+      },
+    }) + "\\n");
+  }
+});
+`;
+
+describe("what a turn cost, after the tab is gone", () => {
+  it("keeps the spend in the ledger when the specialist is closed", async () => {
+    // Closing is the ordinary end of a specialist's life, and it removes the
+    // record the spend used to live on - so using Bench normally meant
+    // spending money and then erasing the fact. Seven closed tabs on this
+    // developer's own machine had already taken their spend with them.
+    const { home, id } = await setupReal();
+    const registry = new SessionRegistry({
+      home, port: 7420, token: "t",
+      pluginDir: "/nonexistent/plugin", hookCommand: "node /nonexistent/hook.js",
+      claudeBin: await fakeCli(BILLING_CLI),
+    } as any);
+    await registry.restore();
+
+    registry.send(id, "off you go");
+    await waitFor(() => registry.list()[0]?.spend?.dollars === 6.44);
+
+    expect((await registry.close(id)).closed).toBe(true);
+    expect(registry.list()).toEqual([]);
+
+    const total = await new Ledger(home).total();
+    expect(total.plan).toBeCloseTo(6.44);
+    expect(total.turns).toBe(1);
+    // An Anthropic turn is priced by the CLI from Anthropic's own table, which
+    // is the one case where that figure is right.
+    expect((await new Ledger(home).all())[0]!.basis).toBe("settled");
+  });
+
+  it("names the specialist in the ledger, since a closed tab has no other name", async () => {
+    const { home, id } = await setupReal();
+    const registry = new SessionRegistry({
+      home, port: 7420, token: "t",
+      pluginDir: "/nonexistent/plugin", hookCommand: "node /nonexistent/hook.js",
+      claudeBin: await fakeCli(BILLING_CLI),
+    } as any);
+    await registry.restore();
+
+    registry.send(id, "off you go");
+    await waitFor(() => registry.list()[0]?.spend !== null);
+    await registry.close(id);
+
+    const [entry] = await new Ledger(home).all();
+    expect(entry!.label).toBe("auth");
+    expect(entry!.model).toBe("opus");
+    expect(entry!.session).toBe(id);
+  });
+});
+
+/**
+ * A CLI answered by OpenRouter: every request it makes leaves a generation id
+ * behind on its assistant events, which is the only handle on what it cost.
+ */
+const PROXIED_CLI = (model: string, ids: string[]) => `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    for (const id of ${JSON.stringify(ids)}) {
+      // Two events per request, both carrying its one id, as the real CLI does.
+      for (let i = 0; i < 2; i++) {
+        process.stdout.write(JSON.stringify({
+          type: "assistant", request_id: id,
+          message: { id, model: ${JSON.stringify(model)}, content: [{ type: "text", text: "x" }] },
+        }) + "\\n");
+      }
+    }
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "sess-close", result: "done",
+      usage: { input_tokens: 100, cache_creation_input_tokens: 0,
+               cache_read_input_tokens: 200000, output_tokens: 500 },
+    }) + "\\n");
+  }
+});
+`;
+
+/** A CLI that starts a turn, says it is working, and never finishes. */
+const HANGING_CLI = (model: string, id: string) => `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    // A tool call rather than prose, so the roster records activity and the
+    // test can tell the request has actually been made before it stops it.
+    process.stdout.write(JSON.stringify({
+      type: "assistant", request_id: ${JSON.stringify(id)},
+      message: { id: ${JSON.stringify(id)}, model: ${JSON.stringify(model)},
+                 content: [{ type: "tool_use", name: "Bash", input: { command: "sleep 60" } }] },
+    }) + "\\n");
+  }
+});
+setInterval(() => {}, 1000);
+`;
+
+/** OpenRouter, as far as the daemon can tell. Prices every generation the same
+ * and serves a catalogue cheap enough that an estimate could never reach it. */
+function fakeOpenRouter(perGeneration: number) {
+  return async (input: any) => {
+    const url = String(input);
+    if (url.includes("/generation")) {
+      return new Response(JSON.stringify({ data: { total_cost: perGeneration } }), { status: 200 });
+    }
+    if (url.includes("/models")) {
+      return new Response(JSON.stringify({
+        data: [{
+          id: "deepseek/deepseek-v4-pro", name: "DeepSeek Pro", context_length: 200000,
+          supported_parameters: ["tools"],
+          pricing: { prompt: "0.00000087", completion: "0.00000174", input_cache_read: "0.0000000725" },
+        }],
+      }), { status: 200 });
+    }
+    return new Response("{}", { status: 404 });
+  };
+}
+
+describe("what an OpenRouter turn really cost", () => {
+  /** `waitFor` takes a synchronous read, and a promise is always truthy - so
+   * an async predicate handed to it returns on the first tick and asserts
+   * against an empty ledger. This waits on the file instead. */
+  async function billedTurns(home: string, count = 1) {
+    for (let tries = 0; tries < 300; tries++) {
+      const all = await new Ledger(home).all();
+      if (all.length >= count) return all;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`timed out waiting for ${count} billed turn(s)`);
+  }
+
+  async function proxied(model: string, cli: string) {
+    const { home, id } = await setupReal();
+    await new SessionStore(home).remodel(id, model);
+    const registry = new SessionRegistry({
+      home, port: 7420, token: "t",
+      pluginDir: "/nonexistent/plugin", hookCommand: "node /nonexistent/hook.js",
+      claudeBin: await fakeCli(cli),
+    } as any);
+    await registry.restore();
+    registry.setRouterKey("sk-or-test");
+    return { home, id, registry };
+  }
+
+  it("bills what OpenRouter charged, not what the catalogue quotes", async () => {
+    // The catalogue quotes one provider and OpenRouter bills whichever one
+    // served the request. Over 500 of this developer's real requests that gap
+    // came to $7.02 quoted against $10.24 charged, so the estimate is a
+    // fallback now rather than the answer.
+    vi.stubGlobal("fetch", fakeOpenRouter(0.25));
+    const { home, id, registry } = await proxied(
+      "deepseek/deepseek-v4-pro", PROXIED_CLI("deepseek/deepseek-v4-pro", ["gen-a", "gen-b"]),
+    );
+
+    registry.send(id, "off you go");
+    const [entry] = await billedTurns(home);
+    // Two requests at 25c, counted once each however many events repeated them.
+    expect(entry!.dollars).toBeCloseTo(0.5);
+    expect(entry!.basis).toBe("settled");
+    expect(entry!.billed).toBe("account");
+    vi.unstubAllGlobals();
+  });
+
+  it("bills a turn the router answered, which used to record nothing at all", async () => {
+    // OpenRouter quotes `openrouter/auto` as a negative sentinel, so the
+    // estimate was null and `bill` returned before touching anything - not the
+    // dollars and not even the turn counter. The id does not care what was
+    // asked for, so these can be priced like any other.
+    vi.stubGlobal("fetch", fakeOpenRouter(0.1));
+    const { home, id, registry } = await proxied(
+      "openrouter/auto", PROXIED_CLI("deepseek/deepseek-v4-pro", ["gen-c"]),
+    );
+
+    registry.send(id, "off you go");
+    const [entry] = await billedTurns(home);
+    expect(entry!.dollars).toBeCloseTo(0.1);
+    expect(entry!.basis).toBe("settled");
+    // The only record anywhere of what the router actually picked.
+    expect(entry!.served).toEqual(["deepseek/deepseek-v4-pro"]);
+    vi.unstubAllGlobals();
+  });
+
+  it("bills a turn that was stopped before it finished", async () => {
+    // Stop, remodel, change role and clear-context all kill the process
+    // mid-turn, and billing hangs off a result event that never arrives. The
+    // requests were made and charged all the same.
+    vi.stubGlobal("fetch", fakeOpenRouter(0.4));
+    const { home, id, registry } = await proxied(
+      "deepseek/deepseek-v4-pro", HANGING_CLI("deepseek/deepseek-v4-pro", "gen-d"),
+    );
+
+    registry.send(id, "off you go");
+    // The row reads "working" the moment it is prompted, so waiting on that
+    // would stop the specialist before it had made a request to be billed for.
+    // Activity only appears once the CLI has actually answered.
+    await waitFor(() => registry.list()[0]?.activity.length > 0);
+    registry.stop(id);
+    const [entry] = await billedTurns(home);
+    expect(entry!.dollars).toBeCloseTo(0.4);
+    expect(entry!.billed).toBe("account");
+    vi.unstubAllGlobals();
   });
 });
 

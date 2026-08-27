@@ -1,7 +1,10 @@
 import { Meter } from "./Meter.js";
 import { CreditMark } from "./CreditMark.js";
 import { useCredit } from "./useCredit.js";
-import { creditPercent, creditSummary, money, type Credit } from "../../shared/credit.js";
+import {
+  balancePercent, creditPercent, creditSummary, limitPercent, money,
+  type Balance, type Credit,
+} from "../../shared/credit.js";
 import { usageTone } from "../../shared/usage.js";
 
 /**
@@ -19,26 +22,33 @@ export function CreditPopover() {
 
   if (credit === null || (!credit.available && credit.reason === "none")) return null;
 
-  const percent = creditPercent(credit);
-
   return (
-    <Meter said={creditSummary(credit)} mark={<CreditMark percent={percent} />} onOpen={() => void refresh()}>
-      {credit.available ? <Spend credit={credit} percent={percent} /> : <p className="usage-note">{trouble(credit)}</p>}
+    <Meter
+      said={creditSummary(credit)}
+      mark={<CreditMark percent={creditPercent(credit)} />}
+      onOpen={() => void refresh()}
+    >
+      {credit.available ? <Spend credit={credit} /> : <p className="usage-note">{trouble(credit)}</p>}
     </Meter>
   );
 }
 
 /**
- * The money, and the ceiling as a bar where there is one.
+ * The money, and each ceiling as a bar where there is one.
  *
- * The number is printed whether or not the bar is: a bar alone puts the whole
- * reading on a length and a hue, and hue is what a colourblind developer or a
- * printed screenshot loses first.
+ * Two rows rather than one, because a key can have no limit and still be
+ * nearly out of credit - the two are separate facts and collapsing them is
+ * what let the panel say "no ceiling on this key" to an account with a dollar
+ * on it. The limit row is drawn against the limit alone, so neither bar is
+ * ever labelled with the other one's fraction.
+ *
+ * Every number is printed whether or not its bar is: a bar alone puts the
+ * whole reading on a length and a hue, and hue is what a colourblind developer
+ * or a printed screenshot loses first.
  */
-function Spend({ credit, percent }: {
-  credit: Extract<Credit, { available: true }>;
-  percent: number | null;
-}) {
+function Spend({ credit }: { credit: Extract<Credit, { available: true }> }) {
+  const percent = limitPercent(credit);
+
   return (
     <ul id="usage-list">
       <li className="usage-row" data-tone={percent === null ? undefined : usageTone(percent)}>
@@ -55,7 +65,36 @@ function Spend({ credit, percent }: {
           {credit.limit === null ? "no ceiling on this key" : `${percent}% of the ceiling`}
         </span>
       </li>
+      {credit.balance && <Left balance={credit.balance} percent={balancePercent(credit)} />}
     </ul>
+  );
+}
+
+/**
+ * What is left of the credit the account bought.
+ *
+ * Says the remaining dollars first and the fraction second, because the bar
+ * answers "how far through" and only the money answers "how much longer". A
+ * developer reading this is deciding whether to top up before starting
+ * something, and 98% is not a figure anyone can convert back into work.
+ *
+ * Absent when the balance could not be asked for, rather than drawn empty: an
+ * unfilled track reads as plenty left, which is the reassuring lie again.
+ */
+function Left({ balance, percent }: { balance: Balance; percent: number | null }) {
+  return (
+    <li className="usage-row" data-tone={percent === null ? undefined : usageTone(percent)}>
+      <span className="usage-label">Credit left</span>
+      <span className="usage-percent credit-amount">
+        {money(balance.remaining)} left of {money(balance.purchased)}
+      </span>
+      {percent !== null && (
+        <span className="usage-track">
+          <span className="usage-fill" style={{ width: `${percent}%` }} />
+        </span>
+      )}
+      <span className="usage-reset">{percent === null ? "bought credit" : `${percent}% spent`}</span>
+    </li>
   );
 }
 

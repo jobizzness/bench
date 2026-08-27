@@ -41,6 +41,10 @@ describe("reading a turn off the result event", () => {
 
     expect(shapeFrom(event as never)).toEqual({
       freshIn: 900, cacheWrite: 100, cacheRead: 40_000, out: 2_000,
+      // How many requests those figures were summed over. Carried because a
+      // price can depend on the size of a prompt, and the sum over a turn is
+      // not the size of any prompt in it.
+      requests: 1,
     });
   });
 
@@ -53,7 +57,20 @@ describe("reading a turn off the result event", () => {
     });
 
     expect(shapeFrom(event as never)).toEqual({
-      freshIn: 30, cacheWrite: 0, cacheRead: 300, out: 3,
+      freshIn: 30, cacheWrite: 0, cacheRead: 300, out: 3, requests: 2,
+    });
+  });
+
+  it("does not claim a request count the event never gave it", () => {
+    // One request would be a reasonable guess and a wrong one to record: the
+    // count is what a prompt-size tier is chosen by, so inventing it prices
+    // the turn at a tier it may never have reached.
+    const event = result({
+      input_tokens: 900, cache_read_input_tokens: 40_000, output_tokens: 2_000,
+    });
+
+    expect(shapeFrom(event as never)).toEqual({
+      freshIn: 900, cacheWrite: 0, cacheRead: 40_000, out: 2_000,
     });
   });
 

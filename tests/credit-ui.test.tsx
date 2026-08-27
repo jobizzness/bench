@@ -21,7 +21,7 @@ const SPENT = {
   windows: [{ key: "five_hour", label: "5-hour", percent: 41, resetsAt: null }],
 };
 
-const CREDIT = { available: true, spent: 12.4, limit: 50 };
+const CREDIT = { available: true, spent: 12.4, limit: 50, balance: null };
 
 let ui: Cockpit;
 afterEach(() => { ui?.unmount(); });
@@ -83,10 +83,11 @@ describe("the OpenRouter meter", () => {
   });
 
   it("says only the spend for a key with no ceiling", async () => {
-    // Pay-as-you-go, which is the common case. There is no fraction to draw.
+    // Pay-as-you-go with the balance unknown - /credits could not be asked.
+    // There is no fraction to draw, and an empty bar would read as plenty.
     await boot({
       rows: [row({ model: "google/gemini-3.7-flash" })],
-      credit: { available: true, spent: 3, limit: null },
+      credit: { available: true, spent: 3, limit: null, balance: null },
     });
 
     const said = await panel();
@@ -125,6 +126,62 @@ describe("the OpenRouter meter", () => {
     });
 
     expect(await panel()).toMatch(/could not reach/i);
+  });
+
+  it("draws what is left of the purchased credit, ceiling or no ceiling", async () => {
+    // The live account this was written for. The key has no limit, so the old
+    // meter drew nothing and said "no ceiling on this key" - while $1.01 of a
+    // $50 top-up was all that stood between the developer and a dead bench.
+    await boot({
+      rows: [row({ model: "google/gemini-3.7-flash" })],
+      credit: {
+        available: true, spent: 48.99, limit: null,
+        balance: { purchased: 50, remaining: 1.012694569 },
+      },
+    });
+
+    const said = await panel();
+    expect(said).toContain("$1.01 left of $50.00");
+    // In words as well as in the bar, for a screenshot printed without hue.
+    expect(said).toContain("98% spent");
+    // The spend is still reported; it has just stopped being the whole story.
+    expect(said).toContain("$48.99");
+    expect(ui.$$(".usage-track").length).toBe(1);
+    expect(ui.$(".usage-fill")!.style.width).toBe("98%");
+    expect(ui.$("#open-usage")!.getAttribute("aria-label")).toBe("OpenRouter: $1.01 left of $50.00");
+  });
+
+  it("still reports the spend when the balance could not be asked for", async () => {
+    // /credits failed and /key did not. One missing number should not cost
+    // the other one.
+    await boot({
+      rows: [row({ model: "google/gemini-3.7-flash" })],
+      credit: { available: true, spent: 48.99, limit: null, balance: null },
+    });
+
+    const said = await panel();
+    expect(said).toContain("$48.99");
+    expect(said).not.toContain("left of");
+    // Nothing to be a fraction of, and an empty bar would read as plenty.
+    expect(ui.$(".usage-track")).toBeNull();
+  });
+
+  it("keeps a key's own limit and the account's credit as two rows", async () => {
+    // They are different ceilings and either can stop the work first, so
+    // neither row is ever labelled with the other's fraction.
+    await boot({
+      rows: [row({ model: "google/gemini-3.7-flash" })],
+      credit: { available: true, spent: 9, limit: 10, balance: { purchased: 50, remaining: 45 } },
+    });
+
+    const said = await panel();
+    expect(said).toContain("$9.00 of $10.00 used");
+    expect(said).toContain("90% of the ceiling");
+    expect(said).toContain("$45.00 left of $50.00");
+    expect(said).toContain("10% spent");
+    expect(ui.$$(".usage-row").length).toBe(2);
+    // The mark carries the nearer of the two, which is the key's own cap here.
+    expect(ui.$(".credit-mark circle[data-percent]")!.getAttribute("data-percent")).toBe("90");
   });
 
   it("carries the number on the button too, not only inside the panel", async () => {

@@ -11,9 +11,34 @@ export interface ResultEvent {
   permission_denials?: unknown[];
 }
 
+/**
+ * One assistant event off the stream.
+ *
+ * `message` is the raw upstream API message, verbatim - the CLI wraps it in
+ * an envelope of its own and changes nothing inside it. This used to declare
+ * `content` alone, which is why everything else was silently dropped: a field
+ * absent from the type is a field nobody thinks to read, and the one that
+ * mattered most - the id the request was billed under - went out with it.
+ */
 export interface AssistantEvent {
   type: "assistant";
-  message: { content: Array<{ type: string; text?: string; name?: string }> };
+  message: {
+    /** The upstream message id. Under OpenRouter this is the generation id. */
+    id?: string;
+    /**
+     * The model that actually answered, which is not always the one asked
+     * for: under `openrouter/auto` this reads `deepseek/deepseek-v4-pro`.
+     * It is the only place the router's choice is ever visible - the result
+     * event's `modelUsage` is keyed by what was requested.
+     */
+    model?: string;
+    content: Array<{ type: string; text?: string; name?: string }>;
+  };
+  /** The response's `request-id` header. `gen-...` from OpenRouter,
+   * `req_...` from Anthropic, absent when the CLI never saw one. */
+  request_id?: string;
+  session_id?: string;
+  uuid?: string;
 }
 
 export interface GenericEvent {
@@ -120,10 +145,24 @@ export function shapeFrom(event: ClaudeEvent): TurnShape | null {
   const usage = (event as { usage?: Record<string, unknown> }).usage;
   if (!usage) return null;
 
-  const total = readShape(usage);
-  if (turnTokens(total) > 0) return total;
-
+  // How many requests the three input figures were summed over.
+  //
+  // Carried because a price can depend on the size of a prompt, and the sum
+  // over a turn is not a prompt: a twenty-request turn of six thousand tokens
+  // each would look like one request of a hundred and twenty thousand and be
+  // charged at a tier it never reached. With the count, the mean prompt is
+  // recoverable; without it, `costOfTurn` charges the base rate, which is what
+  // it did before tiers existed.
+  //
+  // Absent rather than one when the CLI does not list them. A shape that says
+  // "one request" when it does not know is a shape that has invented the
+  // number the tier is chosen by.
   const iterations = Array.isArray(usage.iterations) ? usage.iterations : [];
+  const requests = iterations.length > 0 ? { requests: iterations.length } : {};
+
+  const total = readShape(usage);
+  if (turnTokens(total) > 0) return { ...total, ...requests };
+
   const summed = iterations.reduce<TurnShape>((sum, entry) => {
     const one = readShape(entry as Record<string, unknown>);
     return {
@@ -134,7 +173,7 @@ export function shapeFrom(event: ClaudeEvent): TurnShape | null {
     };
   }, { freshIn: 0, cacheWrite: 0, cacheRead: 0, out: 0 });
 
-  return turnTokens(summed) > 0 ? summed : null;
+  return turnTokens(summed) > 0 ? { ...summed, ...requests } : null;
 }
 
 function readShape(from: Record<string, unknown>): TurnShape {
@@ -161,6 +200,75 @@ export function costFrom(event: ClaudeEvent): number | null {
   if (!isResultEvent(event)) return null;
   const cost = (event as ResultEvent).total_cost_usd;
   return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null;
+}
+
+/**
+ * OpenRouter mints every generation id with this prefix. Anthropic's request
+ * ids begin `req_` instead, so the prefix on its own says which endpoint
+ * answered - see `generationIdFrom` for why that is the test used.
+ */
+const OPENROUTER_ID = /^gen-/;
+
+/** The CLI writes its own messages under this model name. */
+const SYNTHETIC = "<synthetic>";
+
+/**
+ * The OpenRouter generation id one assistant event was answered under, or
+ * null when there is none.
+ *
+ * This is the only handle Bench will ever have on what a turn really cost.
+ * The estimate it falls back on prices a catalogue that quotes one provider,
+ * while OpenRouter bills whichever provider actually served the request: over
+ * five hundred of this developer's requests that estimate came to $7.02
+ * against $10.24 charged. The true figure is fetchable per request, but only
+ * against this id, and until now the parser threw it away.
+ *
+ * The id arrives twice - as `request_id`, taken from the response's
+ * `request-id` header, and as `message.id` on the upstream message itself.
+ * Under OpenRouter both carry the same value, so either will do; the header
+ * is preferred only because it is the CLI's own reading of the response
+ * rather than the body's account of itself.
+ *
+ * The `gen-` prefix is what scopes this to OpenRouter, deliberately in place
+ * of looking at the model id. The id says which endpoint answered as a matter
+ * of fact; a model name only implies it, and Bench rewrites model names
+ * itself, so inferring from one would be believing our own paperwork.
+ *
+ * A synthetic message is skipped whole. It is written by the CLI rather than
+ * by any endpoint, and while its `message.id` is a bare uuid that fails the
+ * prefix test anyway, its `request_id` can still be a real `gen-` id: the one
+ * in a real transcript belonged to an `API Error: 402` - a request that was
+ * refused and so never billed at all. Charging for it would be a fabrication.
+ */
+export function generationIdFrom(event: ClaudeEvent): string | null {
+  if (event.type !== "assistant") return null;
+  const message = (event as AssistantEvent).message;
+  if (!message || message.model === SYNTHETIC) return null;
+
+  const id = (event as AssistantEvent).request_id ?? message.id;
+  return typeof id === "string" && OPENROUTER_ID.test(id) ? id : null;
+}
+
+/**
+ * Which model actually answered this event, or null.
+ *
+ * Worth having on its own, quite apart from the id. `modelUsage` on the
+ * result event is keyed by the model that was *requested*, so under an auto
+ * router it says `openrouter/auto` and nothing else ever says otherwise -
+ * this is the single place the router's actual choice surfaces. It is also
+ * what gives the fallback estimate a real model to price against on a turn
+ * whose cost cannot be fetched.
+ *
+ * Not filtered to OpenRouter: on an Anthropic turn this is the alias the CLI
+ * resolved, which is a fact worth the same as the other one.
+ */
+export function answeringModelFrom(event: ClaudeEvent): string | null {
+  if (event.type !== "assistant") return null;
+  const model = (event as AssistantEvent).message?.model;
+  if (typeof model !== "string") return null;
+
+  const named = model.trim();
+  return named === "" || named === SYNTHETIC ? null : named;
 }
 
 export function isResultEvent(event: ClaudeEvent): event is ResultEvent {

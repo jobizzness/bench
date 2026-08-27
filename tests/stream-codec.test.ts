@@ -5,6 +5,8 @@ import {
   isResultEvent,
   activityLine,
   replyText,
+  generationIdFrom,
+  answeringModelFrom,
 } from "../src/daemon/stream-codec.js";
 
 describe("LineDecoder", () => {
@@ -136,5 +138,86 @@ describe("replyText", () => {
 
   it("returns null for events that are not results", () => {
     expect(replyText({ type: "assistant", message: { content: [] } })).toBeNull();
+  });
+});
+
+/** An assistant event shaped as the CLI emits it, envelope and all. */
+const answer = (over: Record<string, unknown> = {}, message: Record<string, unknown> = {}) => ({
+  type: "assistant" as const,
+  message: {
+    id: "gen-1787789159-g6lOnmHVsCllObXdrDId",
+    model: "deepseek/deepseek-v4-pro",
+    content: [{ type: "text", text: "hello" }],
+    ...message,
+  },
+  request_id: "gen-1787789159-g6lOnmHVsCllObXdrDId",
+  session_id: "s1",
+  ...over,
+});
+
+describe("generationIdFrom", () => {
+  it("reads the generation id off the request-id header", () => {
+    // The header is what OpenRouter bills against, and the only way to ask it
+    // afterwards what the request actually cost.
+    expect(generationIdFrom(answer())).toBe("gen-1787789159-g6lOnmHVsCllObXdrDId");
+  });
+
+  it("falls back to the id on the message when there is no header", () => {
+    // Same value by a different route. Losing the id because one of the two
+    // places it appears was missing would lose the whole turn's true cost.
+    expect(generationIdFrom(answer({ request_id: undefined })))
+      .toBe("gen-1787789159-g6lOnmHVsCllObXdrDId");
+  });
+
+  it("ignores an Anthropic request id", () => {
+    // `req_...` is Anthropic answering directly. The CLI already prices that
+    // turn correctly, and OpenRouter has never heard of the id.
+    expect(generationIdFrom(answer(
+      { request_id: "req_011CeTPX6jvfZbhJJLsPmEbs" },
+      { id: "msg_011CeTPX94L5HsA8N7XGU51X", model: "claude-opus-5" },
+    ))).toBeNull();
+  });
+
+  it("ignores a synthetic message even when it carries a real generation id", () => {
+    // Seen in a real transcript: the CLI's own "API Error: 402" message,
+    // stamped with the generation id of the request that was refused. That
+    // request was never served and never billed.
+    expect(generationIdFrom(answer(
+      { request_id: "gen-1787794347-HAy1IlfaE4QXhwyiN6TZ" },
+      { id: "2d6b8cd1-77ff-44c4-9d36-4e698116769a", model: "<synthetic>" },
+    ))).toBeNull();
+  });
+
+  it("returns null when there is no id at all", () => {
+    expect(generationIdFrom(answer({ request_id: undefined }, { id: undefined }))).toBeNull();
+  });
+
+  it("returns null for events that are not assistant messages", () => {
+    expect(generationIdFrom({ type: "system", subtype: "init" })).toBeNull();
+    expect(generationIdFrom({
+      type: "result", subtype: "success", is_error: false, session_id: "s1",
+    })).toBeNull();
+  });
+});
+
+describe("answeringModelFrom", () => {
+  it("names the model that actually answered, not the one asked for", () => {
+    // Under `openrouter/auto` this is the only place the router's choice is
+    // ever visible: modelUsage on the result event says `openrouter/auto`.
+    expect(answeringModelFrom(answer())).toBe("deepseek/deepseek-v4-pro");
+  });
+
+  it("names the resolved model on an Anthropic turn too", () => {
+    expect(answeringModelFrom(answer({}, { model: "claude-opus-5" }))).toBe("claude-opus-5");
+  });
+
+  it("returns null for a synthetic message", () => {
+    // The CLI wrote it. Nothing answered.
+    expect(answeringModelFrom(answer({}, { model: "<synthetic>" }))).toBeNull();
+  });
+
+  it("returns null when no model is named", () => {
+    expect(answeringModelFrom(answer({}, { model: undefined }))).toBeNull();
+    expect(answeringModelFrom({ type: "assistant", message: { content: [] } })).toBeNull();
   });
 });

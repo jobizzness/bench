@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  ASSUMED_SHAPE, averageShape, comparisonLabel, costOfTurn, dollars, multipleLabel, multipleOf,
-  perMillionLabel, turnTokens, type Price, type TurnShape,
+  ASSUMED_SHAPE, averageShape, comparisonLabel, costOfTurn, costSpanOfTurn, dollars, multipleLabel,
+  multipleOf, perMillionLabel, perMillionSpanLabel, promptPerRequest, rateForPrompt, turnTokens,
+  type Price, type TurnShape,
 } from "../src/shared/cost.js";
 
 /**
@@ -81,6 +82,195 @@ describe("costing a turn", () => {
   });
 });
 
+/**
+ * Charging the rate the prompt actually lands on.
+ *
+ * The figures are `qwen/qwen3-coder-flash` as the live catalogue quotes it
+ * today, copied rather than invented, because it is this bench's own default
+ * reviewer and the reason the feature exists: it costs 2.67x its headline rate
+ * once a prompt passes 128k, which is an ordinary size for a reviewer sent to
+ * read a whole branch.
+ */
+const QWEN: Price = {
+  fresh: 0.195, cacheWrite: 0.24375, cacheRead: 0.039, out: 0.975,
+  tiers: [
+    { fromPromptTokens: 32_000, fresh: 0.325, cacheWrite: 0.40625, cacheRead: 0.065, out: 1.625 },
+    { fromPromptTokens: 128_000, fresh: 0.52, cacheWrite: 0.65, cacheRead: 0.104, out: 2.6 },
+  ],
+};
+
+describe("picking the rate a prompt is charged at", () => {
+  it("uses the headline rate below the first tier", () => {
+    expect(rateForPrompt(QWEN, 31_999)).toMatchObject({ fresh: 0.195, out: 0.975 });
+    expect(rateForPrompt(QWEN, 0)).toMatchObject({ fresh: 0.195 });
+  });
+
+  it("charges the tier at exactly the size it starts", () => {
+    // OpenRouter calls it `min_prompt_tokens`, and a minimum is a figure you
+    // are allowed to be exactly at. One token either side of the boundary is
+    // the difference between $0.195/M and $0.325/M.
+    expect(rateForPrompt(QWEN, 32_000)).toMatchObject({ fresh: 0.325 });
+    expect(rateForPrompt(QWEN, 128_000)).toMatchObject({ fresh: 0.52 });
+  });
+
+  it("stays on the last tier however far above it the prompt goes", () => {
+    // There is no tier beyond the last, so a million-token prompt is charged
+    // at the top rate rather than falling off the end back to the headline.
+    expect(rateForPrompt(QWEN, 1_000_000)).toMatchObject({ fresh: 0.52, out: 2.6 });
+  });
+
+  it("takes the dearest tier the prompt has reached, not the first that fits", () => {
+    expect(rateForPrompt(QWEN, 200_000)).toMatchObject({ fresh: 0.52 });
+  });
+
+  it("does not trust the tiers to arrive in order", () => {
+    // The ordering is OpenRouter's to change, and a mis-sorted list should
+    // charge the wrong rate never rather than quietly.
+    const jumbled: Price = { ...QWEN, tiers: [QWEN.tiers![1], QWEN.tiers![0]] };
+
+    expect(rateForPrompt(jumbled, 200_000)).toMatchObject({ fresh: 0.52 });
+    expect(rateForPrompt(jumbled, 40_000)).toMatchObject({ fresh: 0.325 });
+  });
+
+  it("hands back the headline rate for a model with no tiers at all", () => {
+    // Which is 359 of the 417 models in the catalogue.
+    expect(rateForPrompt(SONNET, 5_000_000)).toBe(SONNET);
+  });
+});
+
+describe("how big one request's prompt was", () => {
+  it("is the input divided by the number of requests that carried it", () => {
+    // Output is left out: it is not in the prompt.
+    expect(promptPerRequest({
+      freshIn: 20_000, cacheWrite: 10_000, cacheRead: 90_000, out: 8_000, requests: 10,
+    })).toBe(12_000);
+  });
+
+  it("is the whole input when the turn was a single request", () => {
+    expect(promptPerRequest({
+      freshIn: 30_000, cacheWrite: 0, cacheRead: 2_000, out: 500, requests: 1,
+    })).toBe(32_000);
+  });
+
+  it("is nothing at all when the shape did not count its requests", () => {
+    // The important one. A TurnShape is a sum over every request in the turn,
+    // and the sum of twenty 6k prompts is 120k - which is not a 120k prompt.
+    // Reading it as one would put an ordinary turn on the top tier and
+    // over-charge by about the tool-call count.
+    expect(promptPerRequest(shape())).toBeNull();
+  });
+
+  it("ignores a request count that could not be one", () => {
+    expect(promptPerRequest({ ...shape(), requests: 0 })).toBeNull();
+    expect(promptPerRequest({ ...shape(), requests: -3 })).toBeNull();
+  });
+});
+
+describe("costing a turn on a model whose price has tiers", () => {
+  it("charges the headline rate for a turn of ordinary requests", () => {
+    // Twenty requests averaging 6k of prompt each. The tokens sum to 120k,
+    // which is over the first threshold and nowhere near a single request
+    // that crossed it - so the headline rate is the right one.
+    const cost = costOfTurn(
+      { freshIn: 20_000, cacheWrite: 0, cacheRead: 100_000, out: 5_000, requests: 20 },
+      QWEN,
+    )!;
+    const headline = (20_000 * 0.195 + 100_000 * 0.039 + 5_000 * 0.975) / 1_000_000;
+
+    expect(cost).toBeCloseTo(headline, 10);
+  });
+
+  it("charges the top tier when the requests really were that big", () => {
+    // The reviewer reading a whole branch: two requests, 130k of prompt each.
+    const cost = costOfTurn(
+      { freshIn: 60_000, cacheWrite: 0, cacheRead: 200_000, out: 4_000, requests: 2 },
+      QWEN,
+    )!;
+    const top = (60_000 * 0.52 + 200_000 * 0.104 + 4_000 * 2.6) / 1_000_000;
+
+    expect(cost).toBeCloseTo(top, 10);
+  });
+
+  it("is 2.67x the headline quote on the branch-sized turn, which is the whole point", () => {
+    const big: TurnShape = { freshIn: 130_000, cacheWrite: 0, cacheRead: 0, out: 0, requests: 1 };
+
+    expect(costOfTurn(big, QWEN)! / costOfTurn(big, { ...QWEN, tiers: undefined })!)
+      .toBeCloseTo(2.67, 2);
+  });
+
+  it("keeps a tier rate the override did not restate", () => {
+    // Real shape, from google/gemini-3.1-pro-preview: its 200k tier names a
+    // new prompt, completion and cache-read price and says nothing about
+    // cache-write. Silence means unchanged, not unquoted - reading it as
+    // unquoted would fall back to the fresh rate and charge ten times over.
+    const gemini: Price = {
+      fresh: 2, cacheWrite: 0.375, cacheRead: 0.2, out: 12,
+      tiers: [{ fromPromptTokens: 200_000, fresh: 4, cacheWrite: 0.375, cacheRead: 0.4, out: 18 }],
+    };
+
+    expect(costOfTurn(
+      { freshIn: 0, cacheWrite: 1_000_000, cacheRead: 0, out: 0, requests: 1 },
+      gemini,
+    )).toBeCloseTo(0.375, 10);
+  });
+
+  it("charges the headline rate when the shape cannot say how big a request was", () => {
+    // Deliberately the old answer rather than a new guess. With no request
+    // count there is no prompt size to be had, and the alternative - treating
+    // the turn as one request - over-charges a long turn badly.
+    expect(costOfTurn(shape(), QWEN)).toBe(costOfTurn(shape(), { ...QWEN, tiers: undefined }));
+  });
+
+  it("leaves a model without tiers costing exactly what it costed before", () => {
+    // The overwhelming majority of the catalogue. A request count must make no
+    // difference at all to a price that has only one rate.
+    for (const requests of [undefined, 1, 12]) {
+      expect(costOfTurn({ ...ASSUMED_SHAPE, requests }, SONNET))
+        .toBe(costOfTurn(ASSUMED_SHAPE, SONNET));
+    }
+  });
+});
+
+describe("a price that is a range rather than a figure", () => {
+  it("spans the cheapest and dearest the same turn could come to", () => {
+    const span = costSpanOfTurn(ASSUMED_SHAPE, QWEN)!;
+
+    expect(span.low).toBeCloseTo(costOfTurn(ASSUMED_SHAPE, { ...QWEN, tiers: undefined })!, 10);
+    expect(span.high / span.low).toBeCloseTo(2.67, 2);
+  });
+
+  it("is nothing at all for a model with one rate", () => {
+    // Most of them. A row that says "$0.05 to $0.05" is a worse way of
+    // saying $0.05.
+    expect(costSpanOfTurn(ASSUMED_SHAPE, SONNET)).toBeNull();
+    expect(costSpanOfTurn(ASSUMED_SHAPE, { ...QWEN, tiers: [] })).toBeNull();
+  });
+
+  it("does not let the shape's own request count narrow the span", () => {
+    // The span is what the model could charge, not what this turn happened
+    // to land on - so a shape that pins itself to one tier must not collapse
+    // it to that tier.
+    expect(costSpanOfTurn({ ...ASSUMED_SHAPE, requests: 40 }, QWEN))
+      .toEqual(costSpanOfTurn(ASSUMED_SHAPE, QWEN));
+  });
+
+  it("says nothing when no end of the range was quoted", () => {
+    const unquoted: Price = {
+      fresh: null, cacheWrite: null, cacheRead: null, out: null,
+      tiers: [{ fromPromptTokens: 32_000, fresh: null, cacheWrite: null, cacheRead: null, out: null }],
+    };
+
+    expect(costSpanOfTurn(ASSUMED_SHAPE, unquoted)).toBeNull();
+  });
+
+  it("says a range as a range, and a point as a point", () => {
+    expect(perMillionSpanLabel(0.2, 0.52)).toBe("$0.20 to $0.52");
+    expect(perMillionSpanLabel(3, 3)).toBe("$3");
+    expect(perMillionSpanLabel(0.2, null)).toBe("$0.20");
+    expect(perMillionSpanLabel(null, null)).toBe("—");
+  });
+});
+
 describe("the shape of a typical turn", () => {
   it("averages what actually happened", () => {
     const average = averageShape([
@@ -93,6 +283,29 @@ describe("the shape of a typical turn", () => {
 
   it("is nothing at all with nothing to average", () => {
     expect(averageShape([])).toBeNull();
+  });
+
+  it("averages the request counts too, so the mean turn can pick a tier", () => {
+    const average = averageShape([
+      { freshIn: 100, cacheWrite: 200, cacheRead: 300, out: 400, requests: 4 },
+      { freshIn: 300, cacheWrite: 400, cacheRead: 500, out: 600, requests: 8 },
+    ]);
+
+    expect(average).toEqual({
+      freshIn: 200, cacheWrite: 300, cacheRead: 400, out: 500, requests: 6,
+    });
+  });
+
+  it("drops the count entirely when any turn did not carry one", () => {
+    // A mean over only the turns that counted would be a request count for a
+    // different set of turns than the token figures beside it, and a tier
+    // picked off that is a tier picked off arithmetic nobody performed.
+    const average = averageShape([
+      { freshIn: 100, cacheWrite: 200, cacheRead: 300, out: 400, requests: 4 },
+      { freshIn: 300, cacheWrite: 400, cacheRead: 500, out: 600 },
+    ]);
+
+    expect(average).not.toHaveProperty("requests");
   });
 
   it("counts every token a turn moved", () => {

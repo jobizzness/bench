@@ -131,6 +131,74 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
+/**
+ * A CLI answered by OpenRouter, shaped as a real proxied transcript is.
+ *
+ * Two API requests per turn, each spread over several assistant events that
+ * all repeat its generation id, then the CLI's own synthetic message, then a
+ * result whose `usage.iterations` has one entry per request - the count the
+ * collected ids must agree with. The ids carry the turn number so a test can
+ * tell one turn's bill from the next's. Each turn takes 200ms, which leaves a
+ * window in which a queued turn is running but has not yet finished.
+ */
+const ROUTED_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let turn = 0;
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    turn += 1;
+    const n = turn;
+    const say = (id, model) => process.stdout.write(JSON.stringify({
+      type: "assistant",
+      message: { id, model, content: [{ type: "text", text: "working" }] },
+      request_id: id, session_id: "fake",
+    }) + "\\n");
+    setTimeout(() => {
+      for (let i = 0; i < 3; i++) say("gen-turn" + n + "-aaa", "deepseek/deepseek-v4-pro");
+      for (let i = 0; i < 2; i++) say("gen-turn" + n + "-bbb", "deepseek/deepseek-v4-pro");
+      say("gen-turn" + n + "-refused", "<synthetic>");
+      process.stdout.write(JSON.stringify({
+        type: "result", subtype: "success", is_error: false, session_id: "fake",
+        result: "echo:turn" + n,
+        usage: { iterations: [{ input_tokens: 1 }, { input_tokens: 2 }] },
+        modelUsage: { "openrouter/auto": { inputTokens: 3, contextWindow: 200000 } },
+      }) + "\\n");
+    }, 200);
+  }
+});
+`;
+
+/** The same, answered by Anthropic directly: `req_...` and `msg_...`. */
+const DIRECT_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg_011CeTPX94L5HsA8N7XGU51X", model: "claude-opus-5",
+        content: [{ type: "text", text: "working" }],
+      },
+      request_id: "req_011CeTPX6jvfZbhJJLsPmEbs", session_id: "fake",
+    }) + "\\n");
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "fake", result: "done",
+    }) + "\\n");
+  }
+});
+`;
+
 /** Dies the way the real CLI does when asked to resume a session that is
  * not there: one line on stderr, exit 1, nothing on stdout. */
 const DYING_CLI = `#!/usr/bin/env node
@@ -481,6 +549,101 @@ describe("ClaudeSession", () => {
     session.send("go");
 
     expect((await replied)[0]).toBe("self:openrouter/auto");
+    session.stop();
+  });
+
+  it("collects one generation id per API request, not one per message", async () => {
+    // Five assistant events, two requests. Counting the events would bill the
+    // developer once per paragraph the model wrote.
+    const session = await makeSession(ROUTED_CLI, { model: "openrouter/auto" });
+    session.open();
+    session.send("do the work");
+    const [result] = await once(session, "turn-end");
+
+    expect(session.turnGenerationIds).toEqual(["gen-turn1-aaa", "gen-turn1-bbb"]);
+    // The cross-check worth having: the CLI counts the turn's requests too,
+    // and if the two ever disagree the parser has started missing ids.
+    expect(session.turnGenerationIds).toHaveLength(result.usage.iterations.length);
+    session.stop();
+  });
+
+  it("records which model actually answered, not the one that was asked for", async () => {
+    // The session was started on `openrouter/auto`. Only the assistant events
+    // ever say what the router picked.
+    const session = await makeSession(ROUTED_CLI, { model: "openrouter/auto" });
+    session.open();
+    session.send("do the work");
+    await once(session, "turn-end");
+
+    expect(session.turnAnsweredBy).toEqual(["deepseek/deepseek-v4-pro"]);
+    session.stop();
+  });
+
+  it("ignores a turn Anthropic answered directly", async () => {
+    // `req_...` is not a generation id and OpenRouter has never heard of it.
+    // The CLI already prices this turn itself.
+    const session = await makeSession(DIRECT_CLI);
+    session.open();
+    session.send("do the work");
+    await once(session, "turn-end");
+
+    expect(session.turnGenerationIds).toEqual([]);
+    expect(session.turnAnsweredBy).toEqual(["claude-opus-5"]);
+    session.stop();
+  });
+
+  it("starts each turn's bill from nothing", async () => {
+    // Carried over, turn two would be charged for turn one as well - and the
+    // total would grow without bound over a long-lived specialist.
+    const session = await makeSession(ROUTED_CLI, { model: "openrouter/auto" });
+    session.open();
+
+    session.send("first");
+    await once(session, "turn-end");
+    expect(session.turnGenerationIds).toEqual(["gen-turn1-aaa", "gen-turn1-bbb"]);
+
+    session.send("second");
+    await once(session, "turn-end");
+    expect(session.turnGenerationIds).toEqual(["gen-turn2-aaa", "gen-turn2-bbb"]);
+
+    session.stop();
+  });
+
+  it("still has the finished turn's ids when a queued turn has already begun", async () => {
+    // consume() dispatches the next queued turn before it emits turn-end, and
+    // dispatching clears the running turn's ids. Read live rather than frozen
+    // at the result event, the getter would be empty exactly here - so the
+    // busiest specialist, the one with prompts stacked up behind it, would be
+    // the one that appeared to cost nothing.
+    const session = await makeSession(ROUTED_CLI, { model: "openrouter/auto" });
+
+    const seen: string[][] = [];
+    const later: string[][] = [];
+    let ends = 0;
+    const twoTurns = new Promise<void>((resolve) => {
+      session.on("turn-end", async () => {
+        // What a listener reading synchronously sees...
+        seen.push([...session.turnGenerationIds]);
+        // ...and what one that does a little work first sees. The registry's
+        // listener awaits several times before it reads this.
+        const mine = ends;
+        await new Promise((r) => setTimeout(r, 0));
+        later[mine] = [...session.turnGenerationIds];
+        ends += 1;
+        if (ends === 2) resolve();
+      });
+    });
+
+    session.open();
+    session.send("do the work");
+    // Arrives while turn 1 is running, so turn 2 is dispatched inside the
+    // same result event that ends turn 1.
+    session.send("and the next thing");
+    await twoTurns;
+
+    expect(seen[0]).toEqual(["gen-turn1-aaa", "gen-turn1-bbb"]);
+    expect(later[0]).toEqual(["gen-turn1-aaa", "gen-turn1-bbb"]);
+    expect(seen[1]).toEqual(["gen-turn2-aaa", "gen-turn2-bbb"]);
     session.stop();
   });
 });

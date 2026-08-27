@@ -25,6 +25,11 @@ class StubRegistry extends EventEmitter {
    * some, which is what a test bench has done. */
   turnShape: { shape: unknown; turns: number } = { shape: null, turns: 0 };
   async typicalTurn() { return this.turnShape; }
+  /** What the ledger holds. A stub bench has billed one proxied turn and one
+   * plan turn, which is enough to prove the two are never added together. */
+  spent = { plan: 6.44, account: 0.05, turns: 2, estimated: 0.05 };
+  askedAbout: string | null | undefined;
+  async spend(project?: string | null) { this.askedAbout = project; return this.spent; }
   /** What the real registry answers from the role table. The stub only has to
    * be asked, so it says the one thing these tests care about. */
   modelFor(role: string) { return this.settings.roleModels[role] ?? "qwen/qwen3-coder-flash"; }
@@ -835,6 +840,41 @@ describe("what has been spent", () => {
     usage = WINDOWS;
 
     expect((await fetch(`${base}/api/usage`)).status).toBe(401);
+  });
+});
+
+/**
+ * What the bench has spent over its whole life.
+ *
+ * Deliberately not a sum of the roster. A roster holds the specialists that
+ * still exist, and closing one is how a piece of work normally ends - so a
+ * total added up from rows is a total of the survivors, and every closed tab
+ * is money the cockpit has forgotten.
+ */
+describe("what this bench has spent", () => {
+  it("serves the ledger's totals with the two kinds of money apart", async () => {
+    const res = await fetch(`${base}/api/spend`, auth);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ plan: 6.44, account: 0.05, turns: 2, estimated: 0.05 });
+  });
+
+  it("narrows to one project when asked", async () => {
+    await fetch(`${base}/api/spend?project=/var/www/demo`, auth);
+
+    expect(registry.askedAbout).toBe("/var/www/demo");
+  });
+
+  it("asks about the whole bench when it is not", async () => {
+    await fetch(`${base}/api/spend`, auth);
+
+    // Null rather than the empty string: a project filter of "" would match
+    // nothing and read as a bench that has spent nothing at all.
+    expect(registry.askedAbout).toBeNull();
+  });
+
+  it("tells nobody without the token what the bench has spent", async () => {
+    expect((await fetch(`${base}/api/spend`)).status).toBe(401);
   });
 });
 

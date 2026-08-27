@@ -18,6 +18,7 @@ import type { TurnShape } from "../shared/cost.js";
 import { isRole, type Role } from "../shared/roles.js";
 import { checkKey as checkRouterKey, creditSource, type Listed } from "./openrouter.js";
 import type { Credit } from "../shared/credit.js";
+import type { Total } from "./ledger.js";
 import { usageSource, type Usage } from "./usage.js";
 import { RefIndex } from "./refs.js";
 import { reviewBrief, reviewLabel } from "./review.js";
@@ -46,6 +47,9 @@ export interface SessionRegistryLike {
   /** What a new specialist of this role should run on. */
   modelFor(role: Role): string;
   typicalTurn(): Promise<{ shape: TurnShape | null; turns: number }>;
+  /** What has been spent, over the whole bench or one project. From the
+   * ledger, so it counts specialists that have since been closed. */
+  spend(project?: string | null): Promise<Total>;
   get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null;
   send(id: string, text: string, from?: string): void;
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
@@ -457,6 +461,26 @@ export function createServer(opts: {
      */
     if (path === "/api/turn-shape" && req.method === "GET") {
       json(res, 200, await registry.typicalTurn());
+      return;
+    }
+
+    /**
+     * What this bench has spent, for good.
+     *
+     * Not derived from the roster, which is exactly the point: a roster only
+     * knows about specialists that still exist, and closing one is the
+     * ordinary end of a piece of work. Every total drawn from rows was a
+     * total of the survivors.
+     *
+     * The two kinds of money stay apart, and the part of the figure that is
+     * an estimate rather than a settled charge is reported alongside it -
+     * a proxied turn priced from the catalogue measured 1.46x under against
+     * the same requests billed by OpenRouter, so a total that hid which was
+     * which would be a total nobody could act on.
+     */
+    if (path === "/api/spend" && req.method === "GET") {
+      const project = url.searchParams.get("project");
+      json(res, 200, await registry.spend(project));
       return;
     }
 
