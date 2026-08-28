@@ -117,4 +117,24 @@ describe("clearing a specialist's context", () => {
     const { registry } = await withEntry();
     expect(registry.clearContext("s1")).toBe(true);
   });
+
+  it("increments clearCount on each clearContext and builds a summary of the thread", async () => {
+    const { registry, entry, threadPath } = await withEntry();
+    await writeFile(threadPath, [
+      JSON.stringify({ kind: "user", body: "Hello from developer" }),
+      JSON.stringify({ kind: "reply", body: "Hello from specialist" }),
+    ].join("\n") + "\n");
+
+    expect((entry as any).clearCount).toBeUndefined();
+    registry.clearContext("s1");
+
+    expect((entry as any).clearCount).toBe(1);
+
+    // Wait a brief moment for the background async summary compilation
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect((entry as any).threadSummary).toContain("CHRONOLOGICAL SUMMARY");
+    expect((entry as any).threadSummary).toContain("Developer: Hello from developer");
+    expect((entry as any).threadSummary).toContain("Specialist: Hello from specialist");
+  });
 });

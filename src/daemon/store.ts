@@ -79,6 +79,8 @@ export interface SessionRecord {
    * Maps to Google's thinking_level or OpenAI's reasoning_effort.
    */
   reasoningEffort?: "none" | "low" | "medium" | "high";
+  /** How many times the developer has cleared the conversation's context. */
+  clearCount?: number;
 }
 
 const REQUIRED = ["id", "label", "project", "worktree", "reportsDir", "model"] as const;
@@ -165,13 +167,16 @@ export class SessionStore {
    * nothing to resume" from the moment it is written: a restart in between
    * must not quietly bring the old conversation back.
    */
-  async forgetConversation(id: string): Promise<void> {
+  async forgetConversation(id: string, clearCount?: number): Promise<void> {
     return this.change(async () => {
       const all = await this.all();
       const record = all.find((r) => r.id === id);
       if (!record) return;
       record.resumable = false;
       delete record.context;
+      if (clearCount !== undefined) {
+        record.clearCount = clearCount;
+      }
       await this.write(all);
     });
   }

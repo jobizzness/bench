@@ -12,7 +12,7 @@ import { latestReportSeq, findReport, latestTurn } from "./reports.js";
 import { SessionStore } from "./store.js";
 import { appendActivity } from "./activity.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
-import { appendEntry, readThread } from "./thread.js";
+import { appendEntry, readThread, summariseThread } from "./thread.js";
 import { answeredReportSeq } from "./answered.js";
 import { asRole, isRole, type Role } from "../shared/roles.js";
 import { modelForRole } from "../shared/role-models.js";
@@ -76,6 +76,10 @@ interface Entry {
    * already sees the numbers themselves on the roster, this is only bench's
    * own memory of what the agent has been told. */
   nudged: NudgeState;
+  /** How many times the developer has cleared the conversation's context. */
+  clearCount?: number;
+  /** Precompiled summary of previous context, injected on the next prompt. */
+  threadSummary?: string | null;
 }
 
 export class SessionRegistry extends EventEmitter implements SessionRegistryLike {
@@ -613,6 +617,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         pendingDispatch: null,
         pendingImages: [],
         nudged: rec.nudged ?? {},
+        clearCount: rec.clearCount,
         row: {
           id: rec.id,
           label: rec.label,
@@ -689,6 +694,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     role: Role;
     port: number;
     resume?: boolean;
+    clearCount?: number;
     startTurn?: number;
     /** Set for an OpenRouter model, already resolved. */
     via?: { key: string; contextLength?: number | null };
@@ -707,6 +713,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       role: opts.role,
       port: opts.port,
       resume: opts.resume,
+      clearCount: opts.clearCount,
       cockpitUrl: `http://127.0.0.1:${this.config.port}`,
       claudeBin: this.config.claudeBin,
       startTurn: opts.startTurn,
@@ -970,6 +977,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       pendingDispatch: null,
       pendingImages: [],
       nudged: {},
+      clearCount: 0,
       row: {
         id,
         label: input.label,
@@ -1060,6 +1068,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       // resume one that does not prints "No conversation found with session
       // ID" and exits before the prompt is ever read.
       resume: entry.resumable,
+      clearCount: entry.clearCount,
       // Pick up the numbering where it stopped, or this turn writes over
       // the last one's report.
       startTurn: entry.turnsTaken,
@@ -1133,6 +1142,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       return;
     }
 
+    let promptText = text;
+    if (entry.threadSummary) {
+      promptText = `${entry.threadSummary}\n\n${text}`;
+      entry.threadSummary = null;
+    }
+
     // The thread keeps the reference, never the bytes - see storeAttachments.
     void appendEntry(entry.threadPath, {
       kind: "user",
@@ -1148,7 +1163,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.row.activity = [];
 
     if (entry.session) {
-      entry.session.send(text, images);
+      entry.session.send(promptText, images);
       this.update(id, "working", "starting");
       return;
     }
@@ -1162,7 +1177,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // stopped proxy into a specialist that hangs for two minutes.
     if (!isOpenRouterModel(entry.model)) {
       this.revive(id, entry, undefined);
-      entry.session!.send(text, images);
+      entry.session!.send(promptText, images);
       this.update(id, "working", "starting");
       return;
     }
@@ -1173,7 +1188,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     void this.viaFor(entry.model).then(
       (via) => {
         this.revive(id, entry, via);
-        entry.session!.send(text, images);
+        entry.session!.send(promptText, images);
         this.update(id, "working", "starting");
       },
       (error: unknown) => {
@@ -1337,10 +1352,22 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
     entry.resumable = false;
     entry.row.context = null;
-    this.remember(this.store.forgetConversation(id));
+    entry.clearCount = (entry.clearCount ?? 0) + 1;
+
+    // Read the thread and build a summary in the background before the session is stop-recreated.
+    void (async () => {
+      try {
+        const threadEntries = await readThread(entry.threadPath);
+        entry.threadSummary = summariseThread(threadEntries);
+      } catch (err) {
+        process.stderr.write(`bench: could not generate thread summary: ${String(err)}\n`);
+      }
+    })();
+
+    this.remember(this.store.forgetConversation(id, entry.clearCount));
     void appendEntry(entry.threadPath, {
       kind: "system",
-      body: "Context cleared — the next prompt starts a fresh conversation.",
+      body: `Context cleared — the next prompt starts a fresh conversation (version ${entry.clearCount}).`,
     });
 
     // A live process is still holding the old conversation. Let it go; the

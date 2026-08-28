@@ -84,6 +84,8 @@ export interface SessionOptions {
   /** Pick up a session the CLI already has a transcript for, rather than
    * starting a new one. Used when a specialist outlives the daemon. */
   resume?: boolean;
+  /** How many times the developer has cleared the context for this session. */
+  clearCount?: number;
   /**
    * The developer's house rules, read fresh for every turn rather than
    * captured at spawn - a rule saved now has to reach the specialist already
@@ -225,7 +227,7 @@ export class ClaudeSession extends EventEmitter {
     // login it would otherwise use, which turns off connectors. Its key is
     // the OpenRouter one instead, carried in `via`.
     const via = this.opts.via;
-    const apiKey = via ? null : this.opts.apiKey?.();
+    const apiKey = via ? null : (this.opts.apiKey?.() ?? undefined);
 
     // --verbose is not optional: claude -p with stream-json exits without it.
     const args = [
@@ -233,7 +235,9 @@ export class ClaudeSession extends EventEmitter {
       "--verbose",
       "--input-format", "stream-json",
       "--output-format", "stream-json",
-      ...(this.opts.resume ? ["--resume", this.opts.id] : ["--session-id", this.opts.id]),
+      ...(this.opts.resume
+        ? ["--resume", this.opts.id + (this.opts.clearCount ? `-${this.opts.clearCount}` : "")]
+        : ["--session-id", this.opts.id + (this.opts.clearCount ? `-${this.opts.clearCount}` : "")]),
       "--name", this.opts.label,
       // Verbatim, whichever kind it is. An Anthropic alias the CLI resolves
       // itself; an OpenRouter id it does not recognise and passes straight
@@ -279,7 +283,17 @@ export class ClaudeSession extends EventEmitter {
         // A setup-token is an OAuth token and the CLI reads those from their
         // own variable; put one in ANTHROPIC_API_KEY and it is a key the API
         // has never issued.
-        ...(apiKey ? credentialEnv(apiKey) : {}),
+        // If apiKey is explicitly null (parked), we must explicitly set both
+        // variables to "none" or delete them from the spawned environment
+        // so that any real environment variables in the daemon process are
+        // not inherited by the spawned process. Unless it is explicitly undefined
+        // (meaning no custom key was ever supplied/attempted, e.g., in a default
+        // bench without any key set, where we want to let the environment leak).
+        ...(apiKey !== undefined && apiKey !== null
+          ? credentialEnv(apiKey)
+          : apiKey === null
+            ? { ANTHROPIC_API_KEY: "none", CLAUDE_CODE_OAUTH_TOKEN: "none" }
+            : {}),
         // Everything OpenRouter needs, or nothing at all. Nothing at all is
         // the Anthropic case, and it has to leave the environment exactly as
         // it found it: a bench with no key of its own must not take away the
