@@ -1,10 +1,11 @@
-import type { RefObject } from "react";
+import { useRef, type RefObject } from "react";
 import { runningModelLabel, isProxied } from "../../shared/models.js";
 import { ComposerHint } from "./ComposerHint.js";
 import { UsagePopover } from "./UsagePopover.js";
 import { CreditPopover } from "./CreditPopover.js";
 import { SpendPopover } from "./SpendPopover.js";
 import { useAutoGrow } from "./useAutoGrow.js";
+import type { Attachment } from "../../shared/types.js";
 
 /**
  * The one input, and the button that says what sending will do.
@@ -19,6 +20,7 @@ import { useAutoGrow } from "./useAutoGrow.js";
 export function Composer({
   text, setText, onSubmit, disabled, placeholder, hint, optionCount, send, inputRef, error,
   model, answeredBy, onChangeModel, project,
+  attachments = [], addFiles = async () => {}, removeAttachment = () => {}, attachmentError = null,
 }: {
   text: string;
   setText: (value: string) => void;
@@ -41,45 +43,128 @@ export function Composer({
    * report this piece of work rather than the whole bench. Absent when none is
    * selected. */
   project?: string;
+  /** Attached images to display as thumbnails and submit. */
+  attachments?: Attachment[];
+  /** Handler to process and attach files (paste, drag & drop, browse). */
+  addFiles?: (files: FileList | File[]) => Promise<void>;
+  /** Handler to remove an attached image. */
+  removeAttachment?: (index: number) => void;
+  /** Image-specific validation errors. */
+  attachmentError?: string | null;
 }) {
   useAutoGrow(inputRef, text);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDragOver = (event: React.DragEvent) => {
+    event.preventDefault();
+  };
+
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    if (disabled || !event.dataTransfer.files) return;
+    void addFiles(event.dataTransfer.files);
+  };
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (disabled || !event.clipboardData.files || event.clipboardData.files.length === 0) return;
+    event.preventDefault();
+    void addFiles(event.clipboardData.files);
+  };
+
+  const activeError = attachmentError || error;
 
   return (
     <>
       <form
         id="composer-form"
+        style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "stretch" }}
         onSubmit={(event) => { event.preventDefault(); onSubmit(); }}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
       >
-        <textarea
-          id="composer-text"
-          rows={1}
-          autoComplete="off"
-          ref={inputRef}
-          disabled={disabled}
-          placeholder={placeholder}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            // Enter still sends — that is the whole rhythm of the cockpit.
-            // Shift+Enter is the newline, and a textarea no longer submits the
-            // form by itself, so sending happens here or not at all.
-            if (event.key !== "Enter" || event.shiftKey) return;
-            // Mid-composition Enter belongs to the IME, not to us.
-            if (event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            onSubmit();
-          }}
-        />
-        {send && (
-          <button
-            id="composer-send"
-            type="submit"
-            disabled={send.blocked}
-            data-pending={send.blocked}
-          >
-            {send.label}
-          </button>
+        {attachments.length > 0 && (
+          <div className="composer-attachments">
+            {attachments.map((att, index) => (
+              <div key={index} className="composer-attachment">
+                <img src={`data:${att.mediaType};base64,${att.data}`} alt="attachment" />
+                <button type="button" className="remove" onClick={() => removeAttachment(index)} title="Remove">×</button>
+              </div>
+            ))}
+          </div>
         )}
+
+        <div style={{ display: "flex", alignItems: "flex-end", gap: "10px" }}>
+          <button
+            type="button"
+            className="composer-attach-btn"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            title="Attach images"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              role="img"
+              aria-label="Attach images"
+            >
+              <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+              <circle cx="9" cy="9" r="2" />
+              <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+            </svg>
+          </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: "none" }}
+            multiple
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            disabled={disabled}
+            onChange={(event) => {
+              if (event.target.files) {
+                void addFiles(event.target.files);
+                event.target.value = "";
+              }
+            }}
+          />
+
+          <textarea
+            id="composer-text"
+            rows={1}
+            autoComplete="off"
+            ref={inputRef}
+            disabled={disabled}
+            placeholder={placeholder}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onPaste={handlePaste}
+            onKeyDown={(event) => {
+              // Enter still sends — that is the whole rhythm of the cockpit.
+              // Shift+Enter is the newline, and a textarea no longer submits the
+              // form by itself, so sending happens here or not at all.
+              if (event.key !== "Enter" || event.shiftKey) return;
+              // Mid-composition Enter belongs to the IME, not to us.
+              if (event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              onSubmit();
+            }}
+          />
+          {send && (
+            <button
+              id="composer-send"
+              type="submit"
+              disabled={send.blocked}
+              data-pending={send.blocked}
+            >
+              {send.label}
+            </button>
+          )}
+        </div>
       </form>
       {/* What the keys do, and at the far end what this will be spent on and
           what there is left to spend — the three things you want at the
@@ -87,7 +172,7 @@ export function Composer({
           here rather than in the roster header because it is wider than that
           column and was being cut off by it. */}
       <div id="composer-foot">
-        {error ? <p id="composer-hint">{error}</p> : <ComposerHint kind={hint} optionCount={optionCount} />}
+        {activeError ? <p id="composer-hint">{activeError}</p> : <ComposerHint kind={hint} optionCount={optionCount} />}
         {/* What this specialist is running on, where you are looking when you
             decide to send it work. It used to be visible only in the header
             badge and settable only at creation, which made the model

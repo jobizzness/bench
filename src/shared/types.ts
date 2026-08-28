@@ -148,6 +148,37 @@ export interface IntakeAnswer {
   defaulted: boolean;
 }
 
+/**
+ * An image on its way to a specialist, carrying its bytes.
+ *
+ * This is the wire shape: what the composer posts and what reaches the CLI.
+ * It exists only in flight - once stored, the thread holds an
+ * {@link AttachmentRef} instead, because base64 in a file that is re-read on
+ * every load is a cost paid forever for a picture looked at once.
+ */
+export interface Attachment {
+  /** A MIME type from the accepted set. See `ACCEPTED_MEDIA_TYPES`. */
+  mediaType: string;
+  /** Base64 payload with no `data:` prefix. */
+  data: string;
+}
+
+/** A stored image, as the thread records it. The bytes are on disk. */
+export interface AttachmentRef {
+  /** The file's name within the session's images directory. */
+  name: string;
+  mediaType: string;
+}
+
+/**
+ * An image that has been written to disk but is still on its way to the CLI.
+ *
+ * One value serving both readers is deliberate: the thread wants the name and
+ * the CLI wants the bytes, and splitting them into two parallel arrays is how
+ * they end up out of step with each other.
+ */
+export interface StoredAttachment extends Attachment, AttachmentRef {}
+
 export type ThreadEntryKind = "user" | "reply" | "report" | "system";
 
 export interface ThreadEntryInput {
@@ -157,6 +188,8 @@ export interface ThreadEntryInput {
   reportSeq?: number;
   /** Set on reply entries the specialist answered with a rendered page. */
   replySeq?: number;
+  /** Images the developer attached to this prompt, by reference. */
+  images?: AttachmentRef[];
 }
 
 export interface ThreadEntry extends ThreadEntryInput {

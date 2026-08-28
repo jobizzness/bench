@@ -221,3 +221,32 @@ describe("answeringModelFrom", () => {
     expect(answeringModelFrom({ type: "assistant", message: { content: [] } })).toBeNull();
   });
 });
+
+describe("userMessageLine with images", () => {
+  it("leaves a text-only prompt as the bare string it has always been", () => {
+    const line = JSON.parse(userMessageLine("just words"));
+
+    expect(line.message.content).toBe("just words");
+  });
+
+  it("puts the picture before the question about it", () => {
+    const line = JSON.parse(userMessageLine("what is this", [
+      { mediaType: "image/png", data: "AAAA" },
+    ]));
+
+    expect(line.message.content).toEqual([
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+      { type: "text", text: "what is this" },
+    ]);
+  });
+
+  it("keeps several images in the order they were attached", () => {
+    const line = JSON.parse(userMessageLine("these two", [
+      { mediaType: "image/png", data: "first" },
+      { mediaType: "image/jpeg", data: "second" },
+    ]));
+
+    expect(line.message.content.map((b: any) => b.source?.data ?? b.text))
+      .toEqual(["first", "second", "these two"]);
+  });
+});

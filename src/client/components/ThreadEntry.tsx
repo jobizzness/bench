@@ -41,7 +41,24 @@ export function ThreadEntry({
             onOpen={onOpen}
           />
         )
-        : <Markdown className="bubble" text={entry.body} refs={refs} />}
+        : (
+          <>
+            <Markdown className="bubble" text={entry.body} refs={refs} />
+            {entry.images && entry.images.length > 0 && (
+              <div className="entry-attachments">
+                {entry.images.map((img, i) => (
+                  <div key={i} className="entry-attachment">
+                    <img
+                      src={`/api/sessions/${sessionId}/image/${img.name}`}
+                      alt="User attachment"
+                      onClick={() => window.open(`/api/sessions/${sessionId}/image/${img.name}`, "_blank")}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
     </div>
   );
 }

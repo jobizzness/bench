@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  * @vitest-environment-options { "url": "http://localhost/?token=t" }
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { bootCockpit, entry, row, type Cockpit } from "./helpers/cockpit.js";
 
 /**
@@ -150,3 +150,95 @@ describe("the model, from the composer", () => {
     expect(ui.$("#composer-model")).toBe(null);
   });
 });
+
+describe("composer attachments", () => {
+  let originalCreateObjectURL: any;
+  let originalRevokeObjectURL: any;
+  let originalFileReader: any;
+  let originalImage: any;
+
+  beforeEach(() => {
+    originalCreateObjectURL = URL.createObjectURL;
+    originalRevokeObjectURL = URL.revokeObjectURL;
+    originalFileReader = global.FileReader;
+    originalImage = global.Image;
+
+    URL.createObjectURL = () => "blob:test";
+    URL.revokeObjectURL = () => {};
+
+    // Mock FileReader to return a fake base64 string
+    global.FileReader = class {
+      onload: () => void = () => {};
+      result = "data:image/png;base64,TEST_DATA";
+      readAsDataURL() {
+        setTimeout(() => this.onload(), 10);
+      }
+    } as any;
+
+    // Mock Image to trigger onload asynchronously
+    global.Image = class {
+      onload: () => void = () => {};
+      width = 100;
+      height = 100;
+      set src(val: string) {
+        setTimeout(() => this.onload(), 10);
+      }
+    } as any;
+  });
+
+  afterEach(() => {
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
+    global.FileReader = originalFileReader;
+    global.Image = originalImage;
+  });
+
+  it("adds an image attachment on drag and drop", async () => {
+    await open();
+    const file = new File(["test data"], "test.png", { type: "image/png" });
+
+    // Mock dataTransfer with the file
+    const dropEvent = new Event("drop", { bubbles: true }) as any;
+    dropEvent.dataTransfer = {
+      files: [file],
+    };
+
+    ui.$("#composer-form")!.dispatchEvent(dropEvent);
+
+    // Wait for the async processImage and FileReader
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(ui.$(".composer-attachments")).not.toBeNull();
+    expect(ui.$(".composer-attachment img")?.getAttribute("src")).toContain("TEST_DATA");
+  });
+
+  it("removes an image attachment when × is clicked", async () => {
+    await open();
+    const file = new File(["test data"], "test.png", { type: "image/png" });
+    const dropEvent = new Event("drop", { bubbles: true }) as any;
+    dropEvent.dataTransfer = { files: [file] };
+
+    ui.$("#composer-form")!.dispatchEvent(dropEvent);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(ui.$(".composer-attachment")).not.toBeNull();
+
+    // Click remove button
+    await ui.click(ui.$(".composer-attachment .remove"));
+    expect(ui.$(".composer-attachment")).toBeNull();
+  });
+
+  it("shows an error when adding a non-image file", async () => {
+    await open();
+    const file = new File(["test data"], "test.pdf", { type: "application/pdf" });
+    const dropEvent = new Event("drop", { bubbles: true }) as any;
+    dropEvent.dataTransfer = { files: [file] };
+
+    ui.$("#composer-form")!.dispatchEvent(dropEvent);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(ui.$(".composer-attachments")).toBeNull();
+    expect(ui.$("#composer-hint")?.textContent).toContain("application/pdf");
+  });
+});
+

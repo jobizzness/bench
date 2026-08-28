@@ -17,6 +17,7 @@ describe("what is on disk", () => {
       workflowRules: "run the tests",
       reviewModel: "opus",
       roleModels: {},
+      reasoningEffort: "medium",
     });
   });
 
@@ -37,7 +38,7 @@ describe("what is on disk", () => {
     const dir = await home();
     await writeFile(join(dir, "settings.json"), JSON.stringify({ codingStyle: "terse" }));
 
-    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {} });
+    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium" });
   });
 
   it("refuses half a set rather than erasing the half it was not sent", async () => {
@@ -111,7 +112,7 @@ describe("which model reviews", () => {
     const dir = await home();
     await writeSettings(dir, { codingStyle: "terse", workflowRules: "" });
 
-    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {} });
+    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium" });
   });
 
   it("keeps a model written into the file by hand", async () => {

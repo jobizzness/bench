@@ -87,7 +87,7 @@ describe("a specialist answered by OpenRouter", () => {
     });
     // The address the turn actually goes to, not the base it was built from.
     // Pointed to our local loopback proxy.
-    expect(reply).toContain("url:http://127.0.0.1:7420/api/openrouter/v1/messages");
+    expect(reply).toContain("url:http://127.0.0.1:7420/api/openrouter/sess-1/v1/messages");
   });
 
   it("passes the OpenRouter id to the CLI untouched", async () => {

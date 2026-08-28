@@ -23,7 +23,7 @@ import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./
 import { describeOrigin, type Origin } from "./env-file.js";
 import { writeParked } from "./key-park.js";
 import { isModelId, modelLabel } from "../shared/models.js";
-import type { RosterRow, SessionStatus, Spend } from "../shared/types.js";
+import type { RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
 import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
 import { costFrom, shapeFrom } from "./stream-codec.js";
 import type { ResultEvent } from "./stream-codec.js";
@@ -67,6 +67,10 @@ interface Entry {
   createdBy: string | null;
   /** What an agent told this tab, waiting on the developer to dispatch it. */
   pendingDispatch: string | null;
+  /** Any images that came with it. Empty on every held message bench has seen
+   * - `bench tell` sends text - but held separately from the text so that
+   * stays true by construction rather than by luck. */
+  pendingImages: StoredAttachment[];
   /** The worst context tone, and whether the spend threshold, this
    * specialist has already been told about. Not on the row: the developer
    * already sees the numbers themselves on the roster, this is only bench's
@@ -607,6 +611,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // gone too.
         createdBy: rec.createdBy ?? null,
         pendingDispatch: null,
+        pendingImages: [],
         nudged: rec.nudged ?? {},
         row: {
           id: rec.id,
@@ -641,13 +646,21 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     return [...this.entries.values()].map((e) => e.row);
   }
 
-  get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null {
+  get(id: string): {
+    reportsDir: string;
+    threadPath: string;
+    alive: boolean;
+    revivable: boolean;
+    /** What it runs on, which decides whether it can be sent an image. */
+    model: string;
+  } | null {
     const entry = this.entries.get(id);
     if (!entry) return null;
     return {
       reportsDir: entry.reportsDir,
       threadPath: entry.threadPath,
       alive: entry.alive,
+      model: entry.model,
       // Restored from disk with no process yet. Cold is not dead: prompting
       // it brings it back, so it must not be refused like a crashed one.
       revivable: !entry.alive && entry.worktree !== "" && existsSync(entry.worktree),
@@ -955,6 +968,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       port: 0,
       createdBy: input.createdBy ?? null,
       pendingDispatch: null,
+      pendingImages: [],
       nudged: {},
       row: {
         id,
@@ -1058,7 +1072,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * developer, typing in the cockpit - and what the developer types is never
    * held back from the specialist they typed it to.
    */
-  send(id: string, text: string, from?: string): void {
+  send(id: string, text: string, from?: string, images: StoredAttachment[] = []): void {
     const entry = this.entries.get(id);
     if (!entry) return;
 
@@ -1071,12 +1085,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     const neverDispatched = (entry.session?.turn ?? entry.turnsTaken) === 0;
     if (from !== undefined && entry.createdBy !== null && neverDispatched) {
       entry.pendingDispatch = text;
+      entry.pendingImages = images;
       entry.row.pendingPrompt = text;
       this.update(id, "awaiting_dispatch", "waiting on you to dispatch");
       return;
     }
 
-    this.deliver(id, entry, text);
+    this.deliver(id, entry, text, images);
   }
 
   /** Release a held message, exactly as if it had just arrived. */
@@ -1085,9 +1100,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     if (!entry) throw new Error("no such specialist");
     const text = entry.pendingDispatch;
     if (text === null) throw new Error("nothing is waiting to be dispatched");
+    const images = entry.pendingImages;
     entry.pendingDispatch = null;
+    entry.pendingImages = [];
     entry.row.pendingPrompt = null;
-    this.deliver(id, entry, text);
+    this.deliver(id, entry, text, images);
   }
 
   /** Discard a held message. The tab goes back to exactly its just-created
@@ -1098,13 +1115,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     const entry = this.entries.get(id);
     if (!entry) return;
     entry.pendingDispatch = null;
+    entry.pendingImages = [];
     entry.row.pendingPrompt = null;
     this.update(id, "awaiting_decision", "ready");
   }
 
   /** The part of prompting a specialist that a held message also has to go
    * through once it is released: the same path `send()` always took. */
-  private deliver(id: string, entry: Entry, text: string): void {
+  private deliver(id: string, entry: Entry, text: string, images: StoredAttachment[] = []): void {
     // A specialist restored from disk has no process yet. Bring it back on
     // the first prompt, resuming the transcript the CLI still holds, so it
     // remembers what it was doing.
@@ -1115,7 +1133,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       return;
     }
 
-    void appendEntry(entry.threadPath, { kind: "user", body: text });
+    // The thread keeps the reference, never the bytes - see storeAttachments.
+    void appendEntry(entry.threadPath, {
+      kind: "user",
+      body: text,
+      ...(images.length > 0
+        ? { images: images.map(({ name, mediaType }) => ({ name, mediaType })) }
+        : {}),
+    });
     // Prompting a specialist is how a decision gets answered, so whatever
     // was on the table is answered now.
     entry.row.answeredReportSeq = entry.row.latestReportSeq;
@@ -1123,7 +1148,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.row.activity = [];
 
     if (entry.session) {
-      entry.session.send(text);
+      entry.session.send(text, images);
       this.update(id, "working", "starting");
       return;
     }
@@ -1137,7 +1162,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // stopped proxy into a specialist that hangs for two minutes.
     if (!isOpenRouterModel(entry.model)) {
       this.revive(id, entry, undefined);
-      entry.session!.send(text);
+      entry.session!.send(text, images);
       this.update(id, "working", "starting");
       return;
     }
@@ -1148,7 +1173,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     void this.viaFor(entry.model).then(
       (via) => {
         this.revive(id, entry, via);
-        entry.session!.send(text);
+        entry.session!.send(text, images);
         this.update(id, "working", "starting");
       },
       (error: unknown) => {

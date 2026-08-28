@@ -7,6 +7,7 @@ import {
   generationIdFrom, answeringModelFrom,
 } from "./stream-codec.js";
 import type { Context } from "../shared/context-window.js";
+import type { Attachment } from "../shared/types.js";
 import { buildSettings } from "./gates/settings.js";
 import { credentialEnv } from "./anthropic-key.js";
 import { sessionEnv as openRouterEnv } from "./gemini.js";
@@ -28,6 +29,33 @@ function compacted(prompts: string[]): string {
     "The developer sent these while you were still on the turn before this "
     + "one. Answer them together, as one turn, not one at a time:";
   return [intro, ...prompts.map((p, i) => `${i + 1}. ${p}`)].join("\n\n");
+}
+
+/** One prompt on its way to the CLI: what was typed, and what was attached. */
+interface Prompt {
+  text: string;
+  images: Attachment[];
+}
+
+/**
+ * Everything the queue is holding, as the single turn it will be sent as.
+ *
+ * The images of every queued prompt travel together, in the order they were
+ * sent. They cannot be numbered into the text the way the prompts are - an
+ * image block carries no caption - so the text says how many came with it,
+ * which is the difference between an agent that knows it is looking at two
+ * screenshots from two messages and one that guesses.
+ */
+function folded(prompts: Prompt[]): Prompt {
+  if (prompts.length === 1) return prompts[0];
+
+  const images = prompts.flatMap((p) => p.images);
+  const texts = prompts.map((p) => (
+    p.images.length === 0
+      ? p.text
+      : `${p.text}\n(with ${p.images.length === 1 ? "1 image" : `${p.images.length} images`}, in order, below)`
+  ));
+  return { text: compacted(texts), images };
 }
 
 export interface SessionOptions {
@@ -167,7 +195,7 @@ export class ClaudeSession extends EventEmitter {
   }
 
   /** Prompts waiting for the running turn to end. */
-  private queued: string[] = [];
+  private queued: Prompt[] = [];
   private running = false;
   private startedAt: number | null = null;
   private tokens = 0;
@@ -298,8 +326,8 @@ export class ClaudeSession extends EventEmitter {
    * something the UI can know in advance. Note that this does not interrupt -
    * a prompt sent mid-turn is answered once the running turn ends.
    */
-  send(text: string): void {
-    this.enqueue(text);
+  send(text: string, images: Attachment[] = []): void {
+    this.enqueue({ text, images });
   }
 
   /**
@@ -311,27 +339,29 @@ export class ClaudeSession extends EventEmitter {
    * framing - turn number and report directory - true when the agent reads
    * it.
    */
-  private enqueue(text: string): void {
+  private enqueue(prompt: Prompt): void {
     if (!this.child) throw new Error("session not started");
 
     if (this.running) {
-      // A turn is in flight. Hold the text; `consume` dispatches it when the
-      // running turn ends.
-      this.queued.push(text);
+      // A turn is in flight. Hold the prompt; `consume` dispatches it when
+      // the running turn ends.
+      this.queued.push(prompt);
       return;
     }
 
     // Idle: this prompt becomes the running turn immediately.
     this.running = true;
-    this.dispatch(text);
+    this.dispatch(prompt);
   }
 
   /** Begin a turn and hand it to the CLI. Only ever called for a turn that
    * starts now, so the framing matches the markers the gate reads. */
-  private dispatch(text: string): void {
+  private dispatch(prompt: Prompt): void {
     const turn = this.turnCount + 1;
     this.beginTurn(turn);
-    this.child!.stdin.write(userMessageLine(this.framed(text, turn)));
+    this.child!.stdin.write(
+      userMessageLine(this.framed(prompt.text, turn, prompt.images.length), prompt.images),
+    );
   }
 
   stop(): void {
@@ -353,7 +383,7 @@ export class ClaudeSession extends EventEmitter {
     writeFileSync(join(this.opts.reportsDir, ".turn"), String(turn));
   }
 
-  private framed(text: string, turn: number): string {
+  private framed(text: string, turn: number, imageCount = 0): string {
     const dir = join(this.opts.reportsDir, String(turn));
     const rules = this.opts.rules?.() ?? "";
     const nudge = this.opts.nudge?.() ?? "";
@@ -364,6 +394,13 @@ export class ClaudeSession extends EventEmitter {
     // the thing it is actually about to affect.
     const standing = [rules, nudge].filter((s) => s !== "").join("\n\n");
     const standingBlock = standing === "" ? "" : `${standing}\n\n`;
+    // An image block arrives with nothing saying where it came from, and an
+    // agent that is not told reads it as having appeared out of nowhere -
+    // observed doing exactly that when the format was first tried. This is
+    // the caption the content array has no room for.
+    const attached = imageCount === 0 ? "" : `[bench] The developer attached `
+      + `${imageCount === 1 ? "an image" : `${imageCount} images`} to this message, `
+      + `immediately above this text.\n\n`;
     return `[bench] Turn ${turn}. This turn's artifact directory is ${dir}\n` +
       `Write a report there - bench-report skill, report.html and decision.json - ` +
       `when a decision needs the developer, when work is finished and they need ` +
@@ -374,7 +411,7 @@ export class ClaudeSession extends EventEmitter {
       `If this turn takes more than a couple of steps, keep a checklist at ` +
       `${join(dir, "plan.json")} - {"steps":[{"text":"...","state":"todo|doing|done"}]} - ` +
       `and update it as you go. It is the only way the developer can see where ` +
-      `you have got to while you work.\n\n${standingBlock}${text}`;
+      `you have got to while you work.\n\n${standingBlock}${attached}${text}`;
   }
 
   private consume(chunk: string): void {
@@ -430,7 +467,7 @@ export class ClaudeSession extends EventEmitter {
         this.running = false;
         this.startedAt = null;
         if (this.queued.length > 0) {
-          const next = this.queued.length === 1 ? this.queued[0] : compacted(this.queued);
+          const next = folded(this.queued);
           this.queued = [];
           this.running = true;
           this.dispatch(next);

@@ -167,6 +167,20 @@ from `/answer`. Both append to the thread; only `/answer` sets a work turn.
 | Thread store unreadable | the thread renders empty with a notice; chat still works, since the store is a record and not the transport |
 | Chat turn writes a report anyway | the report is shown; nothing breaks. The gate governs what is required, not what is permitted |
 
+## Image Attachments (Added 2026-08-28)
+
+Images can be attached to any user message (pasted, dragged & dropped, or picked via a file button) and are sent to the CLI on stdin inside an Anthropic-compatible image content block.
+
+**Data Model & Storage:**
+- To avoid performance penalties from storing large base64 data in `thread.jsonl` (which is read on every cockpit load), images are saved separately to disk under `<reportsDir>/images/<uuid>.<ext>`.
+- The `ThreadEntryInput` data structure records references to these stored files: `images: Array<{ name: string, mediaType: string }>`.
+- Stored attachments are served back to the cockpit via `GET /api/sessions/:id/image/:name`.
+
+**Client Experience & Input Flow:**
+- The composer allows pasting, dropping, or browsing to add up to 8 images (capped at 5 MB total).
+- Images exceeding 1568px on the long edge are automatically downscaled in the browser prior to upload to optimize token costs and comply with model limits.
+- If a specialist is running on a proxied model (e.g. Gemini, which does not translate image blocks in the proxy), trying to attach an image prompts the user to switch the specialist to a Claude model, rather than sending a broken message or dropping the image silently.
+
 ## Testing
 
 - **Turn kinds** unit-tested at the gate: a `chat` kind exempts, a `work`
