@@ -439,27 +439,20 @@ export async function handleGeminiProxy(
     openaiPayload.tools = openaiTools;
   }
 
-  // Inject reasoning effort config for supporting models
+  // Inject reasoning effort config for supporting models. Gemini's
+  // OpenAI-compatible endpoint refuses a request that sets both
+  // `reasoning_effort` and a custom `thinking_config` at once - "Expected
+  // one of either reasoning_effort or custom thinking_config; found both" -
+  // so only `thinking_config` is sent, never both.
   const isReasoningModel = geminiModel.includes("pro-preview") || geminiModel.includes("3.1") || geminiModel.includes("3.7");
   if (isReasoningModel) {
-    if (reasoningEffort !== "none") {
-      openaiPayload.reasoning_effort = reasoningEffort;
-      openaiPayload.extra_body = {
-        google: {
-          thinking_config: {
-            thinking_level: reasoningEffort,
-          }
+    openaiPayload.extra_body = {
+      google: {
+        thinking_config: {
+          thinking_level: reasoningEffort === "none" ? "minimal" : reasoningEffort,
         }
-      };
-    } else {
-      openaiPayload.extra_body = {
-        google: {
-          thinking_config: {
-            thinking_level: "minimal",
-          }
-        }
-      };
-    }
+      }
+    };
   }
 
   const upstreamUrl = `${BASE_URL}/v1/chat/completions`;

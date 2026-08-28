@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   BASE_URL,
   CLI_BASE_URL,
@@ -13,7 +13,30 @@ import {
   settledCost,
   settledCostOfTurn,
   RECENT_COSTS,
+  handleGeminiProxy,
 } from "../src/daemon/gemini.js";
+
+/** A minimal stand-in for the incoming request: an async-iterable body plus
+ * headers, which is all `handleGeminiProxy` reads off it. */
+function fakeReq(body: unknown, headers: Record<string, string> = { "x-api-key": "k" }): any {
+  const chunk = Buffer.from(JSON.stringify(body));
+  return {
+    headers,
+    [Symbol.asyncIterator]: async function* () { yield chunk; },
+  };
+}
+
+/** A minimal stand-in for the server response, recording what was written. */
+function fakeRes(): any {
+  const res: any = { statusCode: 0, headers: {}, body: "" };
+  res.writeHead = (status: number, headers: Record<string, string>) => {
+    res.statusCode = status;
+    res.headers = headers;
+  };
+  res.write = (data?: string) => { if (data) res.body += data; };
+  res.end = (data?: string) => { if (data) res.body += data; };
+  return res;
+}
 
 /** A fetch that answers one body, and records what it was asked. */
 function serving(body: unknown, status = 200) {
@@ -101,5 +124,56 @@ describe("settled cost of turns", () => {
       priced: 1,
       unpriced: 1,
     });
+  });
+});
+
+describe("reasoning effort on a reasoning-capable model", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("sends thinking_config alone, never alongside reasoning_effort", async () => {
+    // Gemini's OpenAI-compatible endpoint refuses a request carrying both:
+    // "Expected one of either reasoning_effort or custom thinking_config;
+    // found both" - which is exactly what the code used to send for every
+    // 3.1/3.7/pro-preview model.
+    let sent: any;
+    vi.stubGlobal("fetch", (async (_url: string, init?: RequestInit) => {
+      sent = JSON.parse(String(init!.body));
+      return new Response(JSON.stringify({ id: "x", choices: [{ message: { content: "hi" } }] }), { status: 200 });
+    }) as unknown as typeof fetch);
+
+    const req = fakeReq({ model: "google/gemini-3.7-pro", messages: [{ role: "user", content: "hi" }] });
+    await handleGeminiProxy(req, fakeRes());
+
+    expect(sent.reasoning_effort).toBeUndefined();
+    expect(sent.extra_body.google.thinking_config.thinking_level).toBe("medium");
+  });
+
+  it("maps a reasoning effort of none to Gemini's minimal thinking level", async () => {
+    let sent: any;
+    vi.stubGlobal("fetch", (async (_url: string, init?: RequestInit) => {
+      sent = JSON.parse(String(init!.body));
+      return new Response(JSON.stringify({ id: "x", choices: [{ message: { content: "hi" } }] }), { status: 200 });
+    }) as unknown as typeof fetch);
+
+    const registry = { getSettings: () => ({ reasoningEffort: "none" }) };
+    const req = fakeReq({ model: "google/gemini-3.1-pro-preview", messages: [{ role: "user", content: "hi" }] });
+    await handleGeminiProxy(req, fakeRes(), undefined, registry);
+
+    expect(sent.reasoning_effort).toBeUndefined();
+    expect(sent.extra_body.google.thinking_config.thinking_level).toBe("minimal");
+  });
+
+  it("leaves a non-reasoning model's payload alone", async () => {
+    let sent: any;
+    vi.stubGlobal("fetch", (async (_url: string, init?: RequestInit) => {
+      sent = JSON.parse(String(init!.body));
+      return new Response(JSON.stringify({ id: "x", choices: [{ message: { content: "hi" } }] }), { status: 200 });
+    }) as unknown as typeof fetch);
+
+    const req = fakeReq({ model: "google/gemini-2.5-flash", messages: [{ role: "user", content: "hi" }] });
+    await handleGeminiProxy(req, fakeRes());
+
+    expect(sent.reasoning_effort).toBeUndefined();
+    expect(sent.extra_body).toBeUndefined();
   });
 });
