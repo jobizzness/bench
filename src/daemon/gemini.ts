@@ -62,10 +62,10 @@ export const GEMINI_MODELS: Listed[] = [
     vendor: "google",
     contextLength: 1048576,
     price: {
-      fresh: 0.075,
-      cacheWrite: 0.01875,
-      cacheRead: 0.01875,
-      out: 0.30,
+      fresh: 0.75,
+      cacheWrite: 0.1875,
+      cacheRead: 0.1875,
+      out: 3.75,
     }
   },
   {
@@ -74,10 +74,10 @@ export const GEMINI_MODELS: Listed[] = [
     vendor: "google",
     contextLength: 1048576,
     price: {
-      fresh: 0.075,
-      cacheWrite: 0.01875,
-      cacheRead: 0.01875,
-      out: 0.30,
+      fresh: 1.50,
+      cacheWrite: 0.375,
+      cacheRead: 0.375,
+      out: 9.00,
     }
   },
   {
@@ -98,10 +98,10 @@ export const GEMINI_MODELS: Listed[] = [
     vendor: "google",
     contextLength: 1048576,
     price: {
-      fresh: 0.075,
-      cacheWrite: 0.01875,
-      cacheRead: 0.01875,
-      out: 0.30,
+      fresh: 0.30,
+      cacheWrite: 0.075,
+      cacheRead: 0.075,
+      out: 2.50,
     }
   },
   {
