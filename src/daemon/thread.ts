@@ -35,3 +35,40 @@ export async function readThread(threadPath: string): Promise<ThreadEntry[]> {
   }
   return entries;
 }
+
+/**
+ * Builds a clean chronological summary of the conversation thread.
+ * This is used during context clearance to provide the resurrected Claude
+ * session with high-level background on what was already built and decided,
+ * preventing a complete loss of situational context.
+ */
+export function summariseThread(entries: ThreadEntry[]): string {
+  if (entries.length === 0) return "";
+
+  const lines: string[] = [];
+  lines.push("[bench] BELOW IS A CHRONOLOGICAL SUMMARY OF THE CONVERSATION HISTORY BEFORE YOUR CONTEXT WAS CLEARED.");
+  lines.push("Use this summary to understand what has already been built, what files were touched, and what decisions the developer made, so you can continue the work smoothly without repeating previous questions or analysis:");
+
+  for (const entry of entries) {
+    if (entry.kind === "system" && (entry.body.startsWith("Context cleared") || entry.body.startsWith("Context version"))) {
+      continue;
+    }
+
+    const maxLen = 300;
+    let body = entry.body.trim();
+    if (body.length > maxLen) {
+      body = body.slice(0, maxLen) + "... [truncated]";
+    }
+
+    if (entry.kind === "user") {
+      lines.push(`- Developer: ${body}`);
+    } else if (entry.kind === "reply") {
+      lines.push(`- Specialist: ${body}`);
+    } else if (entry.kind === "report") {
+      lines.push(`- Report ("${entry.body}"): see reports directory for details.`);
+    }
+  }
+
+  return lines.join("\n");
+}
+

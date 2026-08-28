@@ -39,14 +39,12 @@ describe("the table itself", () => {
 describe("choosing the model for a role", () => {
   it("is the built-in answer when nobody has said otherwise", () => {
     expect(modelForRole("researcher", { viaRouter: true }))
-      .toBe("deepseek/deepseek-v4-flash");
+      .toBe("google/gemini-2.5-flash");
   });
 
-  it("puts a coding model on both roles that read and write code", () => {
-    // Reviewing a diff is reading code, not chatting about it. The two
-    // differ in what they cost, not in what kind of model they want.
-    expect(modelForRole("implementer", { viaRouter: true })).toContain("code");
-    expect(modelForRole("reviewer", { viaRouter: true })).toContain("coder");
+  it("puts Sonnet on the implementer and Gemini on the reviewer", () => {
+    expect(modelForRole("implementer", { viaRouter: true })).toBe("sonnet");
+    expect(modelForRole("reviewer", { viaRouter: true })).toBe("google/gemini-2.5-flash");
   });
 
   it("is the developer's own answer when they have given one", () => {

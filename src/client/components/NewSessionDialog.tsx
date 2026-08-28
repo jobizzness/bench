@@ -60,6 +60,7 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
   const [picked, setPicked] = useState<string | null>(null);
   const model = picked ?? ROLE_MODELS[role].preferred;
   const [isolated, setIsolated] = useState(true);
+  const [reasoningEffort, setReasoningEffort] = useState<"none" | "low" | "medium" | "high">("medium");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -75,6 +76,7 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
     setPicked(null);
     setRole(DEFAULT_ROLE);
     setIsolated(true);
+    setReasoningEffort("medium");
     dialog.showModal?.();
     projectRef.current?.focus();
 
@@ -101,7 +103,7 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
     setBusy(true);
     try {
       const res = await postJson("/api/sessions", {
-        project: path, label: label.trim(), role, model, isolated,
+        project: path, label: label.trim(), role, model, isolated, reasoningEffort,
       });
       // The old prompt flow discarded this response, so a rejected request
       // produced no specialist and no explanation.
@@ -200,12 +202,31 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
           </p>
         )}
 
+        <label htmlFor="f-reasoning-effort">Reasoning effort</label>
+        <select
+          id="f-reasoning-effort"
+          value={reasoningEffort}
+          onChange={(event) => setReasoningEffort(event.target.value as any)}
+        >
+          <option value="none">Off (Minimal thinking)</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+        <p className="field-note" id="f-reasoning-effort-note">
+          Configure the thinking depth for reasoning models (e.g. Gemini 3.1 Pro Preview/3.7 Pro or o1/o3).
+        </p>
+
         <ModelDialog
           id="f-model-dialog"
           open={modelOpen}
           current={model}
+          reasoningEffort={reasoningEffort}
           onClose={() => setModelOpen(false)}
-          onPick={setPicked}
+          onPick={(picked, effort) => {
+            setPicked(picked);
+            if (effort) setReasoningEffort(effort);
+          }}
           onNeedKey={onNeedKey && (() => { setModelOpen(false); onNeedKey(); })}
         />
 

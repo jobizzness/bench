@@ -16,16 +16,20 @@ import { houseRules, type Settings } from "./settings.js";
 import { checkKey, type KeyCheck } from "./anthropic-key.js";
 import type { TurnShape } from "../shared/cost.js";
 import { isRole, type Role } from "../shared/roles.js";
-import { checkKey as checkRouterKey, creditSource, type Listed } from "./openrouter.js";
+import { checkKey as checkRouterKey, creditSource, handleGeminiProxy, type Listed } from "./gemini.js";
 import type { Credit } from "../shared/credit.js";
 import type { Total } from "./ledger.js";
 import { usageSource, type Usage } from "./usage.js";
 import { RefIndex } from "./refs.js";
 import { reviewBrief, reviewLabel } from "./review.js";
 import { labelIsUsable } from "../shared/slug.js";
-import { DEFAULT_MODEL } from "../shared/models.js";
+import { DEFAULT_MODEL, isProxied } from "../shared/models.js";
 import { cockpitOrigins, isLoopback } from "./urls.js";
-import type { IntakeAnswer, RosterRow } from "../shared/types.js";
+import type { IntakeAnswer, RosterRow, StoredAttachment } from "../shared/types.js";
+import {
+  attachmentPath, attachmentProblem, mediaTypeForName, readAttachments, storeAttachments,
+  MAX_BODY_BYTES,
+} from "./attachments.js";
 
 export interface SessionRegistryLike {
   list(): RosterRow[];
@@ -50,13 +54,16 @@ export interface SessionRegistryLike {
   /** What has been spent, over the whole bench or one project. From the
    * ledger, so it counts specialists that have since been closed. */
   spend(project?: string | null): Promise<Total>;
-  get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null;
-  send(id: string, text: string, from?: string): void;
+  get(id: string): {
+    reportsDir: string; threadPath: string; alive: boolean; revivable: boolean; model: string;
+  } | null;
+  send(id: string, text: string, from?: string, images?: StoredAttachment[]): void;
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
   stop(id: string): void;
   clearContext(id: string): boolean;
   rename(id: string, label: string): boolean;
   setModel(id: string, model: string): Promise<void>;
+  setReasoningEffort(id: string, reasoningEffort: "none" | "low" | "medium" | "high"): Promise<void>;
   setRole(id: string, role: Role): Promise<void>;
   create(input: {
     project: string; label: string; model: string; role?: string; isolated?: boolean; createdBy?: string;
@@ -98,14 +105,70 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
+/**
+ * What `readBody` gives back for a request over the cap.
+ *
+ * A distinct value rather than the usual `{}` so the routes that carry a
+ * prompt can say "too big" instead of "text is required", which is what an
+ * over-long body used to be reported as. Every other route reads named
+ * fields off the body, finds them absent, and refuses exactly as it would
+ * for any other malformed request.
+ */
+const OVERSIZED = Object.freeze({ oversized: true as const });
+
+/**
+ * The request body, or `{}` when it is not JSON.
+ *
+ * Capped since images: this used to buffer whatever it was sent, on every
+ * route, with no limit at all.
+ */
 async function readBody(req: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY_BYTES) return OVERSIZED;
+    chunks.push(chunk as Buffer);
+  }
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
     return {};
   }
+}
+
+/**
+ * The images on a request, checked and written to disk, or the reason not to.
+ *
+ * Shared by the two routes that carry a prompt, because "you cannot send an
+ * image to a specialist on Gemini" has to be true of both: the composer's own
+ * guard is a courtesy, and `bench tell` does not go through it. Refusing here
+ * is what stops the proxy silently dropping the picture - see gemini.ts,
+ * which keeps text, tool_use and tool_result blocks and nothing else.
+ */
+async function acceptAttachments(
+  body: any,
+  session: { reportsDir: string; model: string },
+): Promise<{ images: StoredAttachment[] } | { error: string }> {
+  if (body === OVERSIZED) {
+    return { error: `that is more than ${Math.round(MAX_BODY_BYTES / 1024 / 1024)} MB of message, which is more than bench will send` };
+  }
+
+  const images = readAttachments(body.images);
+  if (images === null) return { error: "images is malformed" };
+  if (images.length === 0) return { images: [] };
+
+  if (isProxied(session.model)) {
+    return {
+      error: "this specialist runs on a proxied model, which cannot be sent images."
+        + " Switch it to a Claude model first.",
+    };
+  }
+
+  const problem = attachmentProblem(images);
+  if (problem) return { error: problem };
+
+  return { images: await storeAttachments(session.reportsDir, images) };
 }
 
 /** Turns the developer's choice into the message the agent receives. */
@@ -274,6 +337,13 @@ export function createServer(opts: {
       } catch {
         res.writeHead(404).end("not found");
       }
+      return;
+    }
+
+    const openRouterProxy = path.match(/^\/api\/openrouter(?:\/([^/]+))?\/v1\/messages$/);
+    if (openRouterProxy && req.method === "POST") {
+      const sessionId = openRouterProxy[1];
+      await handleGeminiProxy(req, res, sessionId, registry);
       return;
     }
 
@@ -570,6 +640,36 @@ export function createServer(opts: {
       return;
     }
 
+    // An image the developer attached, read back out of the session's own
+    // directory so the thread can show what was sent. The name is matched
+    // against the shape bench writes rather than sanitised - see
+    // attachmentPath - so this route cannot be walked out of that directory.
+    const image = path.match(/^\/api\/sessions\/([^/]+)\/image\/([^/]+)$/);
+    if (image && req.method === "GET") {
+      const session = registry.get(image[1]);
+      if (!session) { json(res, 404, { error: "no such session" }); return; }
+
+      const file = attachmentPath(session.reportsDir, image[2]);
+      if (!file) { json(res, 404, { error: "no such image" }); return; }
+
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(file);
+      } catch {
+        json(res, 404, { error: "no such image" });
+        return;
+      }
+
+      // CORS is already on the response - every route gets it above.
+      res.writeHead(200, {
+        "content-type": mediaTypeForName(image[2]),
+        // The name holds a UUID, so the bytes under it never change.
+        "cache-control": "private, max-age=31536000, immutable",
+      });
+      res.end(bytes);
+      return;
+    }
+
     const reportHtml = path.match(/^\/r\/([^/]+)\/([^/]+)\/(report|reply)\.html$/);
     if (reportHtml && req.method === "GET") {
       const seq = Number(reportHtml[2]);
@@ -648,7 +748,17 @@ export function createServer(opts: {
 
       const body = await readBody(req);
       const text = String(body.text ?? "").trim();
-      if (text === "") { json(res, 400, { error: "text is required" }); return; }
+
+      const attached = await acceptAttachments(body, session);
+      if ("error" in attached) { json(res, 400, { error: attached.error }); return; }
+
+      // A screenshot on its own is a whole message - "look at this" is what
+      // the picture is for. Only an empty message with nothing attached is
+      // the mistake this ever meant to catch.
+      if (text === "" && attached.images.length === 0) {
+        json(res, 400, { error: "text is required" });
+        return;
+      }
 
       // A dead process cannot be queued into, and silently accepting the
       // message would strand it forever. A specialist restored from disk has
@@ -665,7 +775,7 @@ export function createServer(opts: {
       // spawned tab came back at them as something to dispatch.
       const from = typeof body.from === "string" && body.from !== "" ? body.from : undefined;
 
-      registry.send(message[1], text, from);
+      registry.send(message[1], text, from, attached.images);
       json(res, 200, { ok: true });
       return;
     }
@@ -750,6 +860,24 @@ export function createServer(opts: {
       return;
     }
 
+    const reasoningEffortRoute = path.match(/^\/api\/sessions\/([^/]+)\/reasoning-effort$/);
+    if (reasoningEffortRoute && req.method === "POST") {
+      if (!registry.get(reasoningEffortRoute[1])) { json(res, 404, { error: "no such session" }); return; }
+      const reasoningEffort = String((await readBody(req))?.reasoningEffort ?? "");
+      if (!["none", "low", "medium", "high"].includes(reasoningEffort)) {
+        json(res, 400, { error: "invalid reasoning effort level" });
+        return;
+      }
+      try {
+        await registry.setReasoningEffort(reasoningEffortRoute[1], reasoningEffort as any);
+        json(res, 200, { reasoningEffort });
+      } catch (error) {
+        process.stderr.write(`bench: could not change reasoning effort: ${String(error)}\n`);
+        json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
     /**
      * Releasing a tab another specialist spun up: the message it was told,
      * finally reaching the process.
@@ -800,17 +928,25 @@ export function createServer(opts: {
 
     const answer = path.match(/^\/api\/sessions\/([^/]+)\/answer$/);
     if (answer && req.method === "POST") {
-      if (!registry.get(answer[1])) { json(res, 404, { error: "no such session" }); return; }
+      const answering = registry.get(answer[1]);
+      if (!answering) { json(res, 404, { error: "no such session" }); return; }
       const body = await readBody(req);
+
+      // A decision often turns on a picture - "which of these two is right" -
+      // so replying to one takes images on the same terms as a plain message.
+      const attached = await acceptAttachments(body, answering);
+      if ("error" in attached) { json(res, 400, { error: attached.error }); return; }
 
       // An intake answers many questions at once; the single-option shape is
       // still what a plain spec_approval or completion sends back.
       if (body.answers !== undefined) {
         const answers = readIntakeAnswers(body.answers);
         if (!answers) { json(res, 400, { error: "answers is malformed" }); return; }
-        registry.send(answer[1], formatIntake(answers, body.text));
+        registry.send(answer[1], formatIntake(answers, body.text), undefined, attached.images);
       } else {
-        registry.send(answer[1], formatAnswer(body.optionId, body.text));
+        registry.send(
+          answer[1], formatAnswer(body.optionId, body.text), undefined, attached.images,
+        );
       }
       json(res, 200, { ok: true });
       return;

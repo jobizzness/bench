@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { EventEmitter } from "node:events";
-import { cp, mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -16,7 +16,7 @@ class StubRegistry extends EventEmitter {
   rows: RosterRow[] = [
     { id: "s1", label: "auth", project: "/var/www/demo", branch: "bench/auth-abcd1234", status: "awaiting_decision", detail: "waiting", latestReportSeq: 1, startedAt: null, tokens: 0 },
   ];
-  sent: Array<{ id: string; text: string }> = [];
+  sent: Array<{ id: string; text: string; from?: string; images?: unknown[] }> = [];
   created: any[] = [];
   reportsDir = "";
 
@@ -49,13 +49,26 @@ class StubRegistry extends EventEmitter {
   threadPathValue = "";
   aliveValue = true;
   revivableValue = false;
+  /** What this specialist runs on. Images are refused on a proxied one, so
+   * the tests move it between the two. */
+  modelValue = "opus";
 
   get(id: string) {
     return id === "s1"
-      ? { reportsDir: this.reportsDir, threadPath: this.threadPathValue, alive: this.aliveValue, revivable: this.revivableValue }
+      ? {
+        reportsDir: this.reportsDir,
+        threadPath: this.threadPathValue,
+        alive: this.aliveValue,
+        revivable: this.revivableValue,
+        model: this.modelValue,
+      }
       : null;
   }
-  send(id: string, text: string, from?: string) { this.sent.push({ id, text, from }); }
+  /** Images are recorded only when there are some, so the tests that predate
+   * them still compare against the whole recorded message. */
+  send(id: string, text: string, from?: string, images?: unknown[]) {
+    this.sent.push({ id, text, from, ...(images && images.length > 0 ? { images } : {}) });
+  }
   closed: Array<{ id: string; force: boolean }> = [];
   closeResult: any = { closed: true, changes: 0, unmergedCommits: 0 };
   async close(id: string, opts: any = {}) {
@@ -1230,5 +1243,175 @@ describe("the turn every model is priced against", () => {
     const res = await fetch(`${base}/api/turn-shape`);
 
     expect(res.status).toBe(401);
+  });
+});
+
+/**
+ * A screenshot pasted into the composer. The bytes are never inspected - the
+ * daemon checks the type and the size and forwards the rest - so a short
+ * payload stands in for a real PNG everywhere but the serving test.
+ */
+const PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGP4DwABAQEAWk1v8QAAAABJRU5ErkJggg==";
+
+describe("images on a prompt", () => {
+  beforeEach(() => {
+    registry.sent = [];
+    registry.modelValue = "opus";
+  });
+
+  it("stores the bytes on disk and hands the specialist both", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "what is this", images: [{ mediaType: "image/png", data: PIXEL }] }),
+    });
+
+    expect(res.status).toBe(200);
+    const [sent] = registry.sent;
+    expect(sent.text).toBe("what is this");
+    expect(sent.images).toHaveLength(1);
+
+    // The name is what the thread will record, and the file has to be under
+    // it before the thread entry claiming it exists is written.
+    const stored = (sent.images as any[])[0];
+    expect(stored.mediaType).toBe("image/png");
+    expect(await readdir(join(registry.reportsDir, "images"))).toContain(stored.name);
+  });
+
+  it("takes an image with no text at all", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ images: [{ mediaType: "image/png", data: PIXEL }] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.sent[0].images).toHaveLength(1);
+  });
+
+  it("still refuses a message that is empty and carries nothing", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "   " }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(registry.sent).toHaveLength(0);
+  });
+
+  it("refuses a file that is not an image it can send", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "read this", images: [{ mediaType: "application/pdf", data: PIXEL }] }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("application/pdf");
+    expect(registry.sent).toHaveLength(0);
+  });
+
+  it("refuses images for a specialist on a proxied model, and says to switch it", async () => {
+    registry.modelValue = "google/gemini-2.5-flash";
+
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "look", images: [{ mediaType: "image/png", data: PIXEL }] }),
+    });
+
+    // The proxy drops image blocks silently, so a refusal here is the whole
+    // point: the alternative is a turn that answers as if nothing was sent.
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("Claude model");
+    expect(registry.sent).toHaveLength(0);
+  });
+
+  it("still takes plain text on a proxied model", async () => {
+    registry.modelValue = "google/gemini-2.5-flash";
+
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "no picture here" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.sent).toHaveLength(1);
+  });
+
+  it("refuses more images than one message may carry", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        text: "lots",
+        images: Array.from({ length: 9 }, () => ({ mediaType: "image/png", data: PIXEL })),
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("at most");
+  });
+
+  it("refuses images that come to more than the size limit", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        text: "huge",
+        images: [{ mediaType: "image/png", data: "A".repeat(Math.ceil(5.5 * 1024 * 1024 * 4 / 3)) }],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("limit");
+  });
+
+  it("carries images on a reply to a decision too", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/answer`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        optionId: "go", text: "this one", images: [{ mediaType: "image/png", data: PIXEL }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.sent[0].images).toHaveLength(1);
+  });
+});
+
+describe("reading an attached image back", () => {
+  it("serves it with the type it was stored under", async () => {
+    await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "here", images: [{ mediaType: "image/png", data: PIXEL }] }),
+    });
+    const name = (registry.sent.at(-1)!.images as any[])[0].name;
+
+    const res = await fetch(`${base}/api/sessions/s1/image/${name}`, auth);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    // Round-trips: what is served is the picture that was sent, not a
+    // re-encoding of it.
+    expect(Buffer.from(await res.arrayBuffer()).toString("base64")).toBe(PIXEL);
+  });
+
+  it("refuses a name that is not one bench wrote", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/image/..%2F..%2Fthread.jsonl`, auth);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("404s a name of the right shape that was never stored", async () => {
+    const res = await fetch(
+      `${base}/api/sessions/s1/image/00000000-0000-0000-0000-000000000000.png`, auth,
+    );
+
+    expect(res.status).toBe(404);
   });
 });

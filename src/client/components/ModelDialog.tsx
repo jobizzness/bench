@@ -121,12 +121,12 @@ function score(model: Listed, needle: string): number {
  * scanned down a column in a way that cards in a grid cannot.
  */
 export function ModelDialog({
-  open, current, onClose, onPick, onNeedKey, sessionId, standing = false, id = "model-dialog",
+  open, current, onClose, onPick, onNeedKey, sessionId, standing = false, id = "model-dialog", reasoningEffort,
 }: {
   open: boolean;
   current: string;
   onClose: () => void;
-  onPick?: (model: string) => void;
+  onPick?: (model: string, reasoningEffort?: "none" | "low" | "medium" | "high") => void;
   /** Set from Settings, where the choice is a standing default for a role
    * rather than a model for one specialist - the note has to say which. */
   standing?: boolean;
@@ -150,6 +150,7 @@ export function ModelDialog({
    * on the second dialog's button ran the first dialog's handler.
    */
   id?: string;
+  reasoningEffort?: "none" | "low" | "medium" | "high";
 }) {
   /** This dialog's own name for one of its controls. */
   const own = (part: string) => `${id}-${part}`;
@@ -160,6 +161,7 @@ export function ModelDialog({
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [effort, setEffort] = useState<"none" | "low" | "medium" | "high">("medium");
   /** Which result the arrow keys are on. -1 is none, which is where it starts:
    * opening the picker should not preselect a model nobody asked for. */
   const [active, setActive] = useState(-1);
@@ -180,6 +182,7 @@ export function ModelDialog({
     setQuery("");
     setActive(-1);
     setCheapest(false);
+    setEffort(reasoningEffort ?? "medium");
     dialog.showModal?.();
     // Put the caret in the search box, because searching is what this modal
     // is for. `autoFocus` is not enough: showModal() takes focus itself and
@@ -293,27 +296,37 @@ export function ModelDialog({
   useEffect(() => { setActive((at) => (at >= rows.length ? rows.length - 1 : at)); }, [rows.length]);
 
   const choose = async (model: string) => {
-    if (model === current) { onClose(); return; }
+    if (model === current && effort === reasoningEffort) { onClose(); return; }
     setError("");
 
     // Nothing to move: report the pick and let the caller hold it.
     if (sessionId === undefined) {
-      onPick?.(model);
+      onPick?.(model, effort);
       onClose();
       return;
     }
 
     setBusy(true);
     try {
-      const res = await postJson(`/api/sessions/${sessionId}/model`, { model });
-      const body = await res.json();
-      if (!res.ok) {
-        // The daemon's own words. It is the one that knows whether a key is
-        // missing or the model was refused.
-        setError(body?.error ?? "Could not change the model.");
-        return;
+      if (model !== current) {
+        const res = await postJson(`/api/sessions/${sessionId}/model`, { model });
+        const body = await res.json();
+        if (!res.ok) {
+          // The daemon's own words. It is the one that knows whether a key is
+          // missing or the model was refused.
+          setError(body?.error ?? "Could not change the model.");
+          return;
+        }
       }
-      onPick?.(model);
+      if (effort !== reasoningEffort) {
+        const res = await postJson(`/api/sessions/${sessionId}/reasoning-effort`, { reasoningEffort: effort });
+        const body = await res.json();
+        if (!res.ok) {
+          setError(body?.error ?? "Could not change reasoning effort.");
+          return;
+        }
+      }
+      onPick?.(model, effort);
       onClose();
     } finally {
       setBusy(false);
@@ -366,6 +379,40 @@ export function ModelDialog({
           : "Takes effect on the next prompt — the specialist restarts on the "
             + "new model and picks the conversation up where it left off."}
       </p>
+
+      <section className="model-house" data-house="thinking-effort">
+        <h3>Thinking Effort</h3>
+        <p className="field-note">
+          The reasoning depth used by Gemini 3.1 Pro Preview/3.7 Pro or OpenAI o1/o3 reasoning models.
+        </p>
+        <div className="model-options" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem", marginBottom: "1.5rem" }}>
+          {(["none", "low", "medium", "high"] as const).map((level) => (
+            <button
+              type="button"
+              key={level}
+              className="model-option"
+              data-current={effort === level}
+              aria-current={effort === level}
+              disabled={busy}
+              onClick={() => setEffort(level)}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "0.75rem",
+                textAlign: "center",
+                height: "auto"
+              }}
+            >
+              <b>{level === "none" ? "Off" : level.charAt(0).toUpperCase() + level.slice(1)}</b>
+              <span style={{ fontSize: "0.7rem", marginTop: "0.25rem", opacity: 0.8 }}>
+                {level === "none" ? "minimal" : `${level} effort`}
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
 
       <section className="model-house" data-house="anthropic">
         <h3>Anthropic</h3>

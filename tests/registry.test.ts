@@ -13,6 +13,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
+import { RECENT_COSTS } from "../src/daemon/gemini.js";
 
 async function setup() {
   const home = await mkdtemp(join(tmpdir(), "bench-home-"));
@@ -150,6 +151,40 @@ describe("SessionRegistry.restore", () => {
     const registry = new SessionRegistry(config as any);
     await registry.restore();
     expect(registry.list()).toEqual([]);
+  });
+
+  it("brings back who opened a tab, so the roster still nests after a restart", async () => {
+    // A tab another specialist opened with `bench new` draws nested under it,
+    // and the nesting hangs off `createdBy`. It used to be held in memory
+    // only: a daemon restart wrote `null` against every row and the whole
+    // hierarchy collapsed to the top level. The opener is a structural fact
+    // about the roster, not the transient pre-dispatch state it shared a
+    // field with, so it has to come back off the disk.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "child", project, worktree, branch: "bench/child-abcd1234", reportsDir, model: "opus",
+      port: 3101, createdAt: "2026-08-22T00:00:00.000Z", createdBy: "sess-parent",
+    });
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect(registry.list()[0].createdBy).toBe("sess-parent");
+  });
+
+  it("leaves a tab the developer opened at the top level after a restart", async () => {
+    // Absent on a record written before the field existed, or for a tab nobody
+    // but the developer made: nothing to nest under, so it is a root.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "solo", project, worktree, branch: "bench/solo-abcd1234", reportsDir, model: "opus",
+      port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect(registry.list()[0].createdBy).toBeNull();
   });
 });
 
@@ -606,6 +641,8 @@ describe("what an OpenRouter turn really cost", () => {
       "deepseek/deepseek-v4-pro", PROXIED_CLI("deepseek/deepseek-v4-pro", ["gen-a", "gen-b"]),
     );
 
+    RECENT_COSTS.set("gen-a", 0.25);
+    RECENT_COSTS.set("gen-b", 0.25);
     registry.send(id, "off you go");
     const [entry] = await billedTurns(home);
     // Two requests at 25c, counted once each however many events repeated them.
@@ -625,6 +662,7 @@ describe("what an OpenRouter turn really cost", () => {
       "openrouter/auto", PROXIED_CLI("deepseek/deepseek-v4-pro", ["gen-c"]),
     );
 
+    RECENT_COSTS.set("gen-c", 0.1);
     registry.send(id, "off you go");
     const [entry] = await billedTurns(home);
     expect(entry!.dollars).toBeCloseTo(0.1);
@@ -643,6 +681,7 @@ describe("what an OpenRouter turn really cost", () => {
       "deepseek/deepseek-v4-pro", HANGING_CLI("deepseek/deepseek-v4-pro", "gen-d"),
     );
 
+    RECENT_COSTS.set("gen-d", 0.4);
     registry.send(id, "off you go");
     // The row reads "working" the moment it is prompted, so waiting on that
     // would stop the specialist before it had made a request to be billed for.
@@ -1317,12 +1356,26 @@ async function setupForCreate(cli: string = REPLYING_CLI) {
   };
 
   const registry = new SessionRegistry(config as any);
-  return { project, registry };
+  return { home, project, registry };
 }
 
 const rowOf = (registry: SessionRegistry, id: string) => registry.list().find((r) => r.id === id)!;
 
 describe("a tab another specialist spins up", () => {
+  it("writes who opened it down, so a restart keeps it nested under its parent", async () => {
+    // `createdBy` is what the roster nests on. Held in memory only, the next
+    // daemon reads `null` and the child ends up loose at the top of the group
+    // instead of under the specialist that opened it.
+    const { home, project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+
+    // The store write inside create() is awaited, but give it the tick anyway
+    // for anything the registry fires off without waiting on.
+    await new Promise((r) => setTimeout(r, 50));
+    const record = (await new SessionStore(home).all()).find((r) => r.id === id)!;
+    expect(record.createdBy).toBe("sess-parent");
+  });
+
   it("holds the first message instead of sending it", async () => {
     const { project, registry } = await setupForCreate();
     const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });

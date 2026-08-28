@@ -86,9 +86,8 @@ describe("a specialist answered by OpenRouter", () => {
       via: { key: "sk-or-v1-abc", contextLength: 1_048_576 },
     });
     // The address the turn actually goes to, not the base it was built from.
-    // OpenRouter serves this path in Anthropic's own shape; one segment along
-    // it serves a 404 page instead.
-    expect(reply).toContain("url:https://openrouter.ai/api/v1/messages");
+    // Pointed to our local loopback proxy.
+    expect(reply).toContain("url:http://127.0.0.1:7420/api/openrouter/sess-1/v1/messages");
   });
 
   it("passes the OpenRouter id to the CLI untouched", async () => {

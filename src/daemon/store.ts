@@ -66,6 +66,21 @@ export interface SessionRecord {
    * isolated; absent means true.
    */
   isolated?: boolean;
+  /**
+   * The specialist whose `bench new` opened this tab, if one did. Null - or
+   * absent on a record written before the field existed - for a tab the
+   * developer opened themselves. The roster nests a child under its opener,
+   * so this has to survive a restart; it is no longer the transient
+   * pre-dispatch state it once shared a field with.
+   */
+  createdBy?: string | null;
+  /**
+   * Model reasoning/thinking effort level for reasoning models.
+   * Maps to Google's thinking_level or OpenAI's reasoning_effort.
+   */
+  reasoningEffort?: "none" | "low" | "medium" | "high";
+  /** How many times the developer has cleared the conversation's context. */
+  clearCount?: number;
 }
 
 const REQUIRED = ["id", "label", "project", "worktree", "reportsDir", "model"] as const;
@@ -152,13 +167,16 @@ export class SessionStore {
    * nothing to resume" from the moment it is written: a restart in between
    * must not quietly bring the old conversation back.
    */
-  async forgetConversation(id: string): Promise<void> {
+  async forgetConversation(id: string, clearCount?: number): Promise<void> {
     return this.change(async () => {
       const all = await this.all();
       const record = all.find((r) => r.id === id);
       if (!record) return;
       record.resumable = false;
       delete record.context;
+      if (clearCount !== undefined) {
+        record.clearCount = clearCount;
+      }
       await this.write(all);
     });
   }
@@ -244,6 +262,17 @@ export class SessionStore {
       const record = all.find((r) => r.id === id);
       if (!record) return;
       record.model = model;
+      await this.write(all);
+    });
+  }
+
+  /** Change reasoning effort level. */
+  async setReasoningEffort(id: string, reasoningEffort: "none" | "low" | "medium" | "high"): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.reasoningEffort = reasoningEffort;
       await this.write(all);
     });
   }

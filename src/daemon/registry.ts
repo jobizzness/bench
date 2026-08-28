@@ -12,18 +12,18 @@ import { latestReportSeq, findReport, latestTurn } from "./reports.js";
 import { SessionStore } from "./store.js";
 import { appendActivity } from "./activity.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
-import { appendEntry, readThread } from "./thread.js";
+import { appendEntry, readThread, summariseThread } from "./thread.js";
 import { answeredReportSeq } from "./answered.js";
 import { asRole, isRole, type Role } from "../shared/roles.js";
 import { modelForRole } from "../shared/role-models.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
 import { keyHint } from "./anthropic-key.js";
-import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./openrouter.js";
+import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
 import { describeOrigin, type Origin } from "./env-file.js";
 import { writeParked } from "./key-park.js";
 import { isModelId, modelLabel } from "../shared/models.js";
-import type { RosterRow, SessionStatus, Spend } from "../shared/types.js";
+import type { RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
 import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
 import { costFrom, shapeFrom } from "./stream-codec.js";
 import type { ResultEvent } from "./stream-codec.js";
@@ -58,17 +58,28 @@ interface Entry {
   stoppedBecause?: string;
   model: string;
   port: number;
-  /** The specialist whose `bench new` opened this tab, if one did. Not
-   * persisted: it only matters before the first turn, which cannot survive
-   * a restart anyway (see `resumable`). */
+  /** The specialist whose `bench new` opened this tab, if one did. Persisted:
+   * the roster nests a child under its opener, and the nesting has to survive
+   * a restart. It does double duty before the first turn, where it is also how
+   * the daemon knows to hold a sender's message for dispatch - but that part
+   * cannot outlive a restart anyway (see `resumable`), which is why it used to
+   * be held in memory only. */
   createdBy: string | null;
   /** What an agent told this tab, waiting on the developer to dispatch it. */
   pendingDispatch: string | null;
+  /** Any images that came with it. Empty on every held message bench has seen
+   * - `bench tell` sends text - but held separately from the text so that
+   * stays true by construction rather than by luck. */
+  pendingImages: StoredAttachment[];
   /** The worst context tone, and whether the spend threshold, this
    * specialist has already been told about. Not on the row: the developer
    * already sees the numbers themselves on the roster, this is only bench's
    * own memory of what the agent has been told. */
   nudged: NudgeState;
+  /** How many times the developer has cleared the conversation's context. */
+  clearCount?: number;
+  /** Precompiled summary of previous context, injected on the next prompt. */
+  threadSummary?: string | null;
 }
 
 export class SessionRegistry extends EventEmitter implements SessionRegistryLike {
@@ -602,9 +613,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // Not persisted: whatever was pending before a restart cannot
         // survive one anyway, since the idle process it was waiting on is
         // gone too.
-        createdBy: null,
+        createdBy: rec.createdBy ?? null,
         pendingDispatch: null,
+        pendingImages: [],
         nudged: rec.nudged ?? {},
+        clearCount: rec.clearCount,
         row: {
           id: rec.id,
           label: rec.label,
@@ -625,8 +638,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           activity: [],
           spend: rec.spend ?? null,
           answeredBy: rec.answeredBy ?? null,
-          createdBy: null,
+          createdBy: rec.createdBy ?? null,
           pendingPrompt: null,
+          reasoningEffort: rec.reasoningEffort,
         },
       });
     }
@@ -637,13 +651,21 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     return [...this.entries.values()].map((e) => e.row);
   }
 
-  get(id: string): { reportsDir: string; threadPath: string; alive: boolean; revivable: boolean } | null {
+  get(id: string): {
+    reportsDir: string;
+    threadPath: string;
+    alive: boolean;
+    revivable: boolean;
+    /** What it runs on, which decides whether it can be sent an image. */
+    model: string;
+  } | null {
     const entry = this.entries.get(id);
     if (!entry) return null;
     return {
       reportsDir: entry.reportsDir,
       threadPath: entry.threadPath,
       alive: entry.alive,
+      model: entry.model,
       // Restored from disk with no process yet. Cold is not dead: prompting
       // it brings it back, so it must not be refused like a crashed one.
       revivable: !entry.alive && entry.worktree !== "" && existsSync(entry.worktree),
@@ -672,6 +694,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     role: Role;
     port: number;
     resume?: boolean;
+    clearCount?: number;
     startTurn?: number;
     /** Set for an OpenRouter model, already resolved. */
     via?: { key: string; contextLength?: number | null };
@@ -690,6 +713,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       role: opts.role,
       port: opts.port,
       resume: opts.resume,
+      clearCount: opts.clearCount,
       cockpitUrl: `http://127.0.0.1:${this.config.port}`,
       claudeBin: this.config.claudeBin,
       startTurn: opts.startTurn,
@@ -920,10 +944,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     /** The specialist opening this tab with `bench new`, if any. Absent for
      * a tab the developer opened themselves, from the cockpit. */
     createdBy?: string;
+    /** Model reasoning/thinking effort level. */
+    reasoningEffort?: "none" | "low" | "medium" | "high";
   }): Promise<string> {
     const isolated = input.isolated ?? true;
     const role = asRole(input.role);
     const model = input.model === "" ? this.modelFor(role) : input.model;
+    const reasoningEffort = input.reasoningEffort ?? this.settings.reasoningEffort ?? "medium";
 
     // Before anything is created. A model that needs an OpenRouter key and
     // has none is the developer's problem while they are still looking at the
@@ -948,7 +975,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       port: 0,
       createdBy: input.createdBy ?? null,
       pendingDispatch: null,
+      pendingImages: [],
       nudged: {},
+      clearCount: 0,
       row: {
         id,
         label: input.label,
@@ -969,6 +998,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         answeredBy: null,
         createdBy: input.createdBy ?? null,
         pendingPrompt: null,
+        reasoningEffort,
       },
     });
     this.emit("roster");
@@ -1011,6 +1041,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       await this.store.put({
         id, label: input.label, role, project: input.project, worktree, branch, reportsDir,
         model, port, createdAt: new Date().toISOString(), isolated,
+        createdBy: input.createdBy ?? null, reasoningEffort,
       });
       this.update(id, "awaiting_decision", "ready");
     } catch (error) {
@@ -1037,6 +1068,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       // resume one that does not prints "No conversation found with session
       // ID" and exits before the prompt is ever read.
       resume: entry.resumable,
+      clearCount: entry.clearCount,
       // Pick up the numbering where it stopped, or this turn writes over
       // the last one's report.
       startTurn: entry.turnsTaken,
@@ -1049,7 +1081,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * developer, typing in the cockpit - and what the developer types is never
    * held back from the specialist they typed it to.
    */
-  send(id: string, text: string, from?: string): void {
+  send(id: string, text: string, from?: string, images: StoredAttachment[] = []): void {
     const entry = this.entries.get(id);
     if (!entry) return;
 
@@ -1062,12 +1094,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     const neverDispatched = (entry.session?.turn ?? entry.turnsTaken) === 0;
     if (from !== undefined && entry.createdBy !== null && neverDispatched) {
       entry.pendingDispatch = text;
+      entry.pendingImages = images;
       entry.row.pendingPrompt = text;
       this.update(id, "awaiting_dispatch", "waiting on you to dispatch");
       return;
     }
 
-    this.deliver(id, entry, text);
+    this.deliver(id, entry, text, images);
   }
 
   /** Release a held message, exactly as if it had just arrived. */
@@ -1076,9 +1109,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     if (!entry) throw new Error("no such specialist");
     const text = entry.pendingDispatch;
     if (text === null) throw new Error("nothing is waiting to be dispatched");
+    const images = entry.pendingImages;
     entry.pendingDispatch = null;
+    entry.pendingImages = [];
     entry.row.pendingPrompt = null;
-    this.deliver(id, entry, text);
+    this.deliver(id, entry, text, images);
   }
 
   /** Discard a held message. The tab goes back to exactly its just-created
@@ -1089,13 +1124,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     const entry = this.entries.get(id);
     if (!entry) return;
     entry.pendingDispatch = null;
+    entry.pendingImages = [];
     entry.row.pendingPrompt = null;
     this.update(id, "awaiting_decision", "ready");
   }
 
   /** The part of prompting a specialist that a held message also has to go
    * through once it is released: the same path `send()` always took. */
-  private deliver(id: string, entry: Entry, text: string): void {
+  private deliver(id: string, entry: Entry, text: string, images: StoredAttachment[] = []): void {
     // A specialist restored from disk has no process yet. Bring it back on
     // the first prompt, resuming the transcript the CLI still holds, so it
     // remembers what it was doing.
@@ -1106,7 +1142,20 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       return;
     }
 
-    void appendEntry(entry.threadPath, { kind: "user", body: text });
+    let promptText = text;
+    if (entry.threadSummary) {
+      promptText = `${entry.threadSummary}\n\n${text}`;
+      entry.threadSummary = null;
+    }
+
+    // The thread keeps the reference, never the bytes - see storeAttachments.
+    void appendEntry(entry.threadPath, {
+      kind: "user",
+      body: text,
+      ...(images.length > 0
+        ? { images: images.map(({ name, mediaType }) => ({ name, mediaType })) }
+        : {}),
+    });
     // Prompting a specialist is how a decision gets answered, so whatever
     // was on the table is answered now.
     entry.row.answeredReportSeq = entry.row.latestReportSeq;
@@ -1114,7 +1163,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.row.activity = [];
 
     if (entry.session) {
-      entry.session.send(text);
+      entry.session.send(promptText, images);
       this.update(id, "working", "starting");
       return;
     }
@@ -1128,7 +1177,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // stopped proxy into a specialist that hangs for two minutes.
     if (!isOpenRouterModel(entry.model)) {
       this.revive(id, entry, undefined);
-      entry.session!.send(text);
+      entry.session!.send(promptText, images);
       this.update(id, "working", "starting");
       return;
     }
@@ -1139,7 +1188,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     void this.viaFor(entry.model).then(
       (via) => {
         this.revive(id, entry, via);
-        entry.session!.send(text);
+        entry.session!.send(promptText, images);
         this.update(id, "working", "starting");
       },
       (error: unknown) => {
@@ -1220,6 +1269,24 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     }
   }
 
+  /** Change reasoning effort level. */
+  async setReasoningEffort(id: string, reasoningEffort: "none" | "low" | "medium" | "high"): Promise<void> {
+    const entry = this.entries.get(id);
+    if (!entry) throw new Error("no such specialist");
+    if (entry.row.reasoningEffort === reasoningEffort) return;
+
+    entry.row.reasoningEffort = reasoningEffort;
+    this.remember(this.store.setReasoningEffort(id, reasoningEffort));
+
+    if (entry.session) {
+      entry.stopping = true;
+      entry.stoppedBecause = `changed reasoning effort to ${reasoningEffort}`;
+      entry.session.stop();
+    } else {
+      this.emit("roster");
+    }
+  }
+
   /**
    * Change what kind of agent this is.
    *
@@ -1285,10 +1352,22 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
     entry.resumable = false;
     entry.row.context = null;
-    this.remember(this.store.forgetConversation(id));
+    entry.clearCount = (entry.clearCount ?? 0) + 1;
+
+    // Read the thread and build a summary in the background before the session is stop-recreated.
+    void (async () => {
+      try {
+        const threadEntries = await readThread(entry.threadPath);
+        entry.threadSummary = summariseThread(threadEntries);
+      } catch (err) {
+        process.stderr.write(`bench: could not generate thread summary: ${String(err)}\n`);
+      }
+    })();
+
+    this.remember(this.store.forgetConversation(id, entry.clearCount));
     void appendEntry(entry.threadPath, {
       kind: "system",
-      body: "Context cleared — the next prompt starts a fresh conversation.",
+      body: `Context cleared — the next prompt starts a fresh conversation (version ${entry.clearCount}).`,
     });
 
     // A live process is still holding the old conversation. Let it go; the

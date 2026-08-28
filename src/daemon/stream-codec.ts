@@ -1,5 +1,6 @@
 import type { Context } from "../shared/context-window.js";
 import { turnTokens, type TurnShape } from "../shared/cost.js";
+import type { Attachment } from "../shared/types.js";
 
 export interface ResultEvent {
   type: "result";
@@ -275,8 +276,25 @@ export function isResultEvent(event: ClaudeEvent): event is ResultEvent {
   return event.type === "result";
 }
 
-export function userMessageLine(text: string): string {
-  return JSON.stringify({ type: "user", message: { role: "user", content: text } }) + "\n";
+/**
+ * One prompt, encoded for the CLI's stdin.
+ *
+ * A text-only prompt stays a bare string, which is what it has always been -
+ * the content array is only reached for when there is something in it that a
+ * string cannot hold. Images go before the text because that is the order the
+ * API reads them best in: the picture, then the question about it.
+ */
+export function userMessageLine(text: string, images: Attachment[] = []): string {
+  const content = images.length === 0
+    ? text
+    : [
+      ...images.map((image) => ({
+        type: "image",
+        source: { type: "base64", media_type: image.mediaType, data: image.data },
+      })),
+      { type: "text", text },
+    ];
+  return JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n";
 }
 
 /** A short human-readable line for the roster, or null if not worth showing. */

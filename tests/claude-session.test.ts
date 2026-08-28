@@ -412,6 +412,32 @@ describe("ClaudeSession", () => {
     session.stop();
   });
 
+  it("folds several mid-turn prompts into one turn instead of one each", async () => {
+    // Three quick follow-ups typed while turn 1 was still running used to
+    // cost three resends of the whole conversation - one per queued turn.
+    // They should land as a single turn 2 instead.
+    const session = await makeSession(SLOW_CLI);
+    const results: string[] = [];
+    session.on("turn-end", (ev: any) => results.push(String(ev.result)));
+
+    session.open();
+    session.send("do the work");
+    session.send("quick question one");
+    session.send("quick question two");
+
+    await once(session, "turn-end");
+    expect(results[0]).toContain("received=1");
+
+    await once(session, "turn-end");
+    // Only turn 2 - a third queued turn would mean a third resend.
+    expect(results).toHaveLength(2);
+    expect(results[1]).toContain("received=2");
+    expect(results[1]).toContain("quick question one");
+    expect(results[1]).toContain("quick question two");
+
+    session.stop();
+  });
+
   it("advances the marker to the queued turn once the running turn ends", async () => {
     const session = await makeSession();
     const opts = (session as any).opts;
@@ -664,6 +690,102 @@ describe("ClaudeSession", () => {
     expect(seen[0]).toEqual(["gen-turn1-aaa", "gen-turn1-bbb"]);
     expect(later[0]).toEqual(["gen-turn1-aaa", "gen-turn1-bbb"]);
     expect(seen[1]).toEqual(["gen-turn2-aaa", "gen-turn2-bbb"]);
+    session.stop();
+  });
+});
+
+/**
+ * A CLI that reports the shape of what it was sent rather than echoing it:
+ * which content blocks arrived, in order, and the text among them. Enough to
+ * see whether images reached stdin and whether the queue kept them.
+ *
+ * Every turn takes a moment, so a second prompt sent straight after the first
+ * lands in the queue rather than starting a turn of its own.
+ */
+const SHAPE_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    const content = JSON.parse(line).message.content;
+    const shape = typeof content === "string"
+      ? { blocks: ["text"], images: [], text: content }
+      : {
+        blocks: content.map((b) => b.type),
+        images: content.filter((b) => b.type === "image").map((b) => b.source.data),
+        text: (content.find((b) => b.type === "text") || {}).text || "",
+      };
+    setTimeout(() => {
+      process.stdout.write(JSON.stringify({
+        type: "result", subtype: "success", is_error: false,
+        session_id: "fake", result: JSON.stringify(shape),
+      }) + "\\n");
+    }, 120);
+  }
+});
+`;
+
+describe("sending a specialist an image", () => {
+  it("writes an image block to stdin ahead of the prompt", async () => {
+    const session = await makeSession(SHAPE_CLI);
+    const ended = once(session, "turn-end");
+    session.open();
+    session.send("what is this", [{ mediaType: "image/png", data: "PICTURE" }]);
+
+    const [result] = await ended;
+    const shape = JSON.parse(result.result);
+    expect(shape.blocks).toEqual(["image", "text"]);
+    expect(shape.images).toEqual(["PICTURE"]);
+    session.stop();
+  });
+
+  it("tells the agent the developer attached it, so it does not read as coming from nowhere", async () => {
+    const session = await makeSession(SHAPE_CLI);
+    const ended = once(session, "turn-end");
+    session.open();
+    session.send("look", [{ mediaType: "image/png", data: "PICTURE" }]);
+
+    const [result] = await ended;
+    expect(JSON.parse(result.result).text).toContain("attached an image");
+    session.stop();
+  });
+
+  it("says nothing about images on an ordinary text turn", async () => {
+    const session = await makeSession(SHAPE_CLI);
+    const ended = once(session, "turn-end");
+    session.open();
+    session.send("no picture");
+
+    const [result] = await ended;
+    const shape = JSON.parse(result.result);
+    expect(shape.blocks).toEqual(["text"]);
+    expect(shape.text).not.toContain("attached");
+    session.stop();
+  });
+
+  it("carries the images of every queued prompt into the one turn they fold into", async () => {
+    const session = await makeSession(SHAPE_CLI);
+    session.open();
+
+    session.send("first", [{ mediaType: "image/png", data: "ONE" }]);
+    // Both of these land while the first turn is still running, so all three
+    // prompts are answered as two turns: the one in flight, and the fold.
+    session.send("second", [{ mediaType: "image/png", data: "TWO" }]);
+    session.send("third", [{ mediaType: "image/jpeg", data: "THREE" }]);
+
+    const first = JSON.parse((await once(session, "turn-end"))[0].result);
+    expect(first.images).toEqual(["ONE"]);
+
+    const folded = JSON.parse((await once(session, "turn-end"))[0].result);
+    // In the order they were sent, and counted in the text - an image block
+    // carries no caption, so the numbering has to say which is which.
+    expect(folded.images).toEqual(["TWO", "THREE"]);
+    expect(folded.text).toContain("2 images");
+    expect(folded.text).toContain("with 1 image");
     session.stop();
   });
 });

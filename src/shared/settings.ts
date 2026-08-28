@@ -29,6 +29,11 @@ export const settingsSchema = z.object({
    * Settings would have one.
    */
   roleModels: z.record(z.string(), z.string()).default({}),
+  /**
+   * Model reasoning/thinking effort level for reasoning models.
+   * Maps to Google's thinking_level or OpenAI's reasoning_effort.
+   */
+  reasoningEffort: z.enum(["none", "low", "medium", "high"]).default("medium"),
 });
 
 /**
@@ -44,16 +49,18 @@ export const settingsInputSchema = z.object({
   // refuse the rules it did send.
   reviewModel: z.string().refine(isModelId, "not a model this bench offers").optional(),
   roleModels: z.record(z.string(), z.string().refine(isModelId, "not a model this bench offers")).optional(),
+  reasoningEffort: z.enum(["none", "low", "medium", "high"]).optional(),
 }).transform((s) => ({
   ...s,
   reviewModel: s.reviewModel ?? DEFAULT_MODEL,
   roleModels: s.roleModels ?? {},
+  reasoningEffort: s.reasoningEffort ?? "medium",
 }));
 
 export type Settings = z.infer<typeof settingsSchema>;
 
 export const NO_SETTINGS: Settings = {
-  codingStyle: "", workflowRules: "", reviewModel: DEFAULT_MODEL, roleModels: {},
+  codingStyle: "", workflowRules: "", reviewModel: DEFAULT_MODEL, roleModels: {}, reasoningEffort: "medium",
 };
 
 /**

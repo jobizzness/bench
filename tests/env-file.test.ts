@@ -17,15 +17,15 @@ describe("reading a .env", () => {
   });
 
   it("ignores comments and blank lines", () => {
-    const text = "# Required API keys\n\nOPENROUTER_API_KEY=sk-or-v1-abcd\n\n# trailing note\n";
-    expect(parseEnvFile(text)).toEqual({ OPENROUTER_API_KEY: "sk-or-v1-abcd" });
+    const text = "# Required API keys\n\nGEMINI_API_KEY=sk-or-v1-abcd\n\n# trailing note\n";
+    expect(parseEnvFile(text)).toEqual({ GEMINI_API_KEY: "sk-or-v1-abcd" });
   });
 
   it("reads a file written to be sourced as well as read", () => {
     // `export FOO=bar` is common enough that not taking it would look like
     // the file was ignored.
-    expect(parseEnvFile("export OPENROUTER_API_KEY=sk-or-v1-abcd")).toEqual({
-      OPENROUTER_API_KEY: "sk-or-v1-abcd",
+    expect(parseEnvFile("export GEMINI_API_KEY=sk-or-v1-abcd")).toEqual({
+      GEMINI_API_KEY: "sk-or-v1-abcd",
     });
   });
 
@@ -77,7 +77,7 @@ describe("which key wins", () => {
   it("finds both keys in a .env", () => {
     const found = findCredentials({
       home: "/h", cwd: "/w", env: {},
-      read: files({ "/w/.env": { ANTHROPIC_API_KEY: "sk-ant-a", OPENROUTER_API_KEY: "sk-or-b" } }),
+      read: files({ "/w/.env": { ANTHROPIC_API_KEY: "sk-ant-a", GEMINI_API_KEY: "sk-or-b" } }),
     });
     expect(found.anthropic!.key).toBe("sk-ant-a");
     expect(found.router!.key).toBe("sk-or-b");
@@ -87,7 +87,7 @@ describe("which key wins", () => {
     // OpenRouter's docs say OPENROUTER_API_KEY; OPEN_ROUTER_KEY is what was
     // actually in the file this was built for. A reader that refuses the
     // developer's spelling has not done what they asked.
-    for (const name of ["OPENROUTER_API_KEY", "OPEN_ROUTER_KEY", "OPENROUTER_KEY"]) {
+    for (const name of ["GEMINI_API_KEY", "GEMINI_KEY", "GOOGLE_API_KEY", "GOOGLE_KEY"]) {
       const found = findCredentials({
         home: "/h", cwd: "/w", env: {},
         read: files({ "/w/.env": { [name]: "sk-or-b" } }),
@@ -124,12 +124,12 @@ describe("which key wins", () => {
     // knows it. Where it came from is what lets them go and change it.
     const found = findCredentials({
       home: "/h", cwd: "/w", env: {},
-      read: files({ "/w/.env": { OPEN_ROUTER_KEY: "sk-or-b" } }),
+      read: files({ "/w/.env": { GEMINI_KEY: "sk-or-b" } }),
     });
     expect(found.router!.origin).toEqual({
-      from: "file", name: "OPEN_ROUTER_KEY", path: "/w/.env",
+      from: "file", name: "GEMINI_KEY", path: "/w/.env",
     });
-    expect(describeOrigin(found.router!.origin)).toBe("from OPEN_ROUTER_KEY in /w/.env");
+    expect(describeOrigin(found.router!.origin)).toBe("from GEMINI_KEY in /w/.env");
   });
 
   it("finds nothing rather than failing when there is no file anywhere", () => {
@@ -147,7 +147,7 @@ describe("which key wins", () => {
     const contents = {
       ANTHROPIC_API_KEY: "sk-ant-a",
       OPENAI_API_KEY: "sk-openai-should-not-travel",
-      GEMINI_API_KEY: "gem-should-not-travel",
+      DEEPSEEK_API_KEY: "deepseek-should-not-travel",
     };
     const found = findCredentials({
       home: "/h", cwd: "/w", env: {}, read: files({ "/w/.env": contents }),
@@ -156,7 +156,7 @@ describe("which key wins", () => {
     const taken = JSON.stringify(found);
     expect(taken).toContain("sk-ant-a");
     expect(taken).not.toContain("sk-openai-should-not-travel");
-    expect(taken).not.toContain("gem-should-not-travel");
+    expect(taken).not.toContain("deepseek-should-not-travel");
     expect(process.env.OPENAI_API_KEY).not.toBe("sk-openai-should-not-travel");
   });
 });

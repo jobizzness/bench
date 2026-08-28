@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { endpoint, isRemote, postJson } from "../api.js";
+import { isProxied } from "../../shared/models.js";
+import { useAttachments } from "./useAttachments.js";
 import { shouldAskForServer } from "../endpoint.js";
 import { answersFor } from "../../shared/decisions.js";
 import { projectName } from "../format.js";
@@ -58,6 +60,13 @@ export function App() {
   const { decision, answers, setAnswers, choice, setChoice, focus, setFocus, dismiss } = decisionState;
 
   const [text, setText] = useState("");
+  const {
+    attachments,
+    error: attachmentError,
+    addFiles,
+    removeAttachment,
+    clearAttachments,
+  } = useAttachments();
   // The intake's own box, kept apart from the composer's: one is an answer,
   // the other is a message, and they are sent to different places.
   const [note, setNote] = useState("");
@@ -158,15 +167,27 @@ export function App() {
     const said = text.trim();
     setError(null);
 
+    // If on a proxied model and there are attachments, prompt the user to switch to a Claude model.
+    if (isProxied(row.model) && attachments.length > 0) {
+      if (confirm("This specialist runs on a proxied model, which cannot accept images.\n\nWould you like to switch to a Claude model?")) {
+        setModelOpen(true);
+      }
+      return;
+    }
+
     // An intake is answered in its own sheet, so the composer beneath it is
     // what it always was: a way to say something to the specialist.
     if (decision && !intake) {
-      if (!choice && said === "") return;
-      await postJson(`/api/sessions/${row.id}/answer`, { optionId: choice, text: said });
+      if (!choice && said === "" && attachments.length === 0) return;
+      const res = await postJson(`/api/sessions/${row.id}/answer`, { optionId: choice, text: said, images: attachments });
+      if (!res.ok) {
+        setError((await res.json()).error ?? "could not send");
+        return;
+      }
       dismiss();
     } else {
-      if (said === "") return;
-      const res = await postJson(`/api/sessions/${row.id}/message`, { text: said });
+      if (said === "" && attachments.length === 0) return;
+      const res = await postJson(`/api/sessions/${row.id}/message`, { text: said, images: attachments });
       if (!res.ok) {
         setError((await res.json()).error ?? "could not send");
         return;
@@ -174,6 +195,7 @@ export function App() {
     }
 
     setText("");
+    clearAttachments();
     await reload();
   }
 
@@ -317,6 +339,10 @@ export function App() {
               answeredBy={row?.answeredBy}
               onChangeModel={() => setModelOpen(true)}
               project={row?.project}
+              attachments={attachments}
+              addFiles={addFiles}
+              removeAttachment={removeAttachment}
+              attachmentError={attachmentError}
             />
           </footer>
         </section>
@@ -376,6 +402,7 @@ export function App() {
           open={modelOpen}
           current={row.model ?? ""}
           sessionId={row.id}
+          reasoningEffort={row.reasoningEffort}
           onClose={() => setModelOpen(false)}
           onNeedKey={() => { setModelOpen(false); setSettingsOpen(true); }}
         />
