@@ -234,7 +234,7 @@ describe("the model a role starts on", () => {
     await open();
 
     await ui.pick(ui.$("#f-role"), "researcher");
-    expect(ui.$("#f-model")!.textContent).toBe("deepseek-v4-flash");
+    expect(ui.$("#f-model")!.textContent).toBe("gemini-2.5-flash");
 
     await ui.pick(ui.$("#f-role"), "planner");
     expect(ui.$("#f-model")!.textContent).toBe("Opus 5");
@@ -244,7 +244,7 @@ describe("the model a role starts on", () => {
     await open();
     await ui.pick(ui.$("#f-role"), "reviewer");
 
-    expect(ui.$("#f-model-why")!.textContent).toContain("Reads code for a living");
+    expect(ui.$("#f-model-why")!.textContent).toContain("Reviews code and checks diffs");
   });
 
   it("keeps a model you picked when you change the role", async () => {

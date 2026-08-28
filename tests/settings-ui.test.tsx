@@ -95,9 +95,9 @@ describe("what each kind of work runs on", () => {
     await open();
 
     expect(shown("planner")).toBe("Opus 5");
-    expect(shown("researcher")).toBe("deepseek-v4-flash");
-    expect(shown("reviewer")).toBe("qwen3-coder-flash");
-    expect(shown("implementer")).toBe("kimi-k2.7-code");
+    expect(shown("researcher")).toBe("gemini-2.5-flash");
+    expect(shown("reviewer")).toBe("gemini-2.5-flash");
+    expect(shown("implementer")).toBe("Sonnet 5");
     expect(shown("assessor")).toBe("gemini-3.1-pro-preview");
   });
 
@@ -128,7 +128,7 @@ describe("what each kind of work runs on", () => {
 
     await ui.click(ui.$('.s-role[data-role="researcher"] .s-role-reset'));
 
-    expect(shown("researcher")).toBe("deepseek-v4-flash");
+    expect(shown("researcher")).toBe("gemini-2.5-flash");
   });
 
   it("offers no reset on a role nobody has touched", async () => {
@@ -190,7 +190,7 @@ describe("picking a model in Settings", () => {
     await ui.click(ui.$("#open-settings"));
     await waitFor(() => ui.$("#s-roles"), "the rules page");
 
-    expect(shown("researcher")).toBe("deepseek-v4-flash");
+    expect(shown("researcher")).toBe("gemini-2.5-flash");
   });
 
   it("changes only the role that was open", async () => {
@@ -200,6 +200,6 @@ describe("picking a model in Settings", () => {
     await ui.click(ui.$("#s-role-dialog .model-option[data-model='sonnet']"));
 
     expect(shown("reviewer")).toBe("Sonnet 5");
-    expect(shown("researcher")).toBe("deepseek-v4-flash");
+    expect(shown("researcher")).toBe("gemini-2.5-flash");
   });
 });

@@ -35,25 +35,23 @@ export const ROLE_MODELS: Record<Role, RoleModel> = {
   // is listed there: routing it would move the spend off a subscription that
   // is already paid for and onto a card.
   planner: { preferred: "opus", direct: "opus", because: "Deciding what to build is the one place to spend the most." },
-  // A model built for code, on the role whose output has to compile. Kimi's
-  // code variant rather than K3 itself: K3 costs more per turn than Sonnet 5
-  // does, which is the exact trap this cockpit exists to show you.
+  // A model built for code, on the role whose output has to compile.
   implementer: {
-    preferred: "moonshotai/kimi-k2.7-code",
+    preferred: "sonnet",
     direct: "sonnet",
-    because: "Built for writing code, on the one turn that has to compile.",
+    because: "Flagship coding model from Anthropic, extremely precise for writing code on the one turn that must compile.",
   },
   // Also a coding model - reviewing a diff is reading code, not chatting
   // about it - but the cheap one with a window big enough to hold a branch.
   reviewer: {
-    preferred: "qwen/qwen3-coder-flash",
+    preferred: "google/gemini-2.5-flash",
     direct: "haiku",
-    because: "Reads code for a living, holds a whole branch, and costs a seventh of what it reviews.",
+    because: "Reviews code and checks diffs across huge branches with near-zero cost.",
   },
   researcher: {
-    preferred: "deepseek/deepseek-v4-flash",
+    preferred: "google/gemini-2.5-flash",
     direct: "haiku",
-    because: "Reads a great deal and judges little, so the window matters more than the reasoning.",
+    because: "Reads a great deal and judges little, so Gemini's huge context and low price is perfect.",
   },
   assessor: {
     preferred: "google/gemini-3.1-pro-preview",
