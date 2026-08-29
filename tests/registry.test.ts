@@ -236,6 +236,11 @@ process.stderr.write("No conversation found with session ID: sess-restore\\n");
 process.exit(1);
 `;
 
+const COLLIDING_CLI = `#!/usr/bin/env node
+process.stderr.write("Error: Session ID sess-restore is already in use\\n");
+process.exit(1);
+`;
+
 const REPLYING_CLI = `#!/usr/bin/env node
 process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
 let carry = "";
@@ -383,6 +388,35 @@ describe("reviving a specialist after a restart", () => {
     const row = registryWithFake.list().find((r) => r.id === id)!;
     expect(row.status).toBe("crashed");
     expect(row.detail).toContain("No conversation found with session ID");
+  });
+
+  it("believes the CLI's own collision refusal, so a crash before the first turn does not repeat forever", async () => {
+    // A process can die before finishing its first turn for reasons that have
+    // nothing to do with resuming - but the CLI has already claimed the id on
+    // disk, so `--session-id` collides on every retry and `resumable` never
+    // gets the chance to flip the normal way (a completed turn). Without this,
+    // the tab is crashed for good; the developer's only way out was deleting
+    // the orphaned session file by hand.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    const store = new SessionStore(home);
+    await store.put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+    const registry = new SessionRegistry({
+      ...config, claudeBin: await fakeCli(COLLIDING_CLI),
+    } as any);
+    await registry.restore();
+
+    (registry as any).attach(id, {
+      label: "auth", worktree, model: "opus", port: 3101, resume: false,
+    });
+    await new Promise((r) => setTimeout(r, 400));
+
+    const row = registry.list().find((r) => r.id === id)!;
+    expect(row.status).toBe("crashed");
+    expect((registry as any).entries.get(id).resumable).toBe(true);
+    expect((await store.all()).find((r) => r.id === id)?.resumable).toBe(true);
   });
 
   it("resumes one that has, so it remembers what it was doing", async () => {

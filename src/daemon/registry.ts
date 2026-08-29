@@ -770,6 +770,18 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         entry.session = null;
       }
 
+      // A process that dies before finishing its first turn never flips
+      // `resumable` (see markResumable), yet `--session-id` has already
+      // claimed this id on disk - the CLI's own refusal here is proof of
+      // that. Left alone, the next revive asks for `--session-id` again,
+      // collides the same way, and the tab is crashed forever. The CLI has
+      // told us the id is claimed, so believe it: mark resumable now so the
+      // next attempt asks for `--resume` instead of repeating the collision.
+      if (entry && !opts.resume && !entry.resumable && /already in use/i.test(stderr ?? "")) {
+        entry.resumable = true;
+        this.remember(this.store.markResumable(id));
+      }
+
       // Asked for, not suffered. The specialist is still here and its next
       // prompt revives it from the last turn it finished.
       if (entry?.stopping) {
