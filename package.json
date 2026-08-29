@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && rm -rf dist/client && mkdir -p dist/client && esbuild src/client/main.tsx --bundle --format=esm --target=es2022 --minify --define:process.env.NODE_ENV=\\\"production\\\" --outfile=dist/client/app.js && esbuild src/client/sw.ts --bundle --format=iife --target=es2022 --minify --outfile=dist/client/sw.js && cp src/client/index.html src/client/styles.css src/client/favicon.svg src/client/icon.svg dist/client/ && cp -r src/client/icons dist/client/icons && node scripts/hosted-manifest.mjs dist/client",
+    "build": "tsc -p tsconfig.json && chmod +x dist/cli/bench.js && rm -rf dist/client && mkdir -p dist/client && esbuild src/client/main.tsx --bundle --format=esm --target=es2022 --minify --define:process.env.NODE_ENV=\\\"production\\\" --outfile=dist/client/app.js && esbuild src/client/sw.ts --bundle --format=iife --target=es2022 --minify --outfile=dist/client/sw.js && cp src/client/index.html src/client/styles.css src/client/favicon.svg src/client/icon.svg dist/client/ && cp -r src/client/icons dist/client/icons && node scripts/hosted-manifest.mjs dist/client",
     "dev": "tsx watch src/daemon/index.ts",
     "start": "node dist/daemon/index.js",
     "start:lan": "BENCH_LAN=1 node dist/daemon/index.js",
