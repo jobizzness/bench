@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
 import { SessionRegistry } from "../src/daemon/registry.js";
 
 /**
@@ -25,14 +26,19 @@ async function withEntry(over: Record<string, unknown> = {}) {
 
   let markedWhenKilled: boolean | null = null;
 
+  // A real EventEmitter, not a plain object: clearContext listens for its
+  // own "exit" once, separately from whatever attach() would have wired up,
+  // so it knows when the old process is actually gone before reviving it.
+  const session = Object.assign(new EventEmitter(), {
+    stop() {
+      markedWhenKilled = (registry as any).entries.get("s1").stopping === true;
+    },
+  });
+
   const entry: Record<string, unknown> = {
     reportsDir,
     threadPath,
-    session: {
-      stop() {
-        markedWhenKilled = (registry as any).entries.get("s1").stopping === true;
-      },
-    },
+    session,
     alive: true, worktree: project, branch: "b", isolated: true,
     resumable: true, turnsTaken: 3, model: "opus", port: 3101,
     row: {
@@ -44,7 +50,7 @@ async function withEntry(over: Record<string, unknown> = {}) {
   };
   (registry as any).entries.set("s1", entry);
 
-  return { registry, entry, threadPath, reportsDir, killed: () => markedWhenKilled };
+  return { registry, entry, threadPath, reportsDir, session, killed: () => markedWhenKilled };
 }
 
 describe("clearing a specialist's context", () => {
@@ -157,5 +163,49 @@ describe("clearing a specialist's context", () => {
     expect(decision.kind).toBe("completion");
 
     expect((entry as any).row.latestReportSeq).toBe(4);
+  });
+
+  it("continues the fresh session automatically once there is something to continue from", async () => {
+    const { registry, entry, threadPath, session } = await withEntry();
+    await writeFile(threadPath, [
+      JSON.stringify({ kind: "user", body: "Hello from developer" }),
+    ].join("\n") + "\n");
+
+    const delivered: string[] = [];
+    (registry as any).deliver = (_id: string, _entry: unknown, text: string) => {
+      delivered.push(text);
+    };
+
+    registry.clearContext("s1");
+    session.emit("exit", 0, "");
+
+    for (let i = 0; i < 50 && delivered.length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toContain("Continue from where you left off");
+  });
+
+  it("waits for the developer instead, when there was nothing to continue from", async () => {
+    // The default fixture's thread is empty - nothing was ever said, so
+    // there is nothing a fresh session could pick up on its own.
+    const { registry, entry, session } = await withEntry();
+
+    const delivered: string[] = [];
+    (registry as any).deliver = (_id: string, _entry: unknown, text: string) => {
+      delivered.push(text);
+    };
+
+    registry.clearContext("s1");
+    session.emit("exit", 0, "");
+
+    for (let i = 0; i < 50 && (entry as any).row.latestReportSeq === null; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    // Give the resolved Promise.all's continuation a tick to run too.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(delivered).toHaveLength(0);
   });
 });

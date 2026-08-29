@@ -1367,19 +1367,21 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     const reportSeq = (entry.session?.turn ?? entry.turnsTaken) + 1;
     entry.turnsTaken = reportSeq;
 
-    void writeClearContextReport(entry.reportsDir, entry.threadPath, reportSeq, entry.clearCount)
-      .then(({ summary }) => {
+    const reportReady = writeClearContextReport(entry.reportsDir, entry.threadPath, reportSeq, entry.clearCount)
+      .then(async ({ summary }) => {
         entry.threadSummary = summary || null;
         entry.row.latestReportSeq = reportSeq;
-        return appendEntry(entry.threadPath, {
+        await appendEntry(entry.threadPath, {
           kind: "report",
           body: "Context cleared",
           reportSeq,
         });
+        this.emit("roster");
+        return summary;
       })
-      .then(() => this.emit("roster"))
       .catch((err: unknown) => {
         process.stderr.write(`bench: could not write the clear-context report: ${String(err)}\n`);
+        return "";
       });
 
     this.remember(this.store.forgetConversation(id, entry.clearCount));
@@ -1391,6 +1393,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // A live process is still holding the old conversation. Let it go; the
     // next prompt brings it back empty. The same shape as setModel/setRole:
     // marked before the kill so the exit reads as a decision, not a crash.
+    // Watched here, separately from attach()'s own exit handler, because
+    // reviving needs the process gone and the report written before it can
+    // safely send anything.
+    const exited = entry.session
+      ? new Promise<void>((resolve) => entry.session!.once("exit", () => resolve()))
+      : Promise.resolve();
+
     if (entry.session) {
       entry.stopping = true;
       entry.stoppedBecause = "context cleared";
@@ -1398,6 +1407,16 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     } else {
       this.emit("roster");
     }
+
+    // The fresh session picks itself back up once there is something to pick
+    // up: an empty conversation has nothing to continue, so it waits for the
+    // developer instead of spending a turn on nothing.
+    void Promise.all([reportReady, exited]).then(([summary]) => {
+      const revived = this.entries.get(id);
+      if (!revived || summary === "") return;
+      this.deliver(id, revived, "[bench] Context was cleared. Continue from where you left off.");
+    });
+
     return true;
   }
 
