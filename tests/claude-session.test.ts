@@ -499,6 +499,24 @@ describe("ClaudeSession", () => {
     session.stop();
   });
 
+  it("versions the CLI session id after a clear instead of suffixing it", async () => {
+    // The CLI rejects `--session-id`/`--resume` outright unless the value is
+    // shaped like a UUID ("Invalid session ID. Must be a valid UUID."), so a
+    // plain `sess-1-1` suffix - however unique - fails every turn after a
+    // clear. The id handed to the CLI has to stay UUID-shaped.
+    const session = await makeSession(ARGS_CLI, { resume: true, clearCount: 1 });
+    const ended = once(session, "turn-end");
+    session.open();
+    session.send("hello");
+    const [result] = await ended;
+
+    const resumeArg = result.result.match(/--resume (\S+)/)?.[1];
+    expect(resumeArg).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(resumeArg).not.toBe("sess-1");
+    expect(resumeArg).not.toContain("sess-1");
+    session.stop();
+  });
+
   it("carries on numbering from the turns it already took", async () => {
     // A revived specialist that starts at one again writes over its own
     // earlier reports, and leaves the roster pointing at a stale directory.

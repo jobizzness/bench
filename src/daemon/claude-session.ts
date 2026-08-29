@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +25,25 @@ const STDERR_KEPT = 4000;
  * folded into a single turn, in the order they arrived, rather than each
  * getting its own trip through the conversation so far.
  */
+/**
+ * The id the CLI is handed for `--session-id`/`--resume`, which it rejects
+ * outright unless it is shaped like a UUID (`claude --help`: "must be a
+ * valid UUID"). Reusing the bench id as-is after a clear collides with the
+ * conversation already recorded under it ("Session ID already in use"), but
+ * appending a plain `-N` suffix - the first fix tried here - breaks the
+ * shape the CLI checks for and fails every clear with "Invalid session ID.
+ * Must be a valid UUID." instead. Hashing the id with the clear count keeps
+ * the result UUID-shaped and deterministic, so every turn on the same
+ * cleared conversation resolves to the same id without colliding with the
+ * one before it.
+ */
+function versionedSessionId(id: string, clearCount?: number): string {
+  if (!clearCount) return id;
+  const hash = createHash("sha256").update(`${id}:${clearCount}`).digest("hex");
+  return [hash.slice(0, 8), hash.slice(8, 12), hash.slice(12, 16), hash.slice(16, 20), hash.slice(20, 32)]
+    .join("-");
+}
+
 function compacted(prompts: string[]): string {
   const intro =
     "The developer sent these while you were still on the turn before this "
@@ -236,8 +256,8 @@ export class ClaudeSession extends EventEmitter {
       "--input-format", "stream-json",
       "--output-format", "stream-json",
       ...(this.opts.resume
-        ? ["--resume", this.opts.id + (this.opts.clearCount ? `-${this.opts.clearCount}` : "")]
-        : ["--session-id", this.opts.id + (this.opts.clearCount ? `-${this.opts.clearCount}` : "")]),
+        ? ["--resume", versionedSessionId(this.opts.id, this.opts.clearCount)]
+        : ["--session-id", versionedSessionId(this.opts.id, this.opts.clearCount)]),
       "--name", this.opts.label,
       // Verbatim, whichever kind it is. An Anthropic alias the CLI resolves
       // itself; an OpenRouter id it does not recognise and passes straight
