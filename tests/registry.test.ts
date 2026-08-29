@@ -1543,6 +1543,24 @@ describe("a tab another specialist spins up", () => {
     expect(row.status).toBe("working");
     expect(row.pendingPrompt).toBeNull();
   });
+
+  it("does not re-park a retry behind a crash that happened before the first turn finished", async () => {
+    // Once dispatched, a crash before the CLI ever completes a turn used to
+    // look exactly like a fresh, never-dispatched tab to `send()` - so a
+    // "retry" nudge sent after the crash was held as the new pendingDispatch,
+    // silently discarding the real brief that had already been approved.
+    const { project, registry } = await setupForCreate(COLLIDING_CLI);
+    const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+    registry.send(id, "do the research", "sess-parent");
+    await registry.dispatch(id);
+    await waitFor(() => (rowOf(registry, id).status === "crashed" ? true : null), "the collision to crash it");
+
+    registry.send(id, "retry", "sess-parent");
+
+    const row = rowOf(registry, id);
+    expect(row.status).toBe("working");
+    expect(row.pendingPrompt).toBeNull();
+  });
 });
 
 describe("a report on a tab another specialist opened", () => {

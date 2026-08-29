@@ -66,6 +66,16 @@ interface Entry {
    * cannot outlive a restart anyway (see `resumable`), which is why it used to
    * be held in memory only. */
   createdBy: string | null;
+  /** Whether the held first message has ever been released to the process.
+   * Turn count alone used to stand in for this, which held every message -
+   * not just the first - back onto `pendingDispatch` for as long as the tab
+   * had zero completed turns. A tab that crashed before finishing its first
+   * turn then had a "retry" nudge silently overwrite the real brief on every
+   * subsequent `bench tell`, since it looked exactly like a fresh tab each
+   * time. Not persisted, on the same reasoning as `resumable`: guessed from
+   * the thread on restore, since a delivered message is exactly what leaves
+   * one. */
+  dispatched: boolean;
   /** What an agent told this tab, waiting on the developer to dispatch it. */
   pendingDispatch: string | null;
   /** Any images that came with it. Empty on every held message bench has seen
@@ -615,6 +625,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // survive one anyway, since the idle process it was waiting on is
         // gone too.
         createdBy: rec.createdBy ?? null,
+        dispatched: thread.length > 0,
         pendingDispatch: null,
         pendingImages: [],
         nudged: rec.nudged ?? {},
@@ -987,6 +998,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       model,
       port: 0,
       createdBy: input.createdBy ?? null,
+      dispatched: false,
       pendingDispatch: null,
       pendingImages: [],
       nudged: {},
@@ -1101,11 +1113,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // A tab another specialist opened gets its first message held rather
     // than delivered, so the developer can read it - and change the model,
     // which costs nothing while the process is still the idle one this tab
-    // was made with - before it actually runs. `entry.turnsTaken` is only
-    // live right after create()/restore(); once a session is running, its
-    // own counter is the true one, which is why both are checked.
-    const neverDispatched = (entry.session?.turn ?? entry.turnsTaken) === 0;
-    if (from !== undefined && entry.createdBy !== null && neverDispatched) {
+    // was made with - before it actually runs. Gated on whether it has ever
+    // been dispatched, not on turn count: a tab that crashes before its
+    // first turn completes still has zero turns on every retry, and gating
+    // on that instead would re-park (and silently overwrite) the real brief
+    // behind whatever nudge sent the retry.
+    if (from !== undefined && entry.createdBy !== null && !entry.dispatched) {
       entry.pendingDispatch = text;
       entry.pendingImages = images;
       entry.row.pendingPrompt = text;
@@ -1126,6 +1139,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.pendingDispatch = null;
     entry.pendingImages = [];
     entry.row.pendingPrompt = null;
+    entry.dispatched = true;
     this.deliver(id, entry, text, images);
   }
 
