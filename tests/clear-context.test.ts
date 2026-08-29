@@ -44,7 +44,7 @@ async function withEntry(over: Record<string, unknown> = {}) {
   };
   (registry as any).entries.set("s1", entry);
 
-  return { registry, entry, threadPath, killed: () => markedWhenKilled };
+  return { registry, entry, threadPath, reportsDir, killed: () => markedWhenKilled };
 }
 
 describe("clearing a specialist's context", () => {
@@ -63,13 +63,14 @@ describe("clearing a specialist's context", () => {
   });
 
   it("drops the conversation but leaves the specialist able to come back", async () => {
-    // The turn count, the worktree and the branch are all untouched: only
-    // the CLI's memory goes.
+    // The worktree and branch are untouched; the turn count advances by one
+    // to reserve the slot the clear-context report claims, the same way a
+    // real turn would, so the next real turn cannot write over it.
     const { registry, entry } = await withEntry();
     registry.clearContext("s1");
 
     expect((entry as any).resumable).toBe(false);
-    expect((entry as any).turnsTaken).toBe(3);
+    expect((entry as any).turnsTaken).toBe(4);
     expect(registry.get("s1")).not.toBeNull();
   });
 
@@ -84,16 +85,21 @@ describe("clearing a specialist's context", () => {
     const { registry, threadPath } = await withEntry();
     registry.clearContext("s1");
 
-    // appendEntry is fire-and-forget; poll rather than assume one tick.
+    // The system line is written synchronously; the report line follows once
+    // the summary has actually been written to disk. Poll for both.
     let lines: string[] = [];
-    for (let i = 0; i < 50 && lines.length === 0; i++) {
+    for (let i = 0; i < 50 && lines.length < 2; i++) {
       await new Promise((resolve) => setTimeout(resolve, 5));
       lines = (await readFile(threadPath, "utf8")).trim().split("\n").filter(Boolean);
     }
+    const parsed = lines.map((line) => JSON.parse(line));
 
-    const last = JSON.parse(lines.at(-1)!);
-    expect(last.kind).toBe("system");
-    expect(last.body).toContain("Context cleared");
+    const system = parsed.find((entry) => entry.kind === "system");
+    expect(system?.body).toContain("Context cleared");
+
+    const report = parsed.find((entry) => entry.kind === "report");
+    expect(report?.body).toBe("Context cleared");
+    expect(report?.reportSeq).toBe(4);
   });
 
   it("does nothing for a specialist with no process, beyond announcing the roster", async () => {
@@ -119,7 +125,7 @@ describe("clearing a specialist's context", () => {
   });
 
   it("increments clearCount on each clearContext and builds a summary of the thread", async () => {
-    const { registry, entry, threadPath } = await withEntry();
+    const { registry, entry, threadPath, reportsDir } = await withEntry();
     await writeFile(threadPath, [
       JSON.stringify({ kind: "user", body: "Hello from developer" }),
       JSON.stringify({ kind: "reply", body: "Hello from specialist" }),
@@ -130,11 +136,26 @@ describe("clearing a specialist's context", () => {
 
     expect((entry as any).clearCount).toBe(1);
 
-    // Wait a brief moment for the background async summary compilation
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Wait for the background report to actually land on disk.
+    let html = "";
+    for (let i = 0; i < 50 && html === ""; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      html = await readFile(join(reportsDir, "4", "report.html"), "utf8").catch(() => "");
+    }
 
     expect((entry as any).threadSummary).toContain("CHRONOLOGICAL SUMMARY");
     expect((entry as any).threadSummary).toContain("Developer: Hello from developer");
     expect((entry as any).threadSummary).toContain("Specialist: Hello from specialist");
+
+    // The report itself, in the developer's terms, has no LLM-facing framing.
+    expect(html).not.toContain("CHRONOLOGICAL SUMMARY");
+    expect(html).toContain("Hello from developer");
+    expect(html).toContain("Hello from specialist");
+    expect(html).toContain("Context cleared (version 1)");
+
+    const decision = JSON.parse(await readFile(join(reportsDir, "4", "decision.json"), "utf8"));
+    expect(decision.kind).toBe("completion");
+
+    expect((entry as any).row.latestReportSeq).toBe(4);
   });
 });

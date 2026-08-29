@@ -12,7 +12,8 @@ import { latestReportSeq, findReport, latestTurn } from "./reports.js";
 import { SessionStore } from "./store.js";
 import { appendActivity } from "./activity.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
-import { appendEntry, readThread, summariseThread } from "./thread.js";
+import { appendEntry, readThread } from "./thread.js";
+import { writeClearContextReport } from "./clear-report.js";
 import { answeredReportSeq } from "./answered.js";
 import { asRole, isRole, type Role } from "../shared/roles.js";
 import { modelForRole } from "../shared/role-models.js";
@@ -1344,7 +1345,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    *
    * The thread keeps its record, marked with a line saying what happened: a
    * visible history with a specialist that suddenly remembers none of it is
-   * a history that lies, and the line is what makes it tell the truth.
+   * a history that lies, and the line is what makes it tell the truth. What
+   * was actually said before the clear is written as a report - the same
+   * report.html/decision.json shape a specialist writes for itself - so it
+   * survives a restart and shows up on the roster instead of living only in
+   * memory until the next prompt happens to consume it.
    */
   clearContext(id: string): boolean {
     const entry = this.entries.get(id);
@@ -1354,15 +1359,28 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.row.context = null;
     entry.clearCount = (entry.clearCount ?? 0) + 1;
 
-    // Read the thread and build a summary in the background before the session is stop-recreated.
-    void (async () => {
-      try {
-        const threadEntries = await readThread(entry.threadPath);
-        entry.threadSummary = summariseThread(threadEntries);
-      } catch (err) {
-        process.stderr.write(`bench: could not generate thread summary: ${String(err)}\n`);
-      }
-    })();
+    // The report this clear writes claims the next turn slot, the same way a
+    // real turn would - read while the live session still knows its own
+    // count, because that reference is about to be stopped. A cold
+    // specialist has no live count to read, so entry.turnsTaken (accurate
+    // for one that has never run this daemon's uptime) stands in for it.
+    const reportSeq = (entry.session?.turn ?? entry.turnsTaken) + 1;
+    entry.turnsTaken = reportSeq;
+
+    void writeClearContextReport(entry.reportsDir, entry.threadPath, reportSeq, entry.clearCount)
+      .then(({ summary }) => {
+        entry.threadSummary = summary || null;
+        entry.row.latestReportSeq = reportSeq;
+        return appendEntry(entry.threadPath, {
+          kind: "report",
+          body: "Context cleared",
+          reportSeq,
+        });
+      })
+      .then(() => this.emit("roster"))
+      .catch((err: unknown) => {
+        process.stderr.write(`bench: could not write the clear-context report: ${String(err)}\n`);
+      });
 
     this.remember(this.store.forgetConversation(id, entry.clearCount));
     void appendEntry(entry.threadPath, {
