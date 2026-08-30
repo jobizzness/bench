@@ -889,6 +889,39 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 }
 #stage-head #open-github { margin-left: auto; }
 
+/* The one window that stops a specialist without warning, said on the
+   header itself once it is past the point of being worth interrupting
+   someone over. Quiet below that: a bar that is always there is a bar
+   nobody looks at. */
+.stage-usage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  color: var(--muted);
+}
+.stage-usage-track {
+  width: 34px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--sunk);
+  overflow: hidden;
+}
+.stage-usage-fill {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--wants);
+}
+.stage-usage-percent { font: 600 11px/1 var(--mono); }
+/* The same three steps the composer's meter uses, so a theme that moves
+   its hues moves this with it. */
+.stage-usage[data-tone="high"] { color: var(--busy); }
+.stage-usage[data-tone="high"] .stage-usage-fill { background: var(--busy); }
+.stage-usage[data-tone="full"] { color: var(--broken); }
+.stage-usage[data-tone="full"] .stage-usage-fill { background: var(--broken); }
+
 /* min-height:0 is required: a flex child inside a grid item otherwise
    grows to fit its content and pushes the composer out of the viewport. */
 #thread { flex: 1; min-height: 0; overflow-y: auto; padding: 28px 32px 32px; }

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { StageHead } from "../src/client/components/StageHead.js";
@@ -17,6 +17,19 @@ const row = (over: Partial<RosterRow> = {}): RosterRow => ({
 
 let root: Root | null = null;
 afterEach(() => { act(() => root?.unmount()); root = null; });
+
+// StageHead mounts the five-hour usage bar, which asks the daemon on its
+// own. Stubbed rather than left real, the way every other component test
+// here stubs fetch, so a mounted specialist does not reach the network.
+const realFetch = globalThis.fetch;
+beforeEach(() => {
+  globalThis.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ available: false, reason: "none" }),
+  })) as typeof fetch;
+});
+afterEach(() => { globalThis.fetch = realFetch; });
 
 const actions = { select() {}, closeSpecialist() {} };
 
