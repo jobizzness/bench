@@ -14,6 +14,7 @@ a new one.
 bench ls                            who is on this project, and what they are doing
 bench new <label> [--as <role>]     open a tab. It waits until you tell it what for
 bench tell <label> "<text>"         give one its next turn
+bench close <label>                 done with a sub-agent you opened - shut it down
 ```
 
 Labels are lowercase words: `implementer`, `reviewer`, `payments-spec`.
@@ -72,11 +73,22 @@ not yours - report rather than guessing it."
 Then say in your own reply that you opened it and what you told it, so the
 developer knows there is a new tab and does not find it by surprise.
 
+## Closing one when you're done with it
+
+Once a sub-agent you opened has reported back and you have what you needed,
+close it rather than leaving it idle on the roster:
+
+```bash
+bench close implementer
+```
+
+This only works on a tab you opened yourself with `bench new` - not this one,
+and not a tab the developer opened from the cockpit. If closing would destroy
+uncommitted work, it says so instead of doing it; that decision goes to the
+developer, not to you.
+
 ## What it cannot do
 
 Only this project. A tab somewhere else is the developer's call, made in the
 cockpit — the same rule as sharing a report, and for the same reason: work is
 about one codebase.
-
-You cannot close a tab. Opening one is cheap and reversible by the developer;
-closing one takes a worktree with it.
