@@ -22,6 +22,7 @@ import { inheritedModel } from "../shared/auto-routers.js";
  *   bench ls
  *   bench new <label>
  *   bench tell <label|id> <text...>
+ *   bench close <label|id>
  *
  * There is no --project. A specialist works on one codebase and staffs it
  * with specialists on the same one; a tab somewhere else is the developer's
@@ -64,7 +65,17 @@ async function call(path: string, init?: RequestInit): Promise<any> {
   return body;
 }
 
-interface Row { id: string; label: string; project: string; status: string; detail: string }
+interface Row {
+  id: string;
+  label: string;
+  project: string;
+  status: string;
+  detail: string;
+  /** The specialist whose `bench new` opened this tab, or null for one the
+   * developer opened from the cockpit. What `close` checks against - a
+   * specialist may only close a tab it opened itself. */
+  createdBy: string | null;
+}
 
 const rows = async (): Promise<Row[]> => (await call("/api/roster")).rows ?? [];
 
@@ -162,11 +173,60 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "close") {
+    const [name] = args;
+    if (!name) fail("usage: bench close <label>");
+
+    const all = await rows();
+    const target = resolve(all, ownProject(all), name);
+    if (target.id === process.env.BENCH_SESSION_ID) fail("that is you.");
+    // The token every `bench` command carries is the one shared cockpit
+    // token, not a per-specialist credential - the daemon has no way to
+    // check this itself. So the rule that a specialist may only close a
+    // sub-agent it opened lives here, same as `tell`'s "that is you" above.
+    if (target.createdBy !== process.env.BENCH_SESSION_ID) {
+      fail(`"${target.label}" is not a tab you opened. You can only close one you opened yourself with \`bench new\`.`);
+    }
+
+    // Not `call()`: a 409 here carries the counts that make the refusal
+    // legible, and `call()` would already have failed the process before
+    // this code got to read them.
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/api/sessions/${target.id}/close`, {
+        method: "POST",
+        headers: { "x-bench-token": token(), "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+    } catch {
+      fail(`no daemon answering at ${BASE}. Is Bench running?`);
+    }
+    if (res.status === 401) fail("the cockpit refused this token.");
+    const body = await res.json().catch(() => ({}));
+
+    if (res.status === 409) {
+      const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+      const lost = [
+        body.changes ? plural(body.changes, "uncommitted file") : null,
+        body.unmergedCommits ? `${plural(body.unmergedCommits, "commit")} on no other branch` : null,
+      ].filter(Boolean).join(" and ");
+      // Never forced from here: destroying work a specialist cannot see the
+      // consequences of is the cockpit's call, made by the developer looking
+      // at the same warning this is.
+      fail(`"${target.label}" has ${lost}. Closing would destroy that - ask the developer to close it from the cockpit if that's really what's wanted.`);
+    }
+    if (!res.ok) fail(body.error ?? `close returned ${res.status}`);
+
+    process.stderr.write(`bench: closed ${target.label}.\n`);
+    return;
+  }
+
   process.stderr.write(
     "bench — the roster, from inside it\n\n"
     + "  bench ls                      who is on this project\n"
     + "  bench new <label> [--as <role>]  open a tab, waiting to be told what to do\n"
-    + '  bench tell <label> "<text>"   give one its next turn\n',
+    + '  bench tell <label> "<text>"   give one its next turn\n'
+    + "  bench close <label>           done with a sub-agent you opened - shut it down\n",
   );
   process.exit(command ? 1 : 0);
 }
