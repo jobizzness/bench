@@ -71,6 +71,10 @@ interface Row {
   project: string;
   status: string;
   detail: string;
+  /** What this tab was opened on - already public on the roster the cockpit
+   * reads, so a specialist asking "what model is X on" is a display gap, not
+   * a new thing to expose. */
+  model: string;
   /** The specialist whose `bench new` opened this tab, or null for one the
    * developer opened from the cockpit. What `close` checks against - a
    * specialist may only close a tab it opened itself. */
@@ -110,7 +114,7 @@ async function main(): Promise<void> {
     const project = ownProject(all);
     for (const row of all.filter((r) => r.project === project)) {
       const self = row.id === process.env.BENCH_SESSION_ID ? " (you)" : "";
-      process.stdout.write(`${row.label}${self}\t${row.status}\t${row.detail}\n`);
+      process.stdout.write(`${row.label}${self}\t${row.model}\t${row.status}\t${row.detail}\n`);
     }
     return;
   }
@@ -126,7 +130,7 @@ async function main(): Promise<void> {
 
     const all = await rows();
     const project = ownProject(all);
-    const { id } = await call("/api/sessions", {
+    const { id, model } = await call("/api/sessions", {
       method: "POST",
       // No model unless this specialist is itself on an auto router: the
       // daemon otherwise fills it from the role, which is what knows that a
@@ -147,7 +151,7 @@ async function main(): Promise<void> {
     // it, which is `bench tell`.
     process.stdout.write(`${id}\n`);
     process.stderr.write(
-      `bench: opened "${label}". It is waiting - tell it what to do:\n`
+      `bench: opened "${label}" (${role ?? "specialist"} · ${model}). It is waiting - tell it what to do:\n`
       + `  bench tell ${label} "..."\n`,
     );
     return;

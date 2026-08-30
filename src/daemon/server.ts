@@ -610,7 +610,10 @@ export function createServer(opts: {
           // nothing. What that decides is in registry.send().
           ...(typeof body.createdBy === "string" ? { createdBy: body.createdBy } : {}),
         });
-        json(res, 200, { id });
+        // The role may have resolved the empty string the caller sent into
+        // whatever that role runs on - `bench new`'s own confirmation is the
+        // only moment a specialist learns what it just staffed something on.
+        json(res, 200, { id, model: registry.get(id)?.model ?? "" });
       } catch (error) {
         // Caught here rather than left to the wrapper, which answers 500 with
         // a sentence that says nothing. The reasons a creation is refused are

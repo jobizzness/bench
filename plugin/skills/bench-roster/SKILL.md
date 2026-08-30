@@ -11,11 +11,14 @@ branch and thread. The `bench` command is how you see them and how you open
 a new one.
 
 ```
-bench ls                            who is on this project, and what they are doing
+bench ls                            who is on this project, what model, and what they are doing
 bench new <label> [--as <role>]     open a tab. It waits until you tell it what for
 bench tell <label> "<text>"         give one its next turn
 bench close <label>                 done with a sub-agent you opened - shut it down
 ```
+
+`bench ls` and `bench new` both say what model a tab is on - see "What each
+role opens on" below if you need to check or explain that to the developer.
 
 Labels are lowercase words: `implementer`, `reviewer`, `payments-spec`.
 
@@ -31,6 +34,24 @@ bench new implementer --as implementer
 bench new reviewer --as reviewer
 bench new payments-spec --as planner
 ```
+
+## What each role opens on
+
+The role decides the model, not you - there is no `--model` flag on `bench
+new`. A specialist you open with no `--as` and one you open `--as reviewer`
+are not the same spend:
+
+| `--as`        | Model                                    | Why                                              |
+|---------------|-------------------------------------------|---------------------------------------------------|
+| `specialist`  | Opus                                       | Owns the whole job, planning included.             |
+| `planner`     | Opus                                       | Deciding what to build is the one place to spend the most. |
+| `implementer` | Sonnet                                     | Flagship coding model, precise on the turn that must compile. |
+| `reviewer`    | Gemini 2.5 Flash (Haiku with no OpenRouter key) | Reads a diff, not a conversation - huge context, near-zero cost. |
+| `researcher`  | Gemini 2.5 Flash (Haiku with no OpenRouter key) | Reads a great deal and judges little.              |
+| `assessor`    | Gemini 3.1 Pro (Opus with no OpenRouter key) | A flagship from a different house, on the end-to-end view. |
+
+If a developer asks whether tabs are running on a given model, this table
+and `bench ls`'s model column are how you answer it - not a guess.
 
 If you were dispatched as one kind of subagent and are handing the same kind
 of work to a bench tab, carry the role across rather than defaulting to
@@ -48,11 +69,11 @@ specialist:
 **When the developer asked you to.** "Spec it and spin up an implementer" is
 an instruction with two halves; do both.
 
-Not because a task felt large. A specialist is a whole process on a flagship
-model, and deciding on the developer's behalf that a job deserves three of
-them is spending their money on your own judgement. If you think the work
-wants splitting and nobody has said so, say so in your report and let them
-decide.
+Not because a task felt large. Every tab is a whole process, and deciding on
+the developer's behalf that a job deserves three of them is spending their
+money on your own judgement - even where the role is a cheap one (see "What
+each role opens on"). If you think the work wants splitting and nobody has
+said so, say so in your report and let them decide.
 
 ## Handing work over
 
