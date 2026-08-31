@@ -1,0 +1,294 @@
+# Bench over Firestore — design
+
+Status: approved in principle 2026-08-31, awaiting spec review.
+
+## What this is
+
+Bench on a phone, from anywhere, behind a Google login. No second server, no
+open port on the developer's machine, no billing account.
+
+The daemon and the specialists stay exactly where they are. What changes is
+that a browser somewhere else can reach them, through a Firestore database
+both ends are signed into.
+
+## The problem
+
+Three things stand between a phone and the daemon today.
+
+**There is no route.** The daemon binds `127.0.0.1`. `BENCH_LAN=1` binds every
+interface, which reaches your own wifi and nothing beyond it. Off the LAN there
+is no path to the machine at all.
+
+**Mixed content.** The cockpit is already deployable to Firebase Hosting, and
+that copy is served over HTTPS. The daemon speaks plain HTTP on a private
+address. Browsers refuse that pairing outright, and the code already knows it —
+`src/client/endpoint.ts:106`.
+
+**There is no user.** One shared token, in the URL, is the whole gate in front
+of a process with a full shell:
+
+```ts
+// src/daemon/server.ts:350
+const token = req.headers["x-bench-token"] ?? url.searchParams.get("token");
+if (token !== config.token) { json(res, 401, { error: "unauthorized" }); return; }
+```
+
+That is a fair trade on loopback. It is not one to make on the open internet,
+which is why the route and the login have to be designed together.
+
+## Why Firestore, and not a relay
+
+A relay the daemon dials out to is the textbook answer: one outbound socket,
+nothing on the machine reachable, the existing HTTP surface tunnelled whole.
+It needs a service to run, and a service needs billing.
+
+The constraint here is the free plan. Firestore and Firebase Auth are both
+fully available on Spark; Cloud Functions and Cloud Run are not. So the
+database *is* the transport. Two processes that can both write to the same
+documents can talk, and Firestore's security rules — keyed on
+`request.auth.uid` — are the authentication, with no code of ours in the middle
+to get it wrong.
+
+What we give up: it is not a general tunnel. Anything chatty has to change
+shape, and the free plan is a hard ceiling rather than a bill. Both are dealt
+with below.
+
+## The seam
+
+Every network call the cockpit makes goes through four things, and nothing else
+in the client touches the network:
+
+| Today | Where | Becomes |
+|---|---|---|
+| `authFetch(path, init)` | `api.ts:56` | a command document, and its result |
+| `postJson(path, body)` | `api.ts:79` | the same, with a body |
+| `artifactUrl(...)` | `api.ts:75` | the report's HTML, fetched and rendered via `srcdoc` |
+| `new WebSocket(eventsUrl())` | `useRoster.ts:38` | a listener on one mirrored document |
+
+Forty-five call sites across the cockpit go through those four. They do not
+change. The transport is chosen once, at load, by the same question the client
+already asks: did the daemon serve this page, or was it told where to look.
+
+`artifactUrl` is the one that genuinely changes rather than moves. It hands a
+URL to an `<iframe>`, and over Firestore there is no URL. The daemon already
+builds the complete themed document (`src/daemon/artifact-page.ts`), so the
+relayed transport fetches that HTML as content and the frame renders it with
+`srcdoc`. Same sandbox, same document, different delivery.
+
+## Two kinds of traffic
+
+They want opposite shapes, and conflating them is how a design like this
+becomes unaffordable.
+
+### Things you do — a request and a reply
+
+Sending a prompt, answering a decision, stopping a turn, changing a model.
+Low volume, initiated by the phone, wants an answer.
+
+```
+/machines/{uid}/commands/{id}   { method, path, body, at }   phone writes
+/machines/{uid}/results/{id}    { status, body }             daemon writes
+```
+
+The daemon holds a listener on `commands`. It executes each one **against its
+own HTTP server on loopback, carrying its own token**, and writes the response
+to `results/{id}`. The phone's listener on `results` resolves the promise that
+`authFetch` returned. Both documents are then deleted.
+
+Routing back through the daemon's own HTTP server rather than calling the
+registry directly is deliberate: there is one implementation of every route,
+one place where validation lives, and the direct transport stays the reference
+behaviour rather than becoming a second code path that can drift.
+
+Cost per action: 2 writes, 2 reads, 2 deletes.
+
+### Things you watch — a mirror the daemon pushes
+
+The roster, the thread, the plan, the trail, the current report. Today the
+cockpit pulls these. The plan polls every two seconds while a turn is live
+(`useSessionPlan.ts:29`), and polling is the one thing this transport cannot
+afford.
+
+So they invert. The daemon writes what you are looking at into a document, and
+the phone listens:
+
+```
+/machines/{uid}/mirror/roster            the whole roster, as the socket sends it today
+/machines/{uid}/mirror/{sessionId}       thread, plan, trail, latest report metadata
+```
+
+One document per thing, updated in place. Firestore's guidance is explicit that
+this is the right shape for a live trail: an update in place costs one write and
+delivers one read to each listener however often it changes, where append-only
+documents burn the daily write quota and the storage cap on data nobody wants
+after the turn ends.
+
+The daemon's roster socket already works this way — it sends the entire roster
+on every change (`server.ts:1073`). It is a mirror already. It only has the
+wrong pipe.
+
+### Presence gates the mirror
+
+The daemon does not mirror unless somebody is watching, and mirrors only what
+they are watching.
+
+```
+/machines/{uid}/viewers/{deviceId}   { at, watching: sessionId | null }
+```
+
+The phone writes that document and refreshes `at` on a heartbeat. The daemon
+mirrors the roster while any viewer's heartbeat is fresh, and mirrors
+`mirror/{sessionId}` only for sessions some viewer has open. When the last
+heartbeat goes stale, the daemon deletes the mirror.
+
+Three things fall out of this, and they are the reason the design is shaped this
+way:
+
+- **At your desk, nothing is written to Firestore at all.** No phone, no
+  viewer, no mirror. Remote costs nothing when it is not in use.
+- **The cleanup is not a chore bolted on.** The mirror's lifetime is the
+  viewer's, so "clean up when we are done" is the normal path rather than a
+  thing to remember.
+- **Reconnecting is cheap.** A phone locks and unlocks all day, and Firestore
+  bills a reconnected listener as a fresh query. Because the mirror is a handful
+  of documents rather than a collection of hundreds, that reconnect costs a
+  handful of reads.
+
+### There are no unbounded collections
+
+This is a hard rule of the design rather than a preference, and it comes
+straight from the research: there is no free way to delete a collection. The
+`recursiveDelete()` convenience is Admin-SDK-only, TTL policies require billing,
+and each document delete is billed individually. A collection that can grow
+without limit is one that can never be cleaned up.
+
+So: `commands` and `results` are deleted pairwise as they are consumed.
+`mirror` holds one document for the roster and one per session being watched.
+`viewers` holds one per device. Everything is nameable, countable, and
+deletable in a single small batch — which is what makes `bench remote off`
+possible: it deletes `/machines/{uid}` and there is a known, small number of
+documents under it.
+
+## Identity
+
+One Google account. The same account on the laptop and on the phone, so every
+device the developer is already signed into is already allowed.
+
+**The laptop.** The cockpit on localhost gains a "Turn on remote" control. It
+signs in with Google in that browser and hands the daemon the resulting refresh
+token, which the daemon writes to `~/.bench/firebase.json` at mode `0600`.
+
+**The daemon.** It exchanges that refresh token for a one-hour ID token at
+`securetoken.googleapis.com/v1/token`, and keeps doing so. This is a documented
+public REST endpoint, not a workaround: no Admin SDK, no service account, no
+billing. Firebase refresh tokens do not expire on their own — they end when the
+user is deleted or disabled, when the account password changes, or when an admin
+revokes them. The `firebase/auth` SDK's default persistence in Node is `none`,
+so persisting the token ourselves is the documented requirement rather than an
+oversight.
+
+**The phone.** Opens the hosted cockpit and signs in with Google. Same account,
+same uid.
+
+The handover between them is one new localhost route: the cockpit posts the
+refresh token and the uid to the daemon, which stores them and starts refreshing.
+The Firebase web config — API key and project id — is public by design and ships
+with the client; the daemon reads the same values from its own config so that
+`bench-cockpit` is named in one place rather than two.
+
+**The rules.** One rule is the whole of it:
+
+```
+match /machines/{owner}/{document=**} {
+  allow read, write: if request.auth.uid == owner;
+}
+```
+
+**Localhost keeps working with no sign-in.** The token gate on `127.0.0.1` is
+unchanged. A laptop with a broken network, an expired credential or a deleted
+Firebase project is never locked out of its own cockpit, and Bench without a
+Firebase project at all is exactly the Bench that exists today.
+
+## What it costs, and what happens when it runs out
+
+The Spark plan gives 50,000 document reads, 20,000 writes and 20,000 deletes
+per day, 1 GiB stored, and 10 GiB of egress per month. The daily figures reset
+around midnight Pacific. There is no overage: on Spark there is no billing
+account to charge, so once a daily quota is spent, operations fail until the
+reset.
+
+Writes are the binding constraint. Reads are 2.5× more plentiful and the mirror
+is small; deletes track actions one for one.
+
+An action costs 2 writes. A mirror update costs 1. A watched live turn is
+therefore dominated by mirror updates, so the daemon **coalesces them: at most
+one write every two seconds per document while a turn is running, and only
+while watched.** A ten-minute turn watched end to end is then at most 300
+writes, and the day's budget is roughly sixty such turns — far more phone-side
+watching than is plausible.
+
+The daemon keeps its own count of what it has spent today and widens the
+coalescing window as it approaches the ceiling: 2s normally, 10s past 15,000
+writes, and mirror updates only on turn boundaries past 18,000. **It says so in
+the cockpit when it does.** A cockpit that quietly stops updating at four in the
+afternoon is worse than one that tells you it is slowing down.
+
+## Content in the cloud
+
+Mirroring puts threads, prompts and reports into Firestore. It is the
+developer's own project and the rules admit exactly one uid, but Google can read
+it and a compromised Google account is now a compromised bench. That is a real
+departure from a tool whose pitch has been that none of this leaves the machine.
+
+**This slice writes them in the clear.** That follows from what remote is for
+here — any device already signed into the account should just work, with nothing
+to pair and no key to carry.
+
+It is not a one-way door, and the design keeps it that way: everything written
+to a command, result or mirror document passes through a single encode
+function, and everything read passes through its inverse. Turning on end-to-end
+encryption later means implementing that pair against a key established at
+pairing time, and changing nothing else. Tracked as its own issue.
+
+## Not in this slice
+
+- **The mobile layout.** "Truly mobile" is its own piece of work, and doing it
+  at the same time as the transport means debugging both at once. Separate
+  ticket, straight after.
+- **Push notifications.** The other half of working from a phone, and its own
+  subsystem: FCM, a service worker push handler, per-device subscriptions.
+- **More than one account.** The rule above admits one uid. A second person, or
+  a second Google account, is a follow-up.
+- **Offline queueing.** When the laptop is asleep there is nothing to talk to,
+  and the cockpit says so rather than holding a prompt that will land hours
+  later into stale context.
+- **A second Firestore database.** The project gets exactly one on the free
+  plan. `bench-cockpit`'s is now committed to this, so there is no separate
+  environment to test against without billing.
+
+## Build order
+
+1. **Identity.** Google sign-in on the hosted cockpit, "Turn on remote" on the
+   laptop, the daemon holding the same uid from a persisted refresh token,
+   security rules deployed. Nothing is mirrored yet — the test is that both
+   ends can read and write one document and nobody else can.
+2. **The wire.** The transport behind `api.ts`, command and result documents,
+   the presence-gated mirror, the write budget, `bench remote off`.
+3. **The phone.** The cockpit made to work on a small screen with a soft
+   keyboard.
+
+Each is a ticket. 1 blocks 2; 3 depends only on 2 being usable.
+
+## How it is tested
+
+The Firestore SDK is faked at the boundary — the transport is a small module
+with a document-store interface, and the tests drive it with an in-memory
+implementation, in the same style as the existing suite. That covers the
+request/response pairing, the coalescing, the presence timeout and the deletion
+paths without touching a network.
+
+Two things a green suite will not catch, and they are the end-to-end checks
+worth naming now: that the daemon's refresh token actually survives a restart
+and keeps working the next day, and that a real phone on cellular can open the
+hosted cockpit and drive a specialist. Neither is a unit test. Both are done by
+hand, once, against the real project.
