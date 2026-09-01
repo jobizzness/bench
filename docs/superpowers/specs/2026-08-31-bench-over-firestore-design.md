@@ -1,7 +1,8 @@
 # Bench over Firestore — design
 
 Status: approved 2026-08-31. Revised 2026-09-01 for more than one machine per
-account.
+account, and again for broadcast — remote is opt-in per specialist rather than
+on for everything.
 
 ## What this is
 
@@ -14,6 +15,9 @@ both ends are signed into.
 
 One account, several machines. The developer signs into two laptops, each
 running its own daemon, and every device sees one roster covering both.
+
+Nothing goes remote on its own. A specialist is broadcast, deliberately, from
+its own page — and then it and its sub-agent tabs are reachable from anywhere.
 
 ## The problem
 
@@ -171,6 +175,38 @@ way:
   of documents rather than a collection of hundreds, that reconnect costs a
   handful of reads.
 
+### Broadcast decides what may be mirrored at all
+
+Presence answers "what is being looked at". It does not answer "what should ever
+leave this machine", and those are different questions.
+
+Each specialist gets a **broadcast** control on its page. Off by default. A
+specialist that is not broadcast does not appear in the mirrored roster, is not
+mirrored, and cannot be reached from another device — it is as though remote did
+not exist for it. Broadcasting one **includes every sub-agent tab it opened**,
+because a specialist and the researcher it spun up are one piece of work and
+splitting them would mean broadcasting a parent whose findings you cannot read.
+
+The two gates compose. Broadcast is permission, presence is demand, and the
+daemon mirrors the intersection:
+
+```
+mirrored = broadcast ∧ watched
+```
+
+This earns its place three times over. It is the smallest possible answer to
+"what is in the cloud" — one specialist, not a whole machine's work, and nothing
+at all until you say so. It cuts the write budget to what you actually intend to
+watch from a phone. And it puts the choice where the developer already is: on
+the page of the thing they are about to walk away from.
+
+The flag lives with the session record, so it survives a daemon restart. Turning
+it off deletes that specialist's mirror immediately rather than waiting for a
+viewer to go stale.
+
+The obvious convenience — a machine-wide "broadcast everything" — is not built.
+It would undo the property that makes this worth having.
+
 ### There are no unbounded collections
 
 This is a hard rule of the design rather than a preference, and it comes
@@ -207,7 +243,7 @@ is a question the cockpit has to answer in a word.
 `mirror/roster` and shows one roster, with each row carrying the machine it is
 on. This is the part the requirement is actually about: you open Bench on your
 phone and see everyone waiting on you, on either laptop, without choosing a
-machine first.
+machine first — every specialist you broadcast, wherever it is running.
 
 **Acting on a row selects its machine.** A call for
 `/api/sessions/{id}/message` goes to the machine that session is on, and the
@@ -319,6 +355,13 @@ departure from a tool whose pitch has been that none of this leaves the machine.
 here — any device already signed into the account should just work, with nothing
 to pair and no key to carry.
 
+What limits the exposure instead is broadcast. Nothing is mirrored until a
+specialist is explicitly broadcast, so what is in the cloud is what the
+developer chose to put there, one specialist at a time, and only while a device
+is watching it. That is a smaller surface than encryption over everything would
+have been, and it is legible: the answer to "what is up there" is a list you can
+see on the roster.
+
 It is not a one-way door, and the design keeps it that way: everything written
 to a command, result or mirror document passes through a single encode
 function, and everything read passes through its inverse. Turning on end-to-end
@@ -354,8 +397,8 @@ pairing time, and changing nothing else. Tracked as its own issue.
    laptops register as two machines under one account, and that nobody else can
    read either.
 2. **The wire.** The transport behind `api.ts`, command and result documents,
-   the presence-gated mirror, the merged roster across machines, the write
-   budget, `bench remote off`.
+   broadcast, the presence-gated mirror, the merged roster across machines, the
+   write budget, `bench remote off`.
 3. **The phone.** The cockpit made to work on a small screen with a soft
    keyboard.
 
