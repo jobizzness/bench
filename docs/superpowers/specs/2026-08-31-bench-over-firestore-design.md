@@ -1,6 +1,7 @@
 # Bench over Firestore — design
 
-Status: approved in principle 2026-08-31, awaiting spec review.
+Status: approved 2026-08-31. Revised 2026-09-01 for more than one machine per
+account.
 
 ## What this is
 
@@ -10,6 +11,9 @@ open port on the developer's machine, no billing account.
 The daemon and the specialists stay exactly where they are. What changes is
 that a browser somewhere else can reach them, through a Firestore database
 both ends are signed into.
+
+One account, several machines. The developer signs into two laptops, each
+running its own daemon, and every device sees one roster covering both.
 
 ## The problem
 
@@ -66,8 +70,10 @@ in the client touches the network:
 | `new WebSocket(eventsUrl())` | `useRoster.ts:38` | a listener on one mirrored document |
 
 Forty-five call sites across the cockpit go through those four. They do not
-change. The transport is chosen once, at load, by the same question the client
-already asks: did the daemon serve this page, or was it told where to look.
+change. What changes is that a transport belongs to a *machine* rather than to
+the page: direct when the daemon served this page, relayed for every other
+machine on the account. Which machine a call is for follows from the session it
+names, and the roster knows that — see "More than one machine" below.
 
 `artifactUrl` is the one that genuinely changes rather than moves. It hands a
 URL to an `<iframe>`, and over Firestore there is no URL. The daemon already
@@ -86,8 +92,8 @@ Sending a prompt, answering a decision, stopping a turn, changing a model.
 Low volume, initiated by the phone, wants an answer.
 
 ```
-/machines/{uid}/commands/{id}   { method, path, body, at }   phone writes
-/machines/{uid}/results/{id}    { status, body }             daemon writes
+/users/{uid}/machines/{machineId}/commands/{id}   { method, path, body, at }   phone writes
+/users/{uid}/machines/{machineId}/results/{id}    { status, body }             daemon writes
 ```
 
 The daemon holds a listener on `commands`. It executes each one **against its
@@ -113,8 +119,8 @@ So they invert. The daemon writes what you are looking at into a document, and
 the phone listens:
 
 ```
-/machines/{uid}/mirror/roster            the whole roster, as the socket sends it today
-/machines/{uid}/mirror/{sessionId}       thread, plan, trail, latest report metadata
+/users/{uid}/machines/{machineId}/mirror/roster        the whole roster, as the socket sends it today
+/users/{uid}/machines/{machineId}/mirror/{sessionId}   thread, plan, trail, latest report metadata
 ```
 
 One document per thing, updated in place. Firestore's guidance is explicit that
@@ -133,13 +139,24 @@ The daemon does not mirror unless somebody is watching, and mirrors only what
 they are watching.
 
 ```
-/machines/{uid}/viewers/{deviceId}   { at, watching: sessionId | null }
+/users/{uid}/machines/{machineId}/viewers/{deviceId}   { at, watching: sessionId | null }
 ```
 
-The phone writes that document and refreshes `at` on a heartbeat. The daemon
-mirrors the roster while any viewer's heartbeat is fresh, and mirrors
+The phone writes that document and refreshes `at` on a heartbeat — **every 60
+seconds, and only while the page is visible.** A viewer is stale after three
+minutes. A phone in a pocket is not a viewer, which is the point: an idle tab
+must not spend the day's write budget proving it is still open.
+
+The daemon mirrors the roster while any viewer's heartbeat is fresh, and mirrors
 `mirror/{sessionId}` only for sessions some viewer has open. When the last
 heartbeat goes stale, the daemon deletes the mirror.
+
+The order matters and is worth stating, because it is what keeps the resting
+cost at zero: the daemon holds a listener on `viewers` whenever remote is on —
+idle listeners are free — and writes nothing until one appears. So a phone
+announces itself first, and the machine answers. A machine that does not answer
+within a few seconds is asleep, and the cockpit says so rather than inventing a
+roster for it.
 
 Three things fall out of this, and they are the reason the design is shaped this
 way:
@@ -164,10 +181,51 @@ without limit is one that can never be cleaned up.
 
 So: `commands` and `results` are deleted pairwise as they are consumed.
 `mirror` holds one document for the roster and one per session being watched.
-`viewers` holds one per device. Everything is nameable, countable, and
-deletable in a single small batch — which is what makes `bench remote off`
-possible: it deletes `/machines/{uid}` and there is a known, small number of
-documents under it.
+`viewers` holds one per device. `machines` holds one per laptop. Everything is
+nameable, countable, and deletable in a single small batch — which is what makes
+`bench remote off` possible: it deletes that machine's subtree, and there is a
+known, small number of documents under it.
+
+## More than one machine
+
+The developer signs into two laptops, each running its own daemon, and expects
+to manage every session on both from whichever device is to hand. That is why
+the paths above are keyed on a machine and not only on a user.
+
+**A machine id is minted once**, when remote is first turned on, and kept beside
+the credential in `~/.bench/firebase.json`. It is stable across restarts, and it
+survives the machine being renamed. Each daemon registers itself:
+
+```
+/users/{uid}/machines/{machineId}   { name, platform, version, lastSeen }
+```
+
+`name` defaults to the hostname and is editable, because "which laptop is this"
+is a question the cockpit has to answer in a word.
+
+**The roster is the union.** The cockpit listens to every machine's
+`mirror/roster` and shows one roster, with each row carrying the machine it is
+on. This is the part the requirement is actually about: you open Bench on your
+phone and see everyone waiting on you, on either laptop, without choosing a
+machine first.
+
+**Acting on a row selects its machine.** A call for
+`/api/sessions/{id}/message` goes to the machine that session is on, and the
+merged roster is what maps one to the other. No call site has to know.
+
+**Machine-global screens follow the machine you have open.** Settings, the API
+keys, the project list and the spend meters are per-daemon — there is no single
+"the settings" across two laptops. They show the active machine's, and the
+machine is named in the header so it is never ambiguous. This is an assumption
+rather than an instruction: the alternative, showing both laptops' settings
+side by side, is a bigger piece of work and was not asked for.
+
+**A machine that is asleep is shown as asleep**, with its last-known roster
+greyed rather than hidden. Knowing that a specialist is waiting on the laptop at
+home is useful even when you cannot answer it from here.
+
+Two laptops is not two accounts. The rule below still admits exactly one uid;
+what has changed is that one uid can own several machines.
 
 ## Identity
 
@@ -176,7 +234,9 @@ device the developer is already signed into is already allowed.
 
 **The laptop.** The cockpit on localhost gains a "Turn on remote" control. It
 signs in with Google in that browser and hands the daemon the resulting refresh
-token, which the daemon writes to `~/.bench/firebase.json` at mode `0600`.
+token, which the daemon writes to `~/.bench/firebase.json` at mode `0600` —
+along with the machine id it mints for itself on that first connection. Each
+laptop does this separately and gets its own machine id under the same account.
 
 **The daemon.** It exchanges that refresh token for a one-hour ID token at
 `securetoken.googleapis.com/v1/token`, and keeps doing so. This is a documented
@@ -199,10 +259,12 @@ with the client; the daemon reads the same values from its own config so that
 **The rules.** One rule is the whole of it:
 
 ```
-match /machines/{owner}/{document=**} {
+match /users/{owner}/{document=**} {
   allow read, write: if request.auth.uid == owner;
 }
 ```
+
+One uid, everything it owns, however many machines that turns out to be.
 
 **Localhost keeps working with no sign-in.** The token gate on `127.0.0.1` is
 unchanged. A laptop with a broken network, an expired credential or a deleted
@@ -233,6 +295,19 @@ writes, and mirror updates only on turn boundaries past 18,000. **It says so in
 the cockpit when it does.** A cockpit that quietly stops updating at four in the
 afternoon is worse than one that tells you it is slowing down.
 
+Two machines do not double this, because only one session is being watched at a
+time and only its machine writes a detail mirror. What a second machine adds is
+its own roster mirror and its own heartbeat: at one write a minute per machine
+while the page is visible, an hour of watching two laptops costs 120 writes.
+Half a percent of the day, and nothing at all when the page is in a pocket.
+
+One caveat with two daemons on one budget: **the quota is the account's, not the
+machine's.** Each daemon counts only what it spends itself, so neither sees the
+true total and both could degrade later than they should. That is acceptable at
+two machines, where the sum is well inside the ceiling. It would not be at ten,
+and the honest fix — a shared counter document — costs a write to maintain,
+which is the thing it is trying to save.
+
 ## Content in the cloud
 
 Mirroring puts threads, prompts and reports into Firestore. It is the
@@ -258,7 +333,11 @@ pairing time, and changing nothing else. Tracked as its own issue.
 - **Push notifications.** The other half of working from a phone, and its own
   subsystem: FCM, a service worker push handler, per-device subscriptions.
 - **More than one account.** The rule above admits one uid. A second person, or
-  a second Google account, is a follow-up.
+  a second Google account, is a follow-up. Several machines under one account is
+  in scope; several accounts is not.
+- **Settings across machines.** Each daemon keeps its own house rules and keys.
+  The cockpit shows the active machine's and names it; it does not merge them or
+  offer to copy one to the other.
 - **Offline queueing.** When the laptop is asleep there is nothing to talk to,
   and the cockpit says so rather than holding a prompt that will land hours
   later into stale context.
@@ -269,11 +348,14 @@ pairing time, and changing nothing else. Tracked as its own issue.
 ## Build order
 
 1. **Identity.** Google sign-in on the hosted cockpit, "Turn on remote" on the
-   laptop, the daemon holding the same uid from a persisted refresh token,
-   security rules deployed. Nothing is mirrored yet — the test is that both
-   ends can read and write one document and nobody else can.
+   laptop, the daemon holding the same uid from a persisted refresh token, its
+   own machine id and registration, security rules deployed. Nothing is mirrored
+   yet — the test is that both ends can read and write one document, that two
+   laptops register as two machines under one account, and that nobody else can
+   read either.
 2. **The wire.** The transport behind `api.ts`, command and result documents,
-   the presence-gated mirror, the write budget, `bench remote off`.
+   the presence-gated mirror, the merged roster across machines, the write
+   budget, `bench remote off`.
 3. **The phone.** The cockpit made to work on a small screen with a soft
    keyboard.
 
@@ -287,8 +369,10 @@ implementation, in the same style as the existing suite. That covers the
 request/response pairing, the coalescing, the presence timeout and the deletion
 paths without touching a network.
 
-Two things a green suite will not catch, and they are the end-to-end checks
+Three things a green suite will not catch, and they are the end-to-end checks
 worth naming now: that the daemon's refresh token actually survives a restart
-and keeps working the next day, and that a real phone on cellular can open the
-hosted cockpit and drive a specialist. Neither is a unit test. Both are done by
-hand, once, against the real project.
+and keeps working the next day; that a real phone on cellular can open the
+hosted cockpit and drive a specialist; and that two laptops signed into the same
+account both appear, with one merged roster and each row acting on the right
+machine. None is a unit test. All are done by hand, once, against the real
+project.
