@@ -7,6 +7,7 @@ import { HiddenProjects } from "./HiddenProjects.js";
 import { ThemePicker } from "./ThemePicker.js";
 import { AnthropicKey } from "./AnthropicKey.js";
 import { OpenRouterKey } from "./OpenRouterKey.js";
+import { Remote } from "./Remote.js";
 
 const PLACEHOLDER = {
   codingStyle:
@@ -135,6 +136,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         <ThemePicker />
 
         <ServerLocation open={open} />
+
+        <Remote open={open} />
 
         <HiddenProjects />
 

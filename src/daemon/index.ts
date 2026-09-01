@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { createServer } from "./server.js";
 import { HomeInUse, takeHomeLock } from "./lock.js";
@@ -7,8 +9,31 @@ import { creditSource } from "./gemini.js";
 import { CorruptIndex } from "./store.js";
 import { onStopKey } from "./stop-key.js";
 import { cockpitUrls, isLoopback } from "./urls.js";
+import { RemoteController } from "./remote/controller.js";
+import { FIREBASE_WEB_CONFIG } from "../shared/firebase-config.js";
 
 const config = loadConfig();
+
+// Bench's own version, for the machine document - best effort, since a
+// daemon run from somewhere unusual (no package.json beside it) should still
+// start rather than fail here.
+const version = (() => {
+  try {
+    return JSON.parse(readFileSync(join(config.installRoot, "package.json"), "utf8")).version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
+
+// Exists whether or not remote has ever been turned on - it is only a file
+// read away from doing anything, and `resume()` below is that read. A daemon
+// with no `~/.bench/firebase.json` behaves exactly as if this were absent.
+const remote = new RemoteController({
+  home: config.home,
+  apiKey: FIREBASE_WEB_CONFIG.apiKey,
+  projectId: FIREBASE_WEB_CONFIG.projectId,
+  version,
+});
 
 // Before anything reads or writes this home. A second daemon on one home is
 // two rosters and two writers, and it is how an index got corrupted and a
@@ -31,7 +56,13 @@ const server = createServer({
   registry,
   usage: usageSource({ benchKey: () => registry.getApiKey() }),
   credit: creditSource({ key: () => registry.getRouterKey() }),
+  remote,
 });
+
+// Resumes a Google identity from `~/.bench/firebase.json` if remote was ever
+// turned on. Never throws - a dead or missing credential just leaves remote
+// off, the same as a fresh install.
+await remote.resume();
 
 // Specialists outlive the daemon: the roster comes back from disk before
 // anyone can ask for it.
