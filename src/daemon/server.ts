@@ -25,6 +25,8 @@ import { reviewBrief, reviewLabel } from "./review.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { DEFAULT_MODEL, isProxied } from "../shared/models.js";
 import { cockpitOrigins, isLoopback } from "./urls.js";
+import type { RemoteControllerLike } from "./remote/controller.js";
+import { REMOTE_OFF as REMOTE_OFF_STATE } from "../shared/remote.js";
 import type { IntakeAnswer, RosterRow, StoredAttachment } from "../shared/types.js";
 import {
   attachmentPath, attachmentProblem, mediaTypeForName, readAttachments, storeAttachments,
@@ -65,6 +67,9 @@ export interface SessionRegistryLike {
   setModel(id: string, model: string): Promise<void>;
   setReasoningEffort(id: string, reasoningEffort: "none" | "low" | "medium" | "high"): Promise<void>;
   setRole(id: string, role: Role): Promise<void>;
+  /** See `SessionRegistry.setBroadcast` - carries every sub-agent tab this
+   * specialist opened along with it. */
+  setBroadcast(id: string, broadcast: boolean): Promise<void>;
   create(input: {
     project: string; label: string; model: string; role?: string; isolated?: boolean; createdBy?: string;
   }): Promise<string>;
@@ -211,6 +216,17 @@ export function formatIntake(answers: IntakeAnswer[], text?: string): string {
   return parts.join("\n");
 }
 
+/** What every route below answers with when nothing has been wired up to
+ * turn remote on - every existing daemon, and every test that does not care
+ * about this feature. Same shape as a daemon that has never seen the
+ * "Turn on remote" button. */
+const REMOTE_OFF: RemoteControllerLike = {
+  state: () => REMOTE_OFF_STATE,
+  connect: async () => { throw new Error("remote is not configured on this daemon"); },
+  disconnect: async () => REMOTE_OFF_STATE,
+  renameMachine: async () => { throw new Error("remote is not configured on this daemon"); },
+};
+
 /** Rejects anything that is not a well-formed intake answer from the client. */
 function readIntakeAnswers(value: unknown): IntakeAnswer[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
@@ -272,6 +288,10 @@ export function createServer(opts: {
    * by index.ts with the key the registry is holding - the server itself is
    * deliberately unable to read that key. */
   usage?: () => Promise<Usage>;
+  /** The Google identity this daemon holds, if remote has ever been turned
+   * on. Absent is exactly what a daemon with no `~/.bench/firebase.json`
+   * looks like - which is most daemons, and every one of them today. */
+  remote?: RemoteControllerLike;
 }) {
   const { config, registry } = opts;
   const index = opts.refs ?? new RefIndex();
@@ -280,6 +300,7 @@ export function createServer(opts: {
   const verifyRouter = opts.checkRouterKey ?? checkRouterKey;
   const spent = opts.usage ?? usageSource({ benchKey: () => null });
   const routerSpent = opts.credit ?? creditSource({ key: () => null });
+  const remote = opts.remote ?? REMOTE_OFF;
 
   /**
    * A throw inside an async request handler is not caught by anything: node
@@ -382,6 +403,62 @@ export function createServer(opts: {
         // Either a field over its cap, or a body that is not a whole set of
         // settings - and half a set would erase the half it left out.
         json(res, 400, { error: "settings must arrive whole, and short enough to send every turn" });
+      }
+      return;
+    }
+
+    /**
+     * The daemon's Google identity - whether it is on, whose account, which
+     * machine. Everything else about remote (#46) is built behind this: it
+     * only says who the daemon is, never moves a command or a byte of a
+     * thread. See docs/superpowers/specs/2026-08-31-bench-over-firestore-design.md.
+     */
+    if (path === "/api/remote" && req.method === "GET") {
+      json(res, 200, remote.state());
+      return;
+    }
+
+    /**
+     * Turning remote on. The cockpit has already signed in with Google in
+     * this browser and hands over what `signInWithPopup` gave it - the
+     * daemon exchanges the refresh token for its own ID token from here on,
+     * so the browser tab does not need to stay open for the daemon to stay
+     * signed in.
+     */
+    if (path === "/api/remote/identity" && req.method === "POST") {
+      const body = await readBody(req);
+      const refreshToken = String(body?.refreshToken ?? "").trim();
+      const uid = String(body?.uid ?? "").trim();
+      const email = typeof body?.email === "string" ? body.email.trim() : undefined;
+      if (refreshToken === "" || uid === "") {
+        json(res, 400, { error: "refreshToken and uid are both required" });
+        return;
+      }
+      try {
+        json(res, 200, await remote.connect(refreshToken, uid, email));
+      } catch (error) {
+        json(res, 400, { error: String(error instanceof Error ? error.message : error) });
+      }
+      return;
+    }
+
+    if (path === "/api/remote" && req.method === "DELETE") {
+      json(res, 200, await remote.disconnect());
+      return;
+    }
+
+    /** "Which laptop is this" is a question the cockpit has to answer in a
+     * word, and the word is whatever the developer typed here. */
+    if (path === "/api/remote/machine" && req.method === "POST") {
+      const name = String((await readBody(req))?.name ?? "").trim();
+      if (name === "") {
+        json(res, 400, { error: "a machine needs a name" });
+        return;
+      }
+      try {
+        json(res, 200, await remote.renameMachine(name));
+      } catch (error) {
+        json(res, 400, { error: String(error instanceof Error ? error.message : error) });
       }
       return;
     }
@@ -926,6 +1003,21 @@ export function createServer(opts: {
         process.stderr.write(`bench: could not change the role: ${String(error)}\n`);
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
       }
+      return;
+    }
+
+    /**
+     * Whether this specialist - and its sub-agent tabs - may be mirrored to
+     * Firestore. See "Build broadcast first" in the design; every other
+     * remote route in this file refuses a session this is false for.
+     */
+    const broadcast = path.match(/^\/api\/sessions\/([^/]+)\/broadcast$/);
+    if (broadcast && req.method === "POST") {
+      if (!registry.get(broadcast[1])) { json(res, 404, { error: "no such session" }); return; }
+      const on = (await readBody(req))?.broadcast;
+      if (typeof on !== "boolean") { json(res, 400, { error: "broadcast must be true or false" }); return; }
+      await registry.setBroadcast(broadcast[1], on);
+      json(res, 200, { broadcast: on });
       return;
     }
 

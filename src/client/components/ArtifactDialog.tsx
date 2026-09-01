@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { artifactUrl } from "../api.js";
+import { useEffect, useRef, useState } from "react";
+import { loadArtifact, type ArtifactContent } from "../api.js";
 import { useTheme } from "../theme.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
 import { ShareReport } from "./ShareReport.js";
@@ -34,8 +34,22 @@ export function ArtifactDialog({
   // The theme rides on the artifact URL, so a report left open through a
   // theme change has to be asked for again to be redrawn. Subscribing here is
   // what makes the src change; the frame reloads itself off the back of it.
-  useTheme();
-  const src = open && sessionId ? artifactUrl(sessionId, open.seq, open.file) : null;
+  const theme = useTheme();
+  const [content, setContent] = useState<ArtifactContent | null>(null);
+
+  useEffect(() => {
+    if (!open || !sessionId) { setContent(null); return; }
+    let live = true;
+    void loadArtifact(sessionId, open.seq, open.file).then((result) => { if (live) setContent(result); });
+    return () => { live = false; };
+    // `theme` is read to force a reload on a theme change - a relayed report
+    // has to be fetched again to be redrawn in it, the same reason a local
+    // one's `src` used to change.
+  }, [open, sessionId, theme]);
+
+  // The "open in a real tab" link only makes sense for a local report - a
+  // relayed one has no URL a browser tab can reach on its own.
+  const src = content?.kind === "url" ? content.url : null;
 
   return (
     <dialog
@@ -70,7 +84,12 @@ export function ArtifactDialog({
           ×
         </button>
       </header>
-      {src && <iframe id="artifact-frame" sandbox="allow-same-origin" title={open!.title} src={src} />}
+      {open && content?.kind === "url" && (
+        <iframe id="artifact-frame" sandbox="allow-same-origin" title={open.title} src={content.url} />
+      )}
+      {open && content?.kind === "html" && (
+        <iframe id="artifact-frame" sandbox="allow-same-origin" title={open.title} srcDoc={content.html} />
+      )}
     </dialog>
   );
 }

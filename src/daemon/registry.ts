@@ -658,6 +658,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           createdBy: rec.createdBy ?? null,
           pendingPrompt: null,
           reasoningEffort: rec.reasoningEffort,
+          broadcast: rec.broadcast ?? false,
         },
       });
     }
@@ -1029,6 +1030,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         createdBy: input.createdBy ?? null,
         pendingPrompt: null,
         reasoningEffort,
+        // Off by default. See `setBroadcast` for what turning it on means.
+        broadcast: false,
       },
     });
     this.emit("roster");
@@ -1363,6 +1366,52 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     } else {
       this.emit("roster");
     }
+  }
+
+  /**
+   * Whether this specialist - and everything `bench new` opened underneath
+   * it - may be mirrored to Firestore.
+   *
+   * Off by default, on one specialist at a time, and never inferred: see
+   * "Broadcast decides what may be mirrored at all" in the design. Turning it
+   * on carries every descendant `bench new` opened from this tab, because a
+   * specialist and the researcher it spun up are one piece of work and
+   * splitting them would mean broadcasting a parent whose findings cannot be
+   * read. Turning it off does the same in reverse - a child left broadcast
+   * after its parent stopped being reachable would be a leak, not a choice.
+   *
+   * This only changes the local flag. Deleting an already-mirrored
+   * specialist's documents the moment broadcast goes off is the remote
+   * bridge's job, reacting to the same `"roster"` event this emits - not
+   * this method's, which has no idea whether remote is even on.
+   */
+  async setBroadcast(id: string, broadcast: boolean): Promise<void> {
+    const entry = this.entries.get(id);
+    if (!entry) throw new Error("no such specialist");
+
+    const family = this.descendants(id);
+    for (const member of [entry, ...family]) {
+      if (member.row.broadcast === broadcast) continue;
+      member.row.broadcast = broadcast;
+      this.remember(this.store.setBroadcast(member.row.id, broadcast));
+    }
+    this.emit("roster");
+  }
+
+  /** Every entry `bench new` opened from `id`, at any depth - the set that
+   * moves with it when broadcast changes. */
+  private descendants(id: string): Entry[] {
+    const found: Entry[] = [];
+    const frontier = [id];
+    while (frontier.length > 0) {
+      const parent = frontier.shift()!;
+      for (const candidate of this.entries.values()) {
+        if (candidate.row.createdBy !== parent) continue;
+        found.push(candidate);
+        frontier.push(candidate.row.id);
+      }
+    }
+    return found;
   }
 
   /**

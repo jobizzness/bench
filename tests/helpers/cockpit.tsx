@@ -4,6 +4,7 @@ import { App } from "../../src/client/components/App.js";
 import type { PlanStep } from "../../src/daemon/plan.js";
 import type { Total } from "../../src/daemon/ledger.js";
 import type { Decision, RosterRow, ThreadEntry } from "../../src/shared/types.js";
+import { REMOTE_OFF, type RemoteState } from "../../src/shared/remote.js";
 import { waitFor } from "./wait-for.js";
 
 /**
@@ -68,6 +69,11 @@ export interface Fixtures {
   /** The turn the picker prices every model against. Undefined is a daemon
    * that has recorded none, which is the ordinary case in a test. */
   turnShape?: { shape: unknown; turns: number };
+  /** The daemon's Google identity. Undefined is remote never having been
+   * turned on, which is the ordinary case in a test. */
+  remote?: RemoteState;
+  /** What the daemon says when the cockpit asks it to connect or rename. */
+  remoteReply?: { status: number; body: unknown };
 }
 
 export interface Cockpit {
@@ -192,6 +198,36 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       if (method !== "GET") sent.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
       const held = fixtures.routerKey ?? { present: false, hint: "" };
       return { ok: true, status: 200, json: async () => ({ ...held, verified: true }) };
+    }
+
+    // Its own branch above the rest, the same reason the key has one: three
+    // verbs on one path, and what comes back from connecting or renaming is
+    // what Settings shows next.
+    if (url.includes("/api/remote")) {
+      const method = init?.method ?? "GET";
+      if (method === "GET") return { ok: true, status: 200, json: async () => fixtures.remote ?? REMOTE_OFF };
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      sent.push({ url, body });
+      if (method === "DELETE") return { ok: true, status: 200, json: async () => REMOTE_OFF };
+
+      const reply = fixtures.remoteReply;
+      if (reply) return { ok: reply.status < 400, status: reply.status, json: async () => reply.body };
+
+      if (url.endsWith("/api/remote/machine")) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ ...(fixtures.remote ?? REMOTE_OFF), connected: true, machineName: body.name }),
+        };
+      }
+      // /api/remote/identity: simulates the daemon accepting whatever the
+      // popup handed the cockpit.
+      return {
+        ok: true, status: 200,
+        json: async () => ({
+          ...REMOTE_OFF, connected: true, uid: body.uid, email: body.email ?? null,
+          machineId: "m1", machineName: "this-machine", tokenExpiresAt: Date.now() + 3_600_000,
+        }),
+      };
     }
 
     if (url.includes("/api/turn-shape")) {

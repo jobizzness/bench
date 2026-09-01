@@ -19,6 +19,8 @@ import { BrainMark } from "./BrainMark.js";
 import { Mark } from "./Mark.js";
 import { Offline } from "./Offline.js";
 import { ServerSetup } from "./ServerSetup.js";
+import { SignIn } from "./SignIn.js";
+import { useFirebaseUser } from "./useFirebaseUser.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
 import { Queue } from "./Queue.js";
 import { Progress } from "./Progress.js";
@@ -51,8 +53,8 @@ import { isWaiting } from "../waiting.js";
  * to draw it.
  */
 export function App() {
-  const { rows, live } = useRoster();
   const { selectedId, select } = useSelection();
+  const { rows, live, wakingMachines, degradedMachines, activeMachineName } = useRoster(selectedId);
   const row = rows.find((r) => r.id === selectedId) ?? null;
 
   const { entries, reload } = useThread(selectedId, threadSignature(row));
@@ -79,8 +81,15 @@ export function App() {
   const [githubOpen, setGithubOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   // A copy of the cockpit on static hosting opens knowing nothing about any
-  // daemon, and the first thing it has to do is ask.
-  const [setupOpen, setSetupOpen] = useState(() => endpoint() === null);
+  // daemon, and usually has to ask - unless it is signed into Firebase, in
+  // which case it is not lost, it is a phone. Starts closed rather than
+  // guessing: whether to open it, and to which screen, waits for
+  // `firebaseUser.loading` to resolve, in the effect below.
+  const [setupOpen, setSetupOpen] = useState(false);
+  // Overrides the sign-in screen for someone who meant to type an address -
+  // "point at a daemon directly" is a fallback, not a dead end either way.
+  const [wantsAddress, setWantsAddress] = useState(false);
+  const firebaseUser = useFirebaseUser();
   const everConnected = useRef(false);
   const hiddenProjects = useHiddenProjects();
   const input = useRef<HTMLTextAreaElement>(null);
@@ -123,14 +132,16 @@ export function App() {
   // wrong address - and the address is only ours to correct when somebody
   // typed it in the first place.
   useEffect(() => {
+    if (firebaseUser.loading) return;
     const ask = shouldAskForServer({
       known: endpoint() !== null,
       live,
       everConnected: everConnected.current,
       remote: isRemote(),
+      signedIn: firebaseUser.user !== null,
     });
     if (ask) setSetupOpen(true);
-  }, [live]);
+  }, [live, firebaseUser.loading, firebaseUser.user]);
 
   // Where the installed app's one shortcut lands. The hash is cleared as it
   // is read, so reloading the page you were left on does not reopen it.
@@ -268,6 +279,27 @@ export function App() {
           </header>
           <ul id="roster-list"><Roster /></ul>
 
+          {/* A remote machine that is running but has not mirrored anything
+              for this viewer yet - idling can take up to a minute to notice
+              a new one. Said plainly rather than left as an empty roster
+              that looks the same as nothing being broadcast there. */}
+          {wakingMachines.length > 0 && (
+            <p id="waking-machines" className="field-note">
+              Waking {wakingMachines.map((m) => m.name).join(", ")}…
+            </p>
+          )}
+
+          {/* A machine quietly slowing its own mirror down near the daily
+              write ceiling - said plainly rather than left to be noticed as
+              staleness with no explanation. See "The write budget" in the
+              design. */}
+          {degradedMachines.length > 0 && (
+            <p id="degraded-machines" className="field-note">
+              {degradedMachines.map((m) => m.name).join(", ")} {degradedMachines.length === 1 ? "is" : "are"}{" "}
+              near today's Firestore limit and updating more slowly.
+            </p>
+          )}
+
           {/* At the foot of the pane, where settings live in everything else.
               It is not something you reach for while working, and the header
               is for what you do reach for. */}
@@ -387,12 +419,32 @@ export function App() {
         onClose={() => setCreating(false)}
         onNeedKey={() => { setCreating(false); setSettingsOpen(true); }}
       />
-      <ServerSetup
-        open={setupOpen}
-        // Nothing to go back to until this page knows where its daemon is.
-        onClose={endpoint() === null ? null : () => setSetupOpen(false)}
-      />
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {/* No endpoint, nobody signed in: sign-in is the front door, not this.
+          "Where is Bench running?" is what someone reaches for on purpose,
+          via the link below - see "The phone's first screen is sign-in" in
+          the design. */}
+      {setupOpen && endpoint() === null && firebaseUser.user === null && !wantsAddress
+        ? (
+          <SignIn
+            busy={false}
+            error={firebaseUser.error}
+            onSignIn={() => void firebaseUser.signIn()}
+            onUseAddressInstead={() => setWantsAddress(true)}
+          />
+        )
+        : (
+          <ServerSetup
+            open={setupOpen}
+            // Nothing to go back to only when none of the three ways out of
+            // this screen apply: no known daemon, nobody signed in, and this
+            // was not reached by deliberately asking for it from `SignIn` -
+            // which is exactly when `SignIn` would be showing instead of this.
+            onClose={endpoint() === null && firebaseUser.user === null && !wantsAddress
+              ? null
+              : () => { setSetupOpen(false); setWantsAddress(false); }}
+          />
+        )}
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} activeMachineName={activeMachineName} />
 
       {/* Only ever for a specialist that exists. The roster carries the new
           model back, so nothing is held here that the daemon has not agreed

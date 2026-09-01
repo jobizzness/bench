@@ -1,8 +1,10 @@
 # Bench over Firestore — design
 
 Status: approved 2026-08-31. Revised 2026-09-01 for more than one machine per
-account, and again for broadcast — remote is opt-in per specialist rather than
-on for everything.
+account, again for broadcast — remote is opt-in per specialist rather than
+on for everything — and again for what #46 found while building the wire:
+the daemon polls rather than holding a listener, and broadcast is what makes
+that affordable. See "The daemon polls" below.
 
 ## What this is
 
@@ -100,7 +102,8 @@ Low volume, initiated by the phone, wants an answer.
 /users/{uid}/machines/{machineId}/results/{id}    { status, body }             daemon writes
 ```
 
-The daemon holds a listener on `commands`. It executes each one **against its
+The daemon reads `commands` on the same poll that serves the mirror — see "The
+daemon polls" below for why it cannot listen. It executes each one **against its
 own HTTP server on loopback, carrying its own token**, and writes the response
 to `results/{id}`. The phone's listener on `results` resolves the promise that
 `authFetch` returned. Both documents are then deleted.
@@ -143,30 +146,76 @@ The daemon does not mirror unless somebody is watching, and mirrors only what
 they are watching.
 
 ```
-/users/{uid}/machines/{machineId}/viewers/{deviceId}   { at, watching: sessionId | null }
+/users/{uid}/machines/{machineId}/presence/state   { viewers: { [deviceId]: { at, watching } } }
 ```
 
-The phone writes that document and refreshes `at` on a heartbeat — **every 60
+**One document, not a collection.** The daemon reads this on a timer, and a
+collection listing bills one read per document where a single document bills
+one read flat, forever, however many devices you own. Same reason the mirror is
+one document per thing rather than an append-only log.
+
+The trailing `/state` is one segment more than earlier drafts of this path
+had. A Firestore path alternates collection/document/collection/document —
+`.../machines/{machineId}/presence` on its own names a *collection* called
+`presence`, the same shape `.../machines/{machineId}/mirror` has for
+`mirror/roster`. Found by a fake that enforces the same alternation Firestore
+itself does (`fake-firestore.ts`'s even/odd segment-count check) refusing to
+treat it as a document - the fake caught this before it could have been
+caught by hand against the real project.
+
+The phone writes its entry and refreshes `at` on a heartbeat — **every 60
 seconds, and only while the page is visible.** A viewer is stale after three
 minutes. A phone in a pocket is not a viewer, which is the point: an idle tab
 must not spend the day's write budget proving it is still open.
+
+Firestore has no `onDisconnect`, so a phone that is killed or loses signal
+cannot tell anyone it has gone; the staleness window is what stands in for it.
+Realtime Database does have `onDisconnect`, and the official presence pattern
+uses RTDB for exactly this and mirrors the result into Firestore. That is a
+second product, a second ruleset and a second SDK in the client, to save a
+three-minute delay in noticing a phone has gone. Not worth it here — but it is
+the reason the window exists rather than an oversight.
 
 The daemon mirrors the roster while any viewer's heartbeat is fresh, and mirrors
 `mirror/{sessionId}` only for sessions some viewer has open. When the last
 heartbeat goes stale, the daemon deletes the mirror.
 
-The order matters and is worth stating, because it is what keeps the resting
-cost at zero: the daemon holds a listener on `viewers` whenever remote is on —
-idle listeners are free — and writes nothing until one appears. So a phone
-announces itself first, and the machine answers. A machine that does not answer
-within a few seconds is asleep, and the cockpit says so rather than inventing a
-roster for it.
+### The daemon polls, and broadcast is what makes that affordable
+
+The daemon cannot hold a listener. Firestore's real-time channel is gRPC and
+its SDK takes its token from a component only `firebase/auth` registers, and
+`firebase/auth` cannot be signed in from a stored refresh token in Node. Both
+ways round that — a custom persistence built on `_`-prefixed internals, or a
+hand-rolled gRPC client — work today and rest on parts of Firebase its own
+versioning policy refuses to protect. Neither is a thing to put a daily tool on.
+
+So the daemon polls, and the whole question becomes when it is allowed to stop:
+
+- **Nothing broadcast — no polling at all.** Broadcast is strict, so an empty
+  broadcast set is an empty mirror, and a phone that arrived could see nothing
+  anyway. There is no question worth asking, so it is not asked. At your desk
+  with nothing broadcast, remote costs exactly zero.
+- **Broadcast, nobody watching for five minutes — idle.** Poll every 60
+  seconds instead of every five. Enough to notice a phone within a minute,
+  cheap enough to leave on for a fortnight: 1,440 reads a day against a ceiling
+  of 50,000.
+- **Somebody watching — awake.** Every five seconds, and the mirror runs.
+
+Idling means slowing down, not stopping. A broadcast specialist that became
+unreachable while you were at lunch would defeat the point of broadcasting it.
+
+A phone announces itself first and the machine answers, so a machine that does
+not answer is asleep — and after an idle period that can take up to a minute.
+The cockpit says it is waking rather than inventing a roster for it.
 
 Three things fall out of this, and they are the reason the design is shaped this
 way:
 
-- **At your desk, nothing is written to Firestore at all.** No phone, no
-  viewer, no mirror. Remote costs nothing when it is not in use.
+- **At your desk with nothing broadcast, Firestore is not touched at all.** No
+  poll, no viewer, no mirror. One exception, and it is deliberate: while remote
+  is on the daemon refreshes its own machine document every 90 seconds, so the
+  roster can say which laptops are alive. That is 960 writes a day against
+  20,000.
 - **The cleanup is not a chore bolted on.** The mirror's lifetime is the
   viewer's, so "clean up when we are done" is the normal path rather than a
   thing to remember.
@@ -432,3 +481,23 @@ hosted cockpit and drive a specialist; and that two laptops signed into the same
 account both appear, with one merged roster and each row acting on the right
 machine. None is a unit test. All are done by hand, once, against the real
 project.
+
+## What #46 actually built
+
+Slice 2's code is in on the daemon side: broadcast (with its cascade to
+sub-agent tabs and immediate mirror deletion on turning it off), the
+command/result round trip with the daemon refusing anything naming a
+non-broadcast session, presence, the coalesced write-budget-aware mirror,
+`bench remote off`, and the encode/decode seam - all against a fake
+document store, none of it touching a network. See this ticket's own report
+and issue comment for the exact list, and "The daemon's listener, in
+practice" above for the one place the daemon's behaviour differs from what
+this document originally described.
+
+The client side is built to the same shape - the transport switch in
+`api.ts`, the merged roster and presence heartbeat in `useRoster.ts`, the
+sign-in-first screen, `artifactUrl`'s `srcdoc` change, offline persistence -
+but could not be run against a real browser and the real `bench-cockpit`
+project from inside this environment. What a green suite proves and what a
+phone on cellular proves are different claims; see the report for exactly
+which is which.

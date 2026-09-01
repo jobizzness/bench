@@ -16,9 +16,13 @@ const exec = promisify(execFile);
 async function fakeDaemon(opts: {
   closeStatus?: number;
   closeBody?: any;
-} = {}): Promise<{ url: string; lastBody: () => any; closed: () => string[]; close: () => Promise<void> }> {
+} = {}): Promise<{
+  url: string; lastBody: () => any; closed: () => string[]; close: () => Promise<void>;
+  remoteOffCalls: () => number;
+}> {
   let lastBody: any;
   const closedIds: string[] = [];
+  let remoteOffCalls = 0;
   const server: Server = createServer((req, res) => {
     let data = "";
     req.on("data", (c) => (data += c));
@@ -51,6 +55,12 @@ async function fakeDaemon(opts: {
         res.end(JSON.stringify(opts.closeBody ?? { ok: true }));
         return;
       }
+      if (req.url === "/api/remote" && req.method === "DELETE") {
+        remoteOffCalls += 1;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ connected: false, uid: null, email: null, machineId: null, machineName: null, platform: null, tokenExpiresAt: null, error: null }));
+        return;
+      }
       res.writeHead(404);
       res.end();
     });
@@ -63,6 +73,7 @@ async function fakeDaemon(opts: {
     lastBody: () => lastBody,
     closed: () => closedIds,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    remoteOffCalls: () => remoteOffCalls,
   };
 }
 
@@ -191,5 +202,18 @@ describe("bench close", () => {
 
     // Asked once, plainly - never retried with force from the CLI itself.
     expect(daemon.closed()).toEqual(["sess-child"]);
+  });
+});
+
+describe("bench remote off", () => {
+  let daemon: Awaited<ReturnType<typeof fakeDaemon>>;
+  afterEach(async () => { await daemon?.close(); });
+
+  it("asks the daemon to turn remote off", async () => {
+    daemon = await fakeDaemon();
+    const { stderr } = await runBench({ BENCH_URL: daemon.url, BENCH_TOKEN: "tok" }, ["remote", "off"]);
+
+    expect(daemon.remoteOffCalls()).toBe(1);
+    expect(stderr).toContain("remote is off");
   });
 });

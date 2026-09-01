@@ -1,5 +1,7 @@
 import { currentEndpoint, saveEndpoint, socketUrl, type Endpoint } from "./endpoint.js";
 import { currentTheme } from "./theme.js";
+import { sendCommand } from "./remote-transport.js";
+import { sessionIdIn } from "../shared/remote-paths.js";
 
 /**
  * The daemon this page is talking to, resolved once on load.
@@ -42,6 +44,65 @@ export function pointAt(next: Endpoint): void {
 }
 
 /**
+ * Which machine a call belongs to, and how that is decided.
+ *
+ * A transport belongs to a machine, not to the page: direct for the machine
+ * that served this page (unchanged, everything above this comment), relayed
+ * for every other machine on the account. Which machine a call is for
+ * follows from the session it names - `useRoster.ts` is what knows that,
+ * from the merged roster, and calls `routeSession` as it learns it. Nothing
+ * else has to know: `authFetch` and `postJson` below are the only callers of
+ * `machineFor`, and every one of the 45 call sites elsewhere is unchanged.
+ */
+export interface MachineRef {
+  uid: string;
+  machineId: string;
+}
+
+const sessionMachine = new Map<string, MachineRef>();
+let activeMachine: MachineRef | null = null;
+
+/** Called by `useRoster.ts` as the merged roster changes. A session with no
+ * entry - every session on the machine that served this page - is local. */
+export function routeSession(sessionId: string, machine: MachineRef | null): void {
+  if (machine === null) sessionMachine.delete(sessionId);
+  else sessionMachine.set(sessionId, machine);
+}
+
+/**
+ * Which machine a session is on, for a caller that has to behave differently
+ * over the relay rather than just letting `authFetch` carry it - `null` for
+ * local. `useSessionPlan.ts` is the one caller today: a relayed session
+ * reads its plan from the mirror instead of polling, which only it can
+ * decide, since `authFetch` itself has no idea a request is about to
+ * recur every two seconds.
+ */
+export function getSessionMachine(sessionId: string): MachineRef | null {
+  return sessionMachine.get(sessionId) ?? null;
+}
+
+/**
+ * Which machine the machine-global routes - Settings, the API keys, the
+ * project list, the spend meters - answer for. Follows the specialist
+ * currently open, defaulting to local; see "Machine-global routes" in the
+ * design. Set by `useRoster.ts` alongside `routeSession`, from the same
+ * merged roster.
+ */
+export function setActiveMachine(machine: MachineRef | null): void {
+  activeMachine = machine;
+}
+
+export function getActiveMachine(): MachineRef | null {
+  return activeMachine;
+}
+
+function machineFor(path: string): MachineRef | null {
+  const sessionId = sessionIdIn(path);
+  if (sessionId !== null) return sessionMachine.get(sessionId) ?? null;
+  return activeMachine;
+}
+
+/**
  * Every request that comes back unauthorised means the same thing, and the
  * page cannot recover from it by trying harder - so it is announced once and
  * whoever is showing the banner listens.
@@ -52,8 +113,23 @@ export function linkIsStale(): void {
   document.dispatchEvent(new Event(STALE_EVENT));
 }
 
-/** Every request carries the cockpit token; a 401 means the link is stale. */
+/**
+ * Every request carries the cockpit token; a 401 means the link is stale.
+ *
+ * When the path names a session on another machine, this becomes a command
+ * document and its result rather than a direct request - see `machineFor`
+ * above and `remote-transport.ts`. The caller never has to know: both paths
+ * end in a real `Response`, so every one of the 45 call sites elsewhere reads
+ * `.ok`, `.status` and `.json()` exactly as before.
+ */
 export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
+  const machine = machineFor(path);
+  if (machine !== null) {
+    const body = typeof init?.body === "string" && init.body !== "" ? JSON.parse(init.body) : undefined;
+    const result = await sendCommand(machine.uid, machine.machineId, init?.method ?? "GET", path, body);
+    return new Response(result.text, { status: result.status, headers: { "content-type": result.contentType } });
+  }
+
   const res = await fetch(apiUrl(path), {
     ...init,
     headers: { "x-bench-token": token(), ...(init?.headers ?? {}) },
@@ -82,3 +158,27 @@ export const postJson = (path: string, body: unknown): Promise<Response> =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+
+/**
+ * A report either has a URL to hand an `<iframe>` (local: unchanged from
+ * before) or has to be fetched as content and rendered with `srcdoc` (a
+ * relayed machine, where there is no URL a browser can reach) - see
+ * "`artifactUrl` changes rather than moves" in the design. The two callers,
+ * `ArtifactDialog.tsx` and `ArtifactCard.tsx`, are the only places that need
+ * to know which kind they got.
+ */
+export type ArtifactContent =
+  | { kind: "url"; url: string }
+  | { kind: "html"; html: string };
+
+export async function loadArtifact(sessionId: string, seq: number, file: string): Promise<ArtifactContent> {
+  const machine = sessionMachine.get(sessionId) ?? null;
+  if (machine === null) return { kind: "url", url: artifactUrl(sessionId, seq, file) };
+
+  const result = await sendCommand(
+    machine.uid, machine.machineId, "GET",
+    `/r/${sessionId}/${seq}/${file}?theme=${encodeURIComponent(currentTheme())}`,
+    undefined,
+  );
+  return { kind: "html", html: result.text };
+}

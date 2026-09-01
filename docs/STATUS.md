@@ -1,7 +1,10 @@
 # Bench — where it stands
 
-Last updated 2026-08-26. 1044 tests passing, 2 end-to-end suites run
-separately against the real CLI.
+Last updated 2026-09-01. 1427 tests passing, 8 skipped (2 end-to-end
+suites run separately against the real CLI, and a Firestore rules suite
+run separately against the emulator), 4 failing and unrelated to anything
+on this page — pre-existing, tracked as
+[#50](https://github.com/jobizzness/bench/issues/50).
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
 work as decision-shaped pages served on localhost. This is an honest
@@ -141,6 +144,31 @@ reach no specialist.
 
 ## Built, not yet proven in anger
 
+- **A Google identity for the daemon** ([#45](https://github.com/jobizzness/bench/issues/45),
+  slice 1 of the [Firestore design](superpowers/specs/2026-08-31-bench-over-firestore-design.md)).
+  "Turn on remote" in Settings signs in with Google, hands the daemon the
+  refresh token and uid, and the daemon persists both plus a machine id it
+  mints once to `~/.bench/firebase.json` at mode `0600` — then exchanges
+  the refresh token for an hour-long ID token at
+  `securetoken.googleapis.com/v1/token` directly, refreshing five minutes
+  before it expires, and registers `/users/{uid}/machines/{machineId}` over
+  the plain Firestore REST API. No Admin SDK and no Firebase SDK of any kind
+  on the daemon side — only the browser bundle imports `firebase/auth`, for
+  `signInWithPopup`. Nothing is mirrored and no traffic moves through
+  Firestore yet; that is slice 2 ([#46](https://github.com/jobizzness/bench/issues/46)).
+  Persistence, the file mode, refresh-before-expiry, a revoked token
+  surfacing as "sign in again" instead of a crash loop, and all three routes
+  are unit-tested against a fake Firestore and a fake `securetoken`
+  endpoint. The `bench-cockpit` project is now real: a web app is registered,
+  its config is committed, Firestore exists in `eur3`, and `firestore.rules`
+  is deployed. What is unproven: **nobody has signed in**. Firebase
+  Authentication has not been switched on for the project — the admin API for
+  it answers `CONFIGURATION_NOT_FOUND`, and turning it on is a console action
+  — so `signInWithPopup` has nothing to talk to. Also unproven: two machines
+  under one account, which needs a second laptop; and the rules, which are
+  deployed but have never been exercised by a request, because
+  `tests/firestore-rules.test.ts` needs a Java 21 emulator. Tracked as
+  [#52](https://github.com/jobizzness/bench/issues/52).
 - **The decision loop end to end through the browser.** Answers post back
   into the live session and the mechanics are tested, but nobody has yet
   run a real task to completion and answered it from the cockpit.
@@ -330,4 +358,5 @@ start; and the daemon must be launched from the repo root.
 
 - [`specs/2026-08-21-bench-design.md`](superpowers/specs/2026-08-21-bench-design.md) — architecture, gates, the report contract
 - [`specs/2026-08-21-bench-conversation-design.md`](superpowers/specs/2026-08-21-bench-conversation-design.md) — turn kinds, the thread, the cockpit
+- [`specs/2026-08-31-bench-over-firestore-design.md`](superpowers/specs/2026-08-31-bench-over-firestore-design.md) — reaching the daemon from a phone: identity, the wire, the mobile layout
 - [`plans/`](superpowers/plans/) — the implementation plans both were built from
