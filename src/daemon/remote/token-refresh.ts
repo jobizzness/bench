@@ -52,7 +52,15 @@ export async function exchangeRefreshToken(
     // A dead refresh token comes back 400 with a body naming the reason
     // (TOKEN_EXPIRED, USER_DISABLED, USER_NOT_FOUND) - the daemon does not
     // need to tell those apart, only that this token is never working again.
-    throw new RefreshRejected(`refresh token was rejected: ${res.status}`);
+    // 401 and 403 are the same claim from a different door. Anything else -
+    // 429, 500, 502, 503 - says nothing about the token itself: it is Google
+    // having a bad day, and treating it as a dead credential would log the
+    // developer out for good over an outage the retry path below already
+    // knows how to wait out.
+    if (res.status === 400 || res.status === 401 || res.status === 403) {
+      throw new RefreshRejected(`refresh token was rejected: ${res.status}`);
+    }
+    throw new Error(`securetoken.googleapis.com answered ${res.status}`);
   }
 
   const body = await res.json() as {

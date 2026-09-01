@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      firebase:
-        specifier: ^11.1.0
-        version: 11.10.0
       ws:
         specifier: ^8.18.0
         version: 8.21.3
@@ -36,6 +33,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      firebase:
+        specifier: ^11.1.0
+        version: 11.10.0
       jsdom:
         specifier: ^30.0.1
         version: 30.0.1

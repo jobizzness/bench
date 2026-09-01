@@ -34,11 +34,25 @@ describe("exchanging a refresh token for an ID token", () => {
     expect(seenBody).toContain("refresh_token=my-refresh-token");
   });
 
-  it("treats a rejected token as RefreshRejected, not a generic failure", async () => {
+  it.each([400, 401, 403])("treats a %i as RefreshRejected - the token itself is dead", async (status) => {
     await expect(
-      exchangeRefreshToken("key", "dead", fetchAnswering(400, { error: { message: "TOKEN_EXPIRED" } })),
+      exchangeRefreshToken("key", "dead", fetchAnswering(status, { error: { message: "TOKEN_EXPIRED" } })),
     ).rejects.toThrow(RefreshRejected);
   });
+
+  it.each([429, 500, 502, 503])(
+    "does not treat a %i as a rejection - it says nothing about the token, only that Google is having a bad day",
+    async (status) => {
+      let caught: unknown = null;
+      try {
+        await exchangeRefreshToken("key", "rt", fetchAnswering(status, { error: { message: "backend error" } }));
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).not.toBeNull();
+      expect(caught).not.toBeInstanceOf(RefreshRejected);
+    },
+  );
 
   it("does not call a network failure a rejection - it says nothing about the token", async () => {
     const offline = (async () => { throw new Error("getaddrinfo ENOTFOUND"); }) as unknown as typeof fetch;
@@ -130,6 +144,45 @@ describe("Refresher", () => {
     const callsAfterRejection = calls;
     await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
     expect(calls).toBe(callsAfterRejection);
+  });
+
+  it("retries a transient 503 on the MIN_DELAY_MS floor and recovers, without ever calling onRejected", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      // The scheduled refresh at 55 minutes hits an outage twice before
+      // Google recovers on the third try.
+      if (calls >= 2 && calls <= 3) {
+        return new Response(JSON.stringify({ error: { message: "backend error" } }), { status: 503 });
+      }
+      return new Response(JSON.stringify({ ...OK_BODY, id_token: `id-${calls}` }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    let rejected: unknown = null;
+    const refresher = new Refresher({
+      apiKey: "key", fetchImpl,
+      onRotated: () => {},
+      onRejected: (error) => { rejected = error; },
+    });
+    await refresher.start("rt-0");
+    expect(calls).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(55 * 60 * 1000); // the scheduled refresh: 503
+    expect(calls).toBe(2);
+    // Still holding the previous (still valid) token - an outage must not
+    // clear what is already good.
+    expect(refresher.idToken()).toBe("id-1");
+    expect(rejected).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(10_000); // MIN_DELAY_MS retry: 503 again
+    expect(calls).toBe(3);
+    expect(rejected).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(10_000); // MIN_DELAY_MS retry: recovers
+    expect(calls).toBe(4);
+    expect(refresher.idToken()).toBe("id-4");
+    expect(rejected).toBeNull();
   });
 
   it("stop() clears the token and cancels the pending refresh", async () => {
