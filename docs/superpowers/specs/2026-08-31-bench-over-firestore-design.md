@@ -193,30 +193,67 @@ The daemon does not mirror unless somebody is watching, and mirrors only what
 they are watching.
 
 ```
-/users/{uid}/machines/{machineId}/viewers/{deviceId}   { at, watching: sessionId | null }
+/users/{uid}/machines/{machineId}/presence   { viewers: { [deviceId]: { at, watching } } }
 ```
 
-The phone writes that document and refreshes `at` on a heartbeat — **every 60
+**One document, not a collection.** The daemon reads this on a timer, and a
+collection listing bills one read per document where a single document bills
+one read flat, forever, however many devices you own. Same reason the mirror is
+one document per thing rather than an append-only log.
+
+The phone writes its entry and refreshes `at` on a heartbeat — **every 60
 seconds, and only while the page is visible.** A viewer is stale after three
 minutes. A phone in a pocket is not a viewer, which is the point: an idle tab
 must not spend the day's write budget proving it is still open.
+
+Firestore has no `onDisconnect`, so a phone that is killed or loses signal
+cannot tell anyone it has gone; the staleness window is what stands in for it.
+Realtime Database does have `onDisconnect`, and the official presence pattern
+uses RTDB for exactly this and mirrors the result into Firestore. That is a
+second product, a second ruleset and a second SDK in the client, to save a
+three-minute delay in noticing a phone has gone. Not worth it here — but it is
+the reason the window exists rather than an oversight.
 
 The daemon mirrors the roster while any viewer's heartbeat is fresh, and mirrors
 `mirror/{sessionId}` only for sessions some viewer has open. When the last
 heartbeat goes stale, the daemon deletes the mirror.
 
-The order matters and is worth stating, because it is what keeps the resting
-cost at zero: the daemon holds a listener on `viewers` whenever remote is on —
-idle listeners are free — and writes nothing until one appears. So a phone
-announces itself first, and the machine answers. A machine that does not answer
-within a few seconds is asleep, and the cockpit says so rather than inventing a
-roster for it.
+### The daemon polls, and broadcast is what makes that affordable
+
+The daemon cannot hold a listener. Firestore's real-time channel is gRPC and
+its SDK takes its token from a component only `firebase/auth` registers, and
+`firebase/auth` cannot be signed in from a stored refresh token in Node. Both
+ways round that — a custom persistence built on `_`-prefixed internals, or a
+hand-rolled gRPC client — work today and rest on parts of Firebase its own
+versioning policy refuses to protect. Neither is a thing to put a daily tool on.
+
+So the daemon polls, and the whole question becomes when it is allowed to stop:
+
+- **Nothing broadcast — no polling at all.** Broadcast is strict, so an empty
+  broadcast set is an empty mirror, and a phone that arrived could see nothing
+  anyway. There is no question worth asking, so it is not asked. At your desk
+  with nothing broadcast, remote costs exactly zero.
+- **Broadcast, nobody watching for five minutes — idle.** Poll every 60
+  seconds instead of every five. Enough to notice a phone within a minute,
+  cheap enough to leave on for a fortnight: 1,440 reads a day against a ceiling
+  of 50,000.
+- **Somebody watching — awake.** Every five seconds, and the mirror runs.
+
+Idling means slowing down, not stopping. A broadcast specialist that became
+unreachable while you were at lunch would defeat the point of broadcasting it.
+
+A phone announces itself first and the machine answers, so a machine that does
+not answer is asleep — and after an idle period that can take up to a minute.
+The cockpit says it is waking rather than inventing a roster for it.
 
 Three things fall out of this, and they are the reason the design is shaped this
 way:
 
-- **At your desk, nothing is written to Firestore at all.** No phone, no
-  viewer, no mirror. Remote costs nothing when it is not in use.
+- **At your desk with nothing broadcast, Firestore is not touched at all.** No
+  poll, no viewer, no mirror. One exception, and it is deliberate: while remote
+  is on the daemon refreshes its own machine document every 90 seconds, so the
+  roster can say which laptops are alive. That is 960 writes a day against
+  20,000.
 - **The cleanup is not a chore bolted on.** The mirror's lifetime is the
   viewer's, so "clean up when we are done" is the normal path rather than a
   thing to remember.
