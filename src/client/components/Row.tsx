@@ -51,7 +51,22 @@ export function Row({ row, selected, held = false, onTake, onNudge, nested = fal
         aria-selected={selected}
         onClick={() => select(row.id)}
       >
-        <div className="label"><span className="label-name">{row.label}</span></div>
+        <div className="label">
+          <span className="label-name">{row.label}</span>
+          {/* Only ever set on a row from another machine's mirror - see
+              "The merged roster" in the design. Absent means "here", so a
+              roster with nothing broadcast from elsewhere looks exactly like
+              it always has. */}
+          {row.machine && (
+            <span
+              className="badge badge-machine"
+              data-asleep={row.machine.asleep}
+              title={row.machine.asleep ? `${row.machine.name} — asleep, showing its last-known state` : row.machine.name}
+            >
+              {row.machine.name}
+            </span>
+          )}
+        </div>
         {/* Everything that is not its name, in one quiet line. The rail already
             says what the status is, in colour, so the word is not repeated
             here. */}

@@ -110,12 +110,19 @@ describe("whether a daemon is there", () => {
 
 describe("when to interrupt and ask where Bench is", () => {
   const ask = (over: Partial<Parameters<typeof shouldAskForServer>[0]> = {}) =>
-    shouldAskForServer({ known: true, live: null, everConnected: false, remote: true, ...over });
+    shouldAskForServer({ known: true, live: null, everConnected: false, remote: true, signedIn: false, ...over });
 
-  it("asks a page that knows of no daemon at all", () => {
+  it("asks a page that knows of no daemon at all and nobody signed in", () => {
     // A hosted cockpit on its first run knows every screen in Bench and not
     // one thing about which machine it belongs to.
     expect(ask({ known: false })).toBe(true);
+  });
+
+  it("does not ask a page that knows of no daemon but is signed into Firebase", () => {
+    // The phone's normal state: no address is coming, the merged roster and
+    // every command ride over Firestore instead. `SignIn` is what such a
+    // page shows, not this dialog.
+    expect(ask({ known: false, signedIn: true })).toBe(false);
   });
 
   it("waits while the socket is still coming up", () => {

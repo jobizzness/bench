@@ -24,7 +24,15 @@ const PLACEHOLDER = {
  * Global, not per project: a project's own conventions belong in its
  * CLAUDE.md, which specialists already read.
  */
-export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function SettingsDialog({ open, onClose, activeMachineName }: {
+  open: boolean;
+  onClose: () => void;
+  /** Which machine these settings belong to - `null` for the one that served
+   * this page. Everything in here (house rules, keys, the project list) is
+   * per-daemon, and there is no single "the settings" across two laptops -
+   * see "Machine-global routes" in the Firestore design. */
+  activeMachineName: string | null;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
   const first = useRef<HTMLTextAreaElement>(null);
 
@@ -78,6 +86,11 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         onSubmit={(event) => { event.preventDefault(); void save(); }}
       >
         <h2>House rules</h2>
+        {/* Only shown once there is more than one machine to be ambiguous
+            about - a solo laptop never needed to ask "which one". */}
+        {activeMachineName && (
+          <p className="field-note" id="s-active-machine">Settings for {activeMachineName}.</p>
+        )}
 
         <label htmlFor="s-style">Coding style</label>
         <textarea

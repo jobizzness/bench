@@ -67,6 +67,9 @@ export interface SessionRegistryLike {
   setModel(id: string, model: string): Promise<void>;
   setReasoningEffort(id: string, reasoningEffort: "none" | "low" | "medium" | "high"): Promise<void>;
   setRole(id: string, role: Role): Promise<void>;
+  /** See `SessionRegistry.setBroadcast` - carries every sub-agent tab this
+   * specialist opened along with it. */
+  setBroadcast(id: string, broadcast: boolean): Promise<void>;
   create(input: {
     project: string; label: string; model: string; role?: string; isolated?: boolean; createdBy?: string;
   }): Promise<string>;
@@ -1000,6 +1003,21 @@ export function createServer(opts: {
         process.stderr.write(`bench: could not change the role: ${String(error)}\n`);
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
       }
+      return;
+    }
+
+    /**
+     * Whether this specialist - and its sub-agent tabs - may be mirrored to
+     * Firestore. See "Build broadcast first" in the design; every other
+     * remote route in this file refuses a session this is false for.
+     */
+    const broadcast = path.match(/^\/api\/sessions\/([^/]+)\/broadcast$/);
+    if (broadcast && req.method === "POST") {
+      if (!registry.get(broadcast[1])) { json(res, 404, { error: "no such session" }); return; }
+      const on = (await readBody(req))?.broadcast;
+      if (typeof on !== "boolean") { json(res, 400, { error: "broadcast must be true or false" }); return; }
+      await registry.setBroadcast(broadcast[1], on);
+      json(res, 200, { broadcast: on });
       return;
     }
 

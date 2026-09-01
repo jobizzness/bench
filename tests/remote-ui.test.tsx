@@ -17,6 +17,9 @@ vi.mock("firebase/auth", () => ({
   getAuth: vi.fn(() => ({})),
   GoogleAuthProvider: vi.fn(function GoogleAuthProvider(this: unknown) {}),
   signInWithPopup: vi.fn(),
+  // `useFirebaseUser.ts` (App.tsx, unconditionally) also asks `firebase/auth`
+  // for this now - nobody signed in, ever, in this suite.
+  onAuthStateChanged: vi.fn((_auth: unknown, cb: (user: null) => void) => { cb(null); return () => {}; }),
 }));
 
 const popup = vi.mocked(signInWithPopup);

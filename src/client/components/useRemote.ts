@@ -1,19 +1,8 @@
 import { useEffect, useState } from "react";
-import { initializeApp, type FirebaseApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { authFetch, postJson } from "../api.js";
-import { FIREBASE_WEB_CONFIG } from "../../shared/firebase-config.js";
+import { firebaseApp } from "../firebase-app.js";
 import { REMOTE_OFF, type RemoteState } from "../../shared/remote.js";
-
-/** One Firebase app for the page, created on first use rather than at module
- * load - most cockpit sessions never open Settings, and initializeApp talks
- * to nothing but is still work a page that never touches remote should not
- * pay for. */
-let app: FirebaseApp | null = null;
-function firebaseApp(): FirebaseApp {
-  app ??= initializeApp(FIREBASE_WEB_CONFIG);
-  return app;
-}
 
 /**
  * The daemon's Google identity, and the two actions Settings offers on it.

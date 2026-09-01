@@ -648,6 +648,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
   margin-bottom: 2px;
 }
 .label-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Only present on a row mirrored from another machine - see Row.tsx. */
+.badge-machine { margin-top: 2px; }
+.badge-machine[data-asleep="true"] { opacity: 0.55; }
 .row[data-waiting="true"] .label { color: var(--wants); font-weight: 600; }
 .row[data-status="crashed"] .label,
 .row[data-status="provisioning_failed"] .label { color: var(--broken); }

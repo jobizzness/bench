@@ -1,8 +1,10 @@
 # Bench over Firestore — design
 
 Status: approved 2026-08-31. Revised 2026-09-01 for more than one machine per
-account, and again for broadcast — remote is opt-in per specialist rather than
-on for everything.
+account, again for broadcast — remote is opt-in per specialist rather than
+on for everything — and again for what #46 found while building the wire:
+the daemon polls rather than holding a listener, and broadcast is what makes
+that affordable. See "The daemon polls" below.
 
 ## What this is
 
@@ -100,7 +102,8 @@ Low volume, initiated by the phone, wants an answer.
 /users/{uid}/machines/{machineId}/results/{id}    { status, body }             daemon writes
 ```
 
-The daemon holds a listener on `commands`. It executes each one **against its
+The daemon reads `commands` on the same poll that serves the mirror — see "The
+daemon polls" below for why it cannot listen. It executes each one **against its
 own HTTP server on loopback, carrying its own token**, and writes the response
 to `results/{id}`. The phone's listener on `results` resolves the promise that
 `authFetch` returned. Both documents are then deleted.
@@ -143,13 +146,22 @@ The daemon does not mirror unless somebody is watching, and mirrors only what
 they are watching.
 
 ```
-/users/{uid}/machines/{machineId}/presence   { viewers: { [deviceId]: { at, watching } } }
+/users/{uid}/machines/{machineId}/presence/state   { viewers: { [deviceId]: { at, watching } } }
 ```
 
 **One document, not a collection.** The daemon reads this on a timer, and a
 collection listing bills one read per document where a single document bills
 one read flat, forever, however many devices you own. Same reason the mirror is
 one document per thing rather than an append-only log.
+
+The trailing `/state` is one segment more than earlier drafts of this path
+had. A Firestore path alternates collection/document/collection/document —
+`.../machines/{machineId}/presence` on its own names a *collection* called
+`presence`, the same shape `.../machines/{machineId}/mirror` has for
+`mirror/roster`. Found by a fake that enforces the same alternation Firestore
+itself does (`fake-firestore.ts`'s even/odd segment-count check) refusing to
+treat it as a document - the fake caught this before it could have been
+caught by hand against the real project.
 
 The phone writes its entry and refreshes `at` on a heartbeat — **every 60
 seconds, and only while the page is visible.** A viewer is stale after three
@@ -469,3 +481,23 @@ hosted cockpit and drive a specialist; and that two laptops signed into the same
 account both appear, with one merged roster and each row acting on the right
 machine. None is a unit test. All are done by hand, once, against the real
 project.
+
+## What #46 actually built
+
+Slice 2's code is in on the daemon side: broadcast (with its cascade to
+sub-agent tabs and immediate mirror deletion on turning it off), the
+command/result round trip with the daemon refusing anything naming a
+non-broadcast session, presence, the coalesced write-budget-aware mirror,
+`bench remote off`, and the encode/decode seam - all against a fake
+document store, none of it touching a network. See this ticket's own report
+and issue comment for the exact list, and "The daemon's listener, in
+practice" above for the one place the daemon's behaviour differs from what
+this document originally described.
+
+The client side is built to the same shape - the transport switch in
+`api.ts`, the merged roster and presence heartbeat in `useRoster.ts`, the
+sign-in-first screen, `artifactUrl`'s `srcdoc` change, offline persistence -
+but could not be run against a real browser and the real `bench-cockpit`
+project from inside this environment. What a green suite proves and what a
+phone on cellular proves are different claims; see the report for exactly
+which is which.
