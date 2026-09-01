@@ -13,14 +13,29 @@
 type FirestoreValue =
   | { stringValue: string }
   | { integerValue: string }
-  | { timestampValue: string };
+  | { timestampValue: string }
+  | { mapValue: { fields?: FirestoreFields } };
 
 type FirestoreFields = Record<string, FirestoreValue>;
 
 /** A plain object, one level deep, of strings and numbers - everything this
- * ticket writes to Firestore (a machine's name, platform, version, lastSeen)
- * fits that, and a converter that only has to handle it stays small. */
+ * client *writes* to Firestore (a machine's name, platform, version,
+ * lastSeen) fits that, and a converter that only has to handle it stays
+ * small. Nothing here writes a map field - see `DecodedDoc` below for why
+ * reading is a different question. */
 export type DocData = Record<string, string | number>;
+
+/**
+ * What a document can hold once you are only ever reading it. Presence
+ * (`presence.ts`) is the one place this client reads a nested map field -
+ * `/presence` holds one `viewers` map so a poll costs one read regardless of
+ * device count, rather than one read per device. Nothing in this module
+ * ever *writes* a map (the client SDK does that, from the browser, with a
+ * dotted field path - see `remote-presence.ts`), so `toFields` stays flat on
+ * purpose.
+ */
+export type DecodedValue = string | number | { [key: string]: DecodedValue };
+export type DecodedDoc = Record<string, DecodedValue>;
 
 function toFields(data: DocData): FirestoreFields {
   const fields: FirestoreFields = {};
@@ -32,12 +47,13 @@ function toFields(data: DocData): FirestoreFields {
   return fields;
 }
 
-function fromFields(fields: FirestoreFields | undefined): DocData {
-  const data: DocData = {};
+function fromFields(fields: FirestoreFields | undefined): DecodedDoc {
+  const data: DecodedDoc = {};
   for (const [key, value] of Object.entries(fields ?? {})) {
     if ("integerValue" in value) data[key] = Number(value.integerValue);
     else if ("stringValue" in value) data[key] = value.stringValue;
     else if ("timestampValue" in value) data[key] = Date.parse(value.timestampValue);
+    else if ("mapValue" in value) data[key] = fromFields(value.mapValue.fields);
   }
   return data;
 }
@@ -88,7 +104,7 @@ export function firestoreClient(opts: FirestoreClientOptions) {
     if (!res.ok) throw new FirestoreRequestFailed(`could not write ${path}: ${res.status} ${await res.text()}`);
   }
 
-  async function get(path: string): Promise<DocData | null> {
+  async function get(path: string): Promise<DecodedDoc | null> {
     const res = await fetchImpl(documentUrl(opts.projectId, path), {
       headers: authHeader(opts.idToken()),
     });
@@ -118,7 +134,7 @@ export function firestoreClient(opts: FirestoreClientOptions) {
    * collections" holds here too, since both of these are small by
    * construction: pending actions and the handful of devices watching.
    */
-  async function list(path: string): Promise<Array<{ id: string; data: DocData }>> {
+  async function list(path: string): Promise<Array<{ id: string; data: DecodedDoc }>> {
     const res = await fetchImpl(documentUrl(opts.projectId, path), {
       headers: authHeader(opts.idToken()),
     });

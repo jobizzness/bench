@@ -6,16 +6,21 @@
  * what makes that true for anything built on `firestoreClient()`.
  */
 
-type WireValue = { stringValue: string } | { integerValue: string };
+type WireValue = { stringValue: string } | { integerValue: string } | { mapValue: { fields: WireFields } };
 type WireFields = Record<string, WireValue>;
-type DocData = Record<string, string | number>;
+/** Nested objects only ever appear here because a test poked `docs` directly
+ * to stand in for what the client SDK would have written (`presence`'s
+ * `viewers` map) - this client never writes one itself, see
+ * `firestore-rest.ts`'s own comment on `DocData` vs `DecodedDoc`. */
+type DocValue = string | number | { [key: string]: DocValue };
+type DocData = Record<string, DocValue>;
 
 function toWireFields(data: DocData): WireFields {
   const fields: WireFields = {};
   for (const [key, value] of Object.entries(data)) {
-    fields[key] = typeof value === "number"
-      ? { integerValue: String(Math.trunc(value)) }
-      : { stringValue: value };
+    if (typeof value === "number") fields[key] = { integerValue: String(Math.trunc(value)) };
+    else if (typeof value === "string") fields[key] = { stringValue: value };
+    else fields[key] = { mapValue: { fields: toWireFields(value) } };
   }
   return fields;
 }
@@ -23,7 +28,9 @@ function toWireFields(data: DocData): WireFields {
 function fromWireFields(fields: WireFields | undefined): DocData {
   const data: DocData = {};
   for (const [key, value] of Object.entries(fields ?? {})) {
-    data[key] = "integerValue" in value ? Number(value.integerValue) : value.stringValue;
+    if ("integerValue" in value) data[key] = Number(value.integerValue);
+    else if ("stringValue" in value) data[key] = value.stringValue;
+    else data[key] = fromWireFields(value.mapValue.fields);
   }
   return data;
 }
@@ -32,6 +39,7 @@ export function fakeFirestore() {
   const docs = new Map<string, DocData>();
   const writes: string[] = [];
   const deletes: string[] = [];
+  const reads: string[] = [];
 
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     const path = decodeURIComponent(String(url).split("/documents/")[1] ?? "").replace(/\?.*$/, "");
@@ -48,6 +56,7 @@ export function fakeFirestore() {
       return new Response("{}", { status: 200 });
     }
 
+    reads.push(path);
     // A document path has an even number of segments (collection/doc/collection/doc/...);
     // a collection path has an odd number - the same convention Firestore itself uses.
     const isCollection = path.split("/").filter(Boolean).length % 2 === 1;
@@ -64,5 +73,5 @@ export function fakeFirestore() {
     return new Response(JSON.stringify({ documents }), { status: 200 });
   }) as unknown as typeof fetch;
 
-  return { fetchImpl, docs, writes, deletes };
+  return { fetchImpl, docs, writes, deletes, reads };
 }

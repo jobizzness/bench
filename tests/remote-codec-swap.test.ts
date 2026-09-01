@@ -53,13 +53,15 @@ describe("the encode/decode seam, with a non-identity codec swapped in", () => {
       clearIntervalImpl: (() => {}) as any,
     });
 
-    await client.set(`users/${uid}/machines/${machineId}/viewers/dev1`, { at: now, watching: "" });
+    backend.docs.set(`users/${uid}/machines/${machineId}/presence/state`, {
+      viewers: { dev1: { at: now, watching: "" } },
+    });
     await client.set(`users/${uid}/machines/${machineId}/commands/c1`, {
       method: "GET", path: "/api/sessions/s1/thread", body: "", at: now,
     });
 
     bridge.start();
-    await (bridge as any).pollViewers();
+    await (bridge as any).supervise();
     await (bridge as any).tick();
 
     const result = backend.docs.get(`users/${uid}/machines/${machineId}/results/c1`);

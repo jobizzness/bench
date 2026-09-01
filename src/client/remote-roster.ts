@@ -33,6 +33,14 @@ export function watchMachines(
   });
 }
 
+/** A machine's mirrored roster, and whether that machine says it is
+ * spending its write budget faster than it would like - see "The write
+ * budget" in the design and `write-budget.ts`. */
+export interface MachineRoster {
+  rows: RosterRow[];
+  degraded: boolean;
+}
+
 /**
  * One machine's mirrored roster - broadcast specialists only, exactly as
  * that machine's own daemon chose to publish them. Null while there is
@@ -40,14 +48,42 @@ export function watchMachines(
  * resting state and not an error.
  */
 export function watchMachineRoster(
-  db: Firestore, uid: string, machineId: string, onChange: (rows: RosterRow[] | null) => void,
+  db: Firestore, uid: string, machineId: string, onChange: (roster: MachineRoster | null) => void,
 ): Unsubscribe {
   return onSnapshot(doc(db, `users/${uid}/machines/${machineId}/mirror/roster`), (snapshot) => {
     if (!snapshot.exists()) { onChange(null); return; }
-    onChange(decode<RosterRow[]>(String(snapshot.data().payload ?? "[]")));
+    const data = snapshot.data();
+    onChange({
+      rows: decode<RosterRow[]>(String(data.payload ?? "[]")),
+      degraded: Number(data.degraded ?? 0) === 1,
+    });
   });
 }
 
 export function machineIsAsleep(machine: RemoteMachine, now: number): boolean {
   return now - machine.lastSeen > MACHINE_ASLEEP_MS;
+}
+
+/** What a session's detail mirror carries - see `mirror-writer.ts`'s
+ * `readDetail`. Everything else a session's row needs (`activity`,
+ * `latestReportSeq`) is already on the roster row itself. */
+export interface SessionMirror {
+  thread: unknown;
+  plan: unknown;
+}
+
+/**
+ * `mirror/{sessionId}` - the one document a relayed session's live plan (and
+ * thread) come from instead of a poll. Only ever populated while some viewer
+ * has this session open (see "Presence gates the mirror" in the design), so
+ * `null` is the ordinary state for a session nobody on any device is
+ * currently looking at, not an error.
+ */
+export function watchSessionMirror(
+  db: Firestore, uid: string, machineId: string, sessionId: string, onChange: (detail: SessionMirror | null) => void,
+): Unsubscribe {
+  return onSnapshot(doc(db, `users/${uid}/machines/${machineId}/mirror/${sessionId}`), (snapshot) => {
+    if (!snapshot.exists()) { onChange(null); return; }
+    onChange(decode<SessionMirror>(String(snapshot.data().payload ?? "null")));
+  });
 }

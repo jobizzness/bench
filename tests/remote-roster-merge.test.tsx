@@ -13,13 +13,14 @@ import { createRoot, type Root } from "react-dom/client";
  * `remote-ui.test.tsx` fakes `firebase/auth` for `signInWithPopup` - a tiny
  * path-keyed pub/sub standing in for `onSnapshot`.
  */
-const { listeners, currentUser, onSnapshotMock, setDocMock } = vi.hoisted(() => ({
+const { listeners, currentUser, onSnapshotMock, updateDocMock, setDocMock } = vi.hoisted(() => ({
   listeners: new Map<string, (snap: unknown) => void>(),
   currentUser: { value: null as { uid: string } | null },
   onSnapshotMock: vi.fn((ref: { path: string }, cb: (s: unknown) => void) => {
     listeners.set(ref.path, cb);
     return () => listeners.delete(ref.path);
   }),
+  updateDocMock: vi.fn(async () => {}),
   setDocMock: vi.fn(async () => {}),
 }));
 
@@ -30,7 +31,9 @@ vi.mock("firebase/firestore", () => ({
   doc: vi.fn((_db: unknown, path: string) => ({ path })),
   collection: vi.fn((_db: unknown, path: string) => ({ path })),
   onSnapshot: onSnapshotMock,
+  updateDoc: updateDocMock,
   setDoc: setDocMock,
+  deleteField: vi.fn(() => "DELETE_FIELD"),
   deleteDoc: vi.fn(async () => {}),
   persistentLocalCache: vi.fn(() => ({})),
   initializeFirestore: vi.fn(() => ({})),
@@ -49,7 +52,9 @@ function emitDoc(path: string, data: Record<string, unknown> | null) {
 
 let root: Root | null = null;
 let host: HTMLElement | null = null;
-let latest: { rows: any[]; live: boolean | null } | null = null;
+let latest: {
+  rows: any[]; live: boolean | null; wakingMachines: any[]; degradedMachines: any[]; activeMachineName: string | null;
+} | null = null;
 
 function Probe({ watching = null }: { watching?: string | null }) {
   latest = useRoster(watching);
@@ -72,6 +77,7 @@ afterEach(() => {
   listeners.clear();
   currentUser.value = null;
   onSnapshotMock.mockClear();
+  updateDocMock.mockClear();
   setDocMock.mockClear();
 });
 
@@ -107,6 +113,27 @@ describe("useRoster with a signed-in Firebase user", () => {
     expect(latest?.rows[0].machine).toEqual({ id: "m2", name: "desktop", asleep: false });
   });
 
+  it("names the active machine once a remote session is being watched, and clears it once nothing is", async () => {
+    currentUser.value = { uid: "u1" };
+    mount("s9");
+    await act(async () => {});
+    emitCollection("users/u1/machines", [{ id: "m2", data: { name: "desktop", lastSeen: Date.now() } }]);
+    await act(async () => {});
+    emitDoc("users/u1/machines/m2/mirror/roster", {
+      payload: encode([{ id: "s9", broadcast: true, machine: undefined } as any]),
+    });
+    await act(async () => {});
+
+    expect(latest?.activeMachineName).toBe("desktop");
+  });
+
+  it("is null (this machine) when nothing remote is being watched", async () => {
+    currentUser.value = { uid: "u1" };
+    mount(null);
+    await act(async () => {});
+    expect(latest?.activeMachineName).toBeNull();
+  });
+
   it("heartbeats every known machine once mounted", async () => {
     currentUser.value = { uid: "u1" };
     mount();
@@ -114,8 +141,9 @@ describe("useRoster with a signed-in Firebase user", () => {
     emitCollection("users/u1/machines", [{ id: "m2", data: { name: "desktop", lastSeen: Date.now() } }]);
     await act(async () => {});
 
-    const [ref, data] = setDocMock.mock.calls[0] as [{ path: string }, { watching: string }];
-    expect(ref.path).toMatch(/^users\/u1\/machines\/m2\/viewers\//);
+    const [ref, field, data] = updateDocMock.mock.calls[0] as [{ path: string }, string, { watching: string }];
+    expect(ref.path).toBe("users/u1/machines/m2/presence/state");
+    expect(field).toMatch(/^viewers\./);
     expect(data.watching).toBe("");
   });
 
@@ -129,5 +157,66 @@ describe("useRoster with a signed-in Firebase user", () => {
     await act(async () => {});
 
     expect(latest?.rows[0].machine.asleep).toBe(true);
+  });
+});
+
+describe("degradedMachines", () => {
+  it("names a machine whose mirror says it is degraded", async () => {
+    currentUser.value = { uid: "u1" };
+    mount();
+    await act(async () => {});
+    emitCollection("users/u1/machines", [{ id: "m2", data: { name: "desktop", lastSeen: Date.now() } }]);
+    await act(async () => {});
+    emitDoc("users/u1/machines/m2/mirror/roster", { payload: encode([]), degraded: 1 });
+    await act(async () => {});
+
+    expect(latest?.degradedMachines).toEqual([{ id: "m2", name: "desktop", lastSeen: expect.any(Number) }]);
+  });
+
+  it("is empty when the mirror does not say it is degraded", async () => {
+    currentUser.value = { uid: "u1" };
+    mount();
+    await act(async () => {});
+    emitCollection("users/u1/machines", [{ id: "m2", data: { name: "desktop", lastSeen: Date.now() } }]);
+    await act(async () => {});
+    emitDoc("users/u1/machines/m2/mirror/roster", { payload: encode([]), degraded: 0 });
+    await act(async () => {});
+
+    expect(latest?.degradedMachines).toEqual([]);
+  });
+});
+
+describe("wakingMachines", () => {
+  it("lists a machine that is running but has not mirrored anything yet", async () => {
+    currentUser.value = { uid: "u1" };
+    mount();
+    await act(async () => {});
+    emitCollection("users/u1/machines", [{ id: "m2", data: { name: "desktop", lastSeen: Date.now() } }]);
+    await act(async () => {});
+    // No mirror/roster doc emitted for m2 at all - the idling gap.
+
+    expect(latest?.wakingMachines).toEqual([{ id: "m2", name: "desktop", lastSeen: expect.any(Number) }]);
+  });
+
+  it("does not call a genuinely asleep machine waking", async () => {
+    currentUser.value = { uid: "u1" };
+    mount();
+    await act(async () => {});
+    emitCollection("users/u1/machines", [{ id: "m2", data: { name: "desktop", lastSeen: Date.now() - 10 * 60_000 } }]);
+    await act(async () => {});
+
+    expect(latest?.wakingMachines).toEqual([]);
+  });
+
+  it("is empty once the machine has mirrored something", async () => {
+    currentUser.value = { uid: "u1" };
+    mount();
+    await act(async () => {});
+    emitCollection("users/u1/machines", [{ id: "m2", data: { name: "desktop", lastSeen: Date.now() } }]);
+    await act(async () => {});
+    emitDoc("users/u1/machines/m2/mirror/roster", { payload: encode([]) });
+    await act(async () => {});
+
+    expect(latest?.wakingMachines).toEqual([]);
   });
 });

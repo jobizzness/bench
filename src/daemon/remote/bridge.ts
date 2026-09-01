@@ -1,9 +1,15 @@
 import type { FirestoreClient } from "./firestore-rest.js";
-import { readPresence, viewersPath, VIEWER_STALE_MS } from "./presence.js";
+import { readPresence, presencePath, VIEWER_STALE_MS } from "./presence.js";
 import { commandsPath, resultPath, runPendingCommands, type LocalCaller } from "./command-runner.js";
 import { MirrorWriter, mirrorSessionPath, mirrorRosterPath } from "./mirror-writer.js";
 import { WriteBudget } from "./write-budget.js";
 import type { RosterRow } from "../../shared/types.js";
+
+/** How long with no fresh viewer before the poll backs off from "watched" to
+ * "idle" cadence. Idling is slowing down, not stopping - a broadcast
+ * specialist that went unreachable over lunch would defeat the point of
+ * broadcasting it, so this only ever widens the interval, never opens it. */
+const IDLE_AFTER_MS = 5 * 60_000;
 
 /**
  * The daemon's half of "the wire": presence, commands, and the mirror, all
@@ -15,39 +21,53 @@ import type { RosterRow } from "../../shared/types.js";
  * either the Admin SDK (ruled out - see the design's identity section) or
  * reaching into the Auth SDK's private, unversioned persisted-session format.
  * Neither is something to build production behaviour on, so this polls
- * instead - `viewers` on a slow, always-on cadence (cheap: one collection,
- * usually one or two documents), `commands` and the mirror only while a
- * viewer is fresh, on a faster cadence. It costs reads the design assumed
- * would be free; it does not cost writes, which is what the budget actually
- * binds on. Flagged in this ticket's report for the developer to weigh.
+ * instead, on three cadences:
+ *
+ * - Nothing broadcast: no polling at all. Broadcast is strict, so an empty
+ *   broadcast set is an empty mirror - there is nothing a viewer could see,
+ *   so there is no question worth asking Firestore.
+ * - Broadcast, watched (a fresh viewer seen within the last five minutes):
+ *   every `viewerPollMs` (5s by default).
+ * - Broadcast, unwatched for five minutes: every `idlePollMs` (60s).
+ *
+ * It costs reads the design assumed would be free; it does not cost writes,
+ * which is what the budget actually binds on. Flagged in this ticket's
+ * report for the developer to weigh.
  */
 export interface RemoteBridgeOptions {
   client: FirestoreClient;
   uid: string;
   machineId: string;
-  /** Read fresh every tick - never cached, so a broadcast flip is reflected
-   * on the next tick without this module knowing the registry exists. */
+  /** Read fresh every supervisor tick - never cached, so a broadcast flip is
+   * reflected on the next tick without this module knowing the registry
+   * exists. */
   listBroadcast: () => RosterRow[];
   callLocal: LocalCaller;
   now?: () => number;
   setIntervalImpl?: typeof setInterval;
   clearIntervalImpl?: typeof clearInterval;
-  /** How often `viewers` is polled. Always running while remote is on -
-   * see the class comment for why this one has to be cheap. */
+  /** The cadence while watched, and the granularity the supervisor itself
+   * runs at - fine enough to hit this exactly, and cheap to run when it is
+   * only checking local state and not polling. */
   viewerPollMs?: number;
+  /** The cadence once unwatched for `IDLE_AFTER_MS`. */
+  idlePollMs?: number;
   /** How often `commands` and the mirror are serviced, while active. */
   tickMs?: number;
   viewerStaleMs?: number;
+  idleAfterMs?: number;
   budget?: WriteBudget;
 }
 
 export class RemoteBridge {
   private readonly opts: Required<Omit<RemoteBridgeOptions, "budget">> & { budget: WriteBudget };
   private readonly mirror: MirrorWriter;
-  private viewerTimer: ReturnType<typeof setInterval> | null = null;
+  private supervisorTimer: ReturnType<typeof setInterval> | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private active = false;
   private watching = new Set<string>();
+  private lastPollAt = 0;
+  private lastActiveAt: number;
 
   constructor(opts: RemoteBridgeOptions) {
     const now = opts.now ?? Date.now;
@@ -61,35 +81,60 @@ export class RemoteBridge {
       setIntervalImpl: opts.setIntervalImpl ?? setInterval,
       clearIntervalImpl: opts.clearIntervalImpl ?? clearInterval,
       viewerPollMs: opts.viewerPollMs ?? 5_000,
+      idlePollMs: opts.idlePollMs ?? 60_000,
       tickMs: opts.tickMs ?? 2_000,
       viewerStaleMs: opts.viewerStaleMs ?? VIEWER_STALE_MS,
+      idleAfterMs: opts.idleAfterMs ?? IDLE_AFTER_MS,
       budget: opts.budget ?? new WriteBudget({ now }),
     };
     this.mirror = new MirrorWriter(opts.client, opts.uid, opts.machineId, this.opts.budget, now);
+    // A broadcast that has just turned on gets the fast cadence for its
+    // first five minutes even with nobody seen yet - someone broadcasting is
+    // a strong signal they are about to go look, and "idle" is not the
+    // guess to make about a specialist a second old.
+    this.lastActiveAt = now();
   }
 
-  /** Idle listeners are free; polling is not, so this is the one timer that
-   * runs for the life of "remote is on" regardless of whether anyone is
-   * watching - see the class comment. The first check waits one interval
-   * rather than firing immediately, which keeps `pollViewers()` the single
-   * path into activation instead of racing a synchronous one against it. */
+  /** Runs for the life of "remote is on", at the fastest cadence this bridge
+   * ever polls at - but a local check of `listBroadcast()`, not a Firestore
+   * call, so idling costs nothing even though the timer keeps firing. */
   start(): void {
-    if (this.viewerTimer) return;
-    this.viewerTimer = this.opts.setIntervalImpl(() => { void this.pollViewers(); }, this.opts.viewerPollMs);
-    this.viewerTimer.unref?.();
+    if (this.supervisorTimer) return;
+    this.supervisorTimer = this.opts.setIntervalImpl(() => { void this.supervise(); }, this.opts.viewerPollMs);
+    this.supervisorTimer.unref?.();
   }
 
   stop(): void {
-    if (this.viewerTimer) this.opts.clearIntervalImpl(this.viewerTimer);
-    this.viewerTimer = null;
+    if (this.supervisorTimer) this.opts.clearIntervalImpl(this.supervisorTimer);
+    this.supervisorTimer = null;
     this.stopTicking();
   }
 
-  private async pollViewers(): Promise<void> {
-    const presence = await readPresence(
-      this.opts.client, this.opts.uid, this.opts.machineId, this.opts.now(), this.opts.viewerStaleMs,
-    );
+  /**
+   * The one place every poll decision is made. Checked in this order:
+   * nothing broadcast (free, local - answers most ticks without touching
+   * Firestore at all), then whether this cadence's interval has actually
+   * elapsed (also free), and only then a real read.
+   */
+  private async supervise(): Promise<void> {
+    if (this.opts.listBroadcast().length === 0) {
+      if (this.active) {
+        this.active = false;
+        this.stopTicking();
+        await this.mirror.deleteAll();
+      }
+      return;
+    }
+
+    const now = this.opts.now();
+    const watched = now - this.lastActiveAt < this.opts.idleAfterMs;
+    const cadence = watched ? this.opts.viewerPollMs : this.opts.idlePollMs;
+    if (now - this.lastPollAt < cadence) return;
+    this.lastPollAt = now;
+
+    const presence = await readPresence(this.opts.client, this.opts.uid, this.opts.machineId, now, this.opts.viewerStaleMs);
     this.watching = presence.watching;
+    if (presence.active) this.lastActiveAt = now;
 
     if (presence.active && !this.active) {
       this.active = true;
@@ -136,10 +181,10 @@ export class RemoteBridge {
    * or a command in flight.
    */
   async wipe(): Promise<void> {
+    await this.opts.client.remove(presencePath(this.opts.uid, this.opts.machineId));
     for (const path of [
       commandsPath(this.opts.uid, this.opts.machineId),
       `users/${this.opts.uid}/machines/${this.opts.machineId}/results`,
-      viewersPath(this.opts.uid, this.opts.machineId),
       `users/${this.opts.uid}/machines/${this.opts.machineId}/mirror`,
     ]) {
       const docs = await this.opts.client.list(path);

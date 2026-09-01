@@ -5,7 +5,9 @@ import type { RosterRow } from "../../shared/types.js";
 import { eventsUrl, linkIsStale, routeSession, setActiveMachine } from "../api.js";
 import { shouldReconnect } from "../reconnect.js";
 import { firebaseApp, firestore } from "../firebase-app.js";
-import { watchMachines, watchMachineRoster, machineIsAsleep, type RemoteMachine } from "../remote-roster.js";
+import {
+  watchMachines, watchMachineRoster, machineIsAsleep, type RemoteMachine, type MachineRoster,
+} from "../remote-roster.js";
 import { heartbeat, deviceId, HEARTBEAT_MS } from "../remote-presence.js";
 
 export interface Roster {
@@ -14,6 +16,23 @@ export interface Roster {
    * way, so a page that is still connecting says nothing rather than
    * announcing a problem it does not have yet. */
   live: boolean | null;
+  /** A remote machine whose daemon is running (`lastSeen` fresh) but has not
+   * mirrored anything for this viewer yet - idling machines take up to a
+   * minute to notice a new viewer and start mirroring again (see "Broadcast
+   * gates the poll" in the design). Shown as waking rather than inventing an
+   * empty roster for it; see `App.tsx`. Cannot always be told apart from a
+   * machine with nothing broadcast on it at all - both look the same from
+   * here - so this over-reports "waking" rather than under-reporting it. */
+  wakingMachines: RemoteMachine[];
+  /** A remote machine whose own daemon says it is spending its Firestore
+   * write budget faster than it would like - see "The write budget" in the
+   * design. The cockpit says so rather than quietly slowing down unnoticed. */
+  degradedMachines: RemoteMachine[];
+  /** Which machine the machine-global routes currently answer for, in a
+   * word - `null` for the machine that served this page, a name for
+   * anything else. See "Machine-global routes" in the design and
+   * `SettingsDialog.tsx`, the one place this is shown. */
+  activeMachineName: string | null;
 }
 
 /**
@@ -31,7 +50,7 @@ export interface Roster {
  * top, and it is a true no-op with nobody signed into Firebase in this
  * browser: no listener, no heartbeat, no Firestore call at all.
  */
-function useLocalRoster(): Roster {
+function useLocalRoster(): Pick<Roster, "rows" | "live"> {
   const [rows, setRows] = useState<RosterRow[]>([]);
   const [live, setLive] = useState<boolean | null>(null);
 
@@ -86,11 +105,13 @@ function useLocalRoster(): Roster {
  * `useFirebaseUser.ts`), which reloads into a freshly signed-in cockpit
  * rather than flipping this hook's state live.
  */
-function useRemoteRoster(watching: string | null): { rows: RosterRow[]; uid: string | null } {
+function useRemoteRoster(watching: string | null): {
+  rows: RosterRow[]; uid: string | null; wakingMachines: RemoteMachine[]; degradedMachines: RemoteMachine[];
+} {
   const uid = getAuth(firebaseApp()).currentUser?.uid ?? null;
   const db: Firestore | null = uid === null ? null : firestore();
   const [machines, setMachines] = useState<RemoteMachine[]>([]);
-  const [byMachine, setByMachine] = useState<Map<string, RosterRow[]>>(new Map());
+  const [byMachine, setByMachine] = useState<Map<string, MachineRoster>>(new Map());
 
   useEffect(() => {
     if (db === null || uid === null) { setMachines([]); return; }
@@ -100,10 +121,10 @@ function useRemoteRoster(watching: string | null): { rows: RosterRow[]; uid: str
   useEffect(() => {
     if (db === null || uid === null || machines.length === 0) return;
     const unsubscribers = machines.map((machine) =>
-      watchMachineRoster(db, uid, machine.id, (rows) => {
+      watchMachineRoster(db, uid, machine.id, (roster) => {
         setByMachine((prev) => {
           const next = new Map(prev);
-          if (rows === null) next.delete(machine.id); else next.set(machine.id, rows);
+          if (roster === null) next.delete(machine.id); else next.set(machine.id, roster);
           return next;
         });
       }));
@@ -133,11 +154,11 @@ function useRemoteRoster(watching: string | null): { rows: RosterRow[]; uid: str
   const rows = useMemo(() => {
     const now = Date.now();
     const flat: RosterRow[] = [];
-    for (const [machineId, machineRows] of byMachine) {
+    for (const [machineId, roster] of byMachine) {
       const machine = machines.find((m) => m.id === machineId);
       if (!machine || uid === null) continue;
       const asleep = machineIsAsleep(machine, now);
-      for (const row of machineRows) {
+      for (const row of roster.rows) {
         flat.push({ ...row, machine: { id: machine.id, name: machine.name, asleep } });
         routeSession(row.id, { uid, machineId });
       }
@@ -145,15 +166,25 @@ function useRemoteRoster(watching: string | null): { rows: RosterRow[]; uid: str
     return flat;
   }, [byMachine, machines, uid]);
 
-  return { rows, uid };
+  const wakingMachines = useMemo(() => {
+    const now = Date.now();
+    return machines.filter((m) => !machineIsAsleep(m, now) && !byMachine.has(m.id));
+  }, [machines, byMachine]);
+
+  const degradedMachines = useMemo(
+    () => machines.filter((m) => byMachine.get(m.id)?.degraded === true),
+    [machines, byMachine],
+  );
+
+  return { rows, uid, wakingMachines, degradedMachines };
 }
 
 /** Which of the currently-mirrored machines a session actually belongs to,
  * so a heartbeat's `watching` field never names a session to a machine that
  * does not have it. */
-function machineOwning(byMachine: Map<string, RosterRow[]>, sessionId: string): string | null {
-  for (const [machineId, rows] of byMachine) {
-    if (rows.some((r) => r.id === sessionId)) return machineId;
+function machineOwning(byMachine: Map<string, MachineRoster>, sessionId: string): string | null {
+  for (const [machineId, roster] of byMachine) {
+    if (roster.rows.some((r) => r.id === sessionId)) return machineId;
   }
   return null;
 }
@@ -180,10 +211,16 @@ export function useRoster(watching: string | null = null): Roster {
   // "Machine-global routes" in the design. Kept in sync here rather than
   // asking every caller of a machine-global route to know which machine that
   // is - the same reasoning as `routeSession` above.
+  const watchedRow = rows.find((r) => r.id === watching) ?? null;
   useEffect(() => {
-    const row = rows.find((r) => r.id === watching);
-    setActiveMachine(row?.machine && remote.uid ? { uid: remote.uid, machineId: row.machine.id } : null);
-  }, [rows, watching, remote.uid]);
+    setActiveMachine(watchedRow?.machine && remote.uid ? { uid: remote.uid, machineId: watchedRow.machine.id } : null);
+  }, [watchedRow, remote.uid]);
 
-  return { rows, live: local.live };
+  return {
+    rows,
+    live: local.live,
+    wakingMachines: remote.wakingMachines,
+    degradedMachines: remote.degradedMachines,
+    activeMachineName: watchedRow?.machine?.name ?? null,
+  };
 }

@@ -70,6 +70,18 @@ export function routeSession(sessionId: string, machine: MachineRef | null): voi
 }
 
 /**
+ * Which machine a session is on, for a caller that has to behave differently
+ * over the relay rather than just letting `authFetch` carry it - `null` for
+ * local. `useSessionPlan.ts` is the one caller today: a relayed session
+ * reads its plan from the mirror instead of polling, which only it can
+ * decide, since `authFetch` itself has no idea a request is about to
+ * recur every two seconds.
+ */
+export function getSessionMachine(sessionId: string): MachineRef | null {
+  return sessionMachine.get(sessionId) ?? null;
+}
+
+/**
  * Which machine the machine-global routes - Settings, the API keys, the
  * project list, the spend meters - answer for. Follows the specialist
  * currently open, defaulting to local; see "Machine-global routes" in the

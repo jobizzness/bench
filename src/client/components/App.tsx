@@ -54,7 +54,7 @@ import { isWaiting } from "../waiting.js";
  */
 export function App() {
   const { selectedId, select } = useSelection();
-  const { rows, live } = useRoster(selectedId);
+  const { rows, live, wakingMachines, degradedMachines, activeMachineName } = useRoster(selectedId);
   const row = rows.find((r) => r.id === selectedId) ?? null;
 
   const { entries, reload } = useThread(selectedId, threadSignature(row));
@@ -279,6 +279,27 @@ export function App() {
           </header>
           <ul id="roster-list"><Roster /></ul>
 
+          {/* A remote machine that is running but has not mirrored anything
+              for this viewer yet - idling can take up to a minute to notice
+              a new one. Said plainly rather than left as an empty roster
+              that looks the same as nothing being broadcast there. */}
+          {wakingMachines.length > 0 && (
+            <p id="waking-machines" className="field-note">
+              Waking {wakingMachines.map((m) => m.name).join(", ")}…
+            </p>
+          )}
+
+          {/* A machine quietly slowing its own mirror down near the daily
+              write ceiling - said plainly rather than left to be noticed as
+              staleness with no explanation. See "The write budget" in the
+              design. */}
+          {degradedMachines.length > 0 && (
+            <p id="degraded-machines" className="field-note">
+              {degradedMachines.map((m) => m.name).join(", ")} {degradedMachines.length === 1 ? "is" : "are"}{" "}
+              near today's Firestore limit and updating more slowly.
+            </p>
+          )}
+
           {/* At the foot of the pane, where settings live in everything else.
               It is not something you reach for while working, and the header
               is for what you do reach for. */}
@@ -423,7 +444,7 @@ export function App() {
               : () => { setSetupOpen(false); setWantsAddress(false); }}
           />
         )}
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} activeMachineName={activeMachineName} />
 
       {/* Only ever for a specialist that exists. The roster carries the new
           model back, so nothing is held here that the daemon has not agreed

@@ -193,13 +193,22 @@ The daemon does not mirror unless somebody is watching, and mirrors only what
 they are watching.
 
 ```
-/users/{uid}/machines/{machineId}/presence   { viewers: { [deviceId]: { at, watching } } }
+/users/{uid}/machines/{machineId}/presence/state   { viewers: { [deviceId]: { at, watching } } }
 ```
 
 **One document, not a collection.** The daemon reads this on a timer, and a
 collection listing bills one read per document where a single document bills
 one read flat, forever, however many devices you own. Same reason the mirror is
 one document per thing rather than an append-only log.
+
+The trailing `/state` is one segment more than earlier drafts of this path
+had. A Firestore path alternates collection/document/collection/document —
+`.../machines/{machineId}/presence` on its own names a *collection* called
+`presence`, the same shape `.../machines/{machineId}/mirror` has for
+`mirror/roster`. Found by a fake that enforces the same alternation Firestore
+itself does (`fake-firestore.ts`'s even/odd segment-count check) refusing to
+treat it as a document - the fake caught this before it could have been
+caught by hand against the real project.
 
 The phone writes its entry and refreshes `at` on a heartbeat — **every 60
 seconds, and only while the page is visible.** A viewer is stale after three
