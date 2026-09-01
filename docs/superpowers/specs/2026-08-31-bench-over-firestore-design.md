@@ -207,6 +207,19 @@ viewer to go stale.
 The obvious convenience — a machine-wide "broadcast everything" — is not built.
 It would undo the property that makes this worth having.
 
+**Broadcast is strict, and this was decided rather than defaulted.** A
+specialist that was not broadcast and then hits a decision at eleven in the
+morning cannot be answered from a phone, and the phone is not told it is
+waiting. Two softenings were on the table and both were rejected: broadcasting a
+specialist automatically once it opens a decision, and mirroring the bare fact
+that one is waiting without its thread or report. Either would mean something
+reaching the cloud that the developer did not put there, which is the one
+guarantee broadcast exists to make. The cost is real and accepted: remote is for
+work you decided to take with you, not for everything you left running.
+
+Anything softening this is a change to the design, not an improvement to be
+added in passing.
+
 ### There are no unbounded collections
 
 This is a hard rule of the design rather than a preference, and it comes
