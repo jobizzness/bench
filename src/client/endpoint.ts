@@ -116,6 +116,12 @@ export async function reach(endpoint: Endpoint, fetcher = fetch): Promise<Reach>
  * and asking for its address would be asking about a machine that is right
  * here. A daemon that was typed in and has never once answered is usually
  * the wrong address - and that is a question worth interrupting for.
+ *
+ * A page that knows no daemon but is signed into Firebase is not lost: the
+ * merged roster and every command from here on ride over Firestore, and no
+ * address is coming. That is the phone's normal state, not a gap to fill -
+ * see "The phone's first screen is sign-in, not 'Where is Bench running?'"
+ * in the design. `SignIn` is what such a page shows instead.
  */
 export function shouldAskForServer(state: {
   /** Whether this page knows of any daemon at all. */
@@ -126,7 +132,9 @@ export function shouldAskForServer(state: {
   everConnected: boolean;
   /** Whether the daemon is somewhere other than where this page came from. */
   remote: boolean;
+  /** Whether this browser holds a signed-in Firebase user. */
+  signedIn: boolean;
 }): boolean {
-  if (!state.known) return true;
+  if (!state.known) return !state.signedIn;
   return state.remote && state.live === false && !state.everConnected;
 }

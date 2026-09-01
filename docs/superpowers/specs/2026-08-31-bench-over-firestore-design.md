@@ -1,8 +1,58 @@
 # Bench over Firestore — design
 
 Status: approved 2026-08-31. Revised 2026-09-01 for more than one machine per
-account, and again for broadcast — remote is opt-in per specialist rather than
-on for everything.
+account, again for broadcast — remote is opt-in per specialist rather than
+on for everything — and again on 2026-09-01 with what #46 found while
+building "the wire": the daemon polls rather than holding a true push
+listener, and why. See "The daemon's listener, in practice" below.
+
+## The daemon's listener, in practice
+
+The design above says, twice, that the daemon "holds a listener" on
+`commands` and on `viewers`. Building #46 found that this is not achievable
+the way it reads: there is no supported way to authenticate a real Firestore
+listener (`onSnapshot`, in the client SDK) from Node using only a bare
+refresh token.
+
+Checked directly against the SDK's own type definitions before writing
+anything around it, rather than assumed: `@firebase/firestore`'s realtime
+listener needs a live `Auth` component on the same `FirebaseApp` to attach
+requests to. Getting one in Node means either
+
+- the Admin SDK, with a service-account credential that bypasses
+  `firestore.rules` entirely - ruled out for the ID-token exchange in the
+  identity slice (#45) for exactly this reason, and no less true here, or
+- reconstructing an `Auth` `User` session by hand, from the SDK's internal,
+  unversioned persisted-session JSON shape - undocumented, not part of the
+  public API, and free to change on any dependency bump. Not something to
+  build production behaviour on.
+
+Neither is acceptable, so the daemon does not hold a true listener. Instead:
+
+- **`viewers`** is polled every 5s, always, while remote is on - the one
+  cost that is paid even at rest, because it is what notices a viewer
+  arriving in the first place. `RemoteBridge` in
+  `src/daemon/remote/bridge.ts`.
+- **`commands`** and the mirror are polled every 2s, but only while a viewer
+  is fresh - so an idle machine still pays nothing beyond the `viewers`
+  poll, which is the property the design's cost model actually depends on.
+
+What this costs that the design did not budget for: roughly 17,280 reads a
+day per machine, idling, at the default 5s cadence (`viewerPollMs` in
+`RemoteBridge`). Reads are the plentiful side of the Spark quota (50,000/day
+against 20,000 writes), and the design already treats them as such - this
+spends more of that headroom than "idle listeners are free" implied, but
+does not touch the write budget, which is what the degradation logic in
+"What it costs" actually guards. Two machines: twice the idle read cost,
+still well inside the daily figure.
+
+If a genuine push listener is wanted later, the two options above are the
+only ones found. The undocumented persisted-session approach is the
+cheaper build and the worse bet long-term; a service account sidesteps
+`firestore.rules` and would need its own, separate authorization check
+reimplemented in code, which is exactly the "no code of ours in the middle
+to get it wrong" property the design was built to avoid. Neither is
+recommended without a decision from the developer first.
 
 ## What this is
 
@@ -432,3 +482,23 @@ hosted cockpit and drive a specialist; and that two laptops signed into the same
 account both appear, with one merged roster and each row acting on the right
 machine. None is a unit test. All are done by hand, once, against the real
 project.
+
+## What #46 actually built
+
+Slice 2's code is in on the daemon side: broadcast (with its cascade to
+sub-agent tabs and immediate mirror deletion on turning it off), the
+command/result round trip with the daemon refusing anything naming a
+non-broadcast session, presence, the coalesced write-budget-aware mirror,
+`bench remote off`, and the encode/decode seam - all against a fake
+document store, none of it touching a network. See this ticket's own report
+and issue comment for the exact list, and "The daemon's listener, in
+practice" above for the one place the daemon's behaviour differs from what
+this document originally described.
+
+The client side is built to the same shape - the transport switch in
+`api.ts`, the merged roster and presence heartbeat in `useRoster.ts`, the
+sign-in-first screen, `artifactUrl`'s `srcdoc` change, offline persistence -
+but could not be run against a real browser and the real `bench-cockpit`
+project from inside this environment. What a green suite proves and what a
+phone on cellular proves are different claims; see the report for exactly
+which is which.

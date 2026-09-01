@@ -65,12 +65,16 @@ function authHeader(idToken: string | null): Record<string, string> {
 }
 
 /**
- * A minimal client for one document path at a time.
+ * A minimal client for one document - or one collection's worth of documents
+ * - at a time.
  *
- * `set` and `delete` are the only two verbs this ticket needs: a machine
- * registers itself, updates `lastSeen` and its name in place, and is deleted
- * when remote turns off. Nothing here lists or queries a collection - see
- * "There are no unbounded collections" in the design.
+ * `set` and `remove` are what a machine document needs: register, update
+ * `lastSeen` and the name in place, delete on disconnect. `list` is what the
+ * bridge in `bridge.ts` needs on top: reading every `commands` or `viewers`
+ * document, since there is no push listener available without the Admin SDK
+ * (see that file's own comment for why). Still never a query beyond "every
+ * document in this one collection" - see "There are no unbounded
+ * collections" in the design, which both collections satisfy by construction.
  */
 export function firestoreClient(opts: FirestoreClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
@@ -105,7 +109,29 @@ export function firestoreClient(opts: FirestoreClientOptions) {
     }
   }
 
-  return { set, get, remove };
+  /**
+   * Every document directly under a collection - `commands` and `viewers`,
+   * the two the daemon has no way to watch (see `bridge.ts` for why it polls
+   * instead of listening) and so has to ask for outright.
+   *
+   * Still no query, still one collection at a time - "there are no unbounded
+   * collections" holds here too, since both of these are small by
+   * construction: pending actions and the handful of devices watching.
+   */
+  async function list(path: string): Promise<Array<{ id: string; data: DocData }>> {
+    const res = await fetchImpl(documentUrl(opts.projectId, path), {
+      headers: authHeader(opts.idToken()),
+    });
+    if (res.status === 404) return [];
+    if (!res.ok) throw new FirestoreRequestFailed(`could not list ${path}: ${res.status} ${await res.text()}`);
+    const body = (await res.json()) as { documents?: Array<{ name: string; fields?: FirestoreFields }> };
+    return (body.documents ?? []).map((doc) => ({
+      id: doc.name.slice(doc.name.lastIndexOf("/") + 1),
+      data: fromFields(doc.fields),
+    }));
+  }
+
+  return { set, get, remove, list };
 }
 
 export type FirestoreClient = ReturnType<typeof firestoreClient>;

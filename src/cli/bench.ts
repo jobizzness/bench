@@ -225,12 +225,23 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "remote" && args[0] === "off") {
+    // The daemon does the actual work - deregister the machine, empty its
+    // commands/results/mirror/viewers subtree, forget the credential. This
+    // is a thin wrapper so it can be typed rather than clicked through
+    // Settings; see `RemoteController.disconnect` for what "off" means.
+    await call("/api/remote", { method: "DELETE" });
+    process.stderr.write("bench: remote is off. This machine is no longer reachable from anywhere else.\n");
+    return;
+  }
+
   process.stderr.write(
     "bench — the roster, from inside it\n\n"
     + "  bench ls                      who is on this project\n"
     + "  bench new <label> [--as <role>]  open a tab, waiting to be told what to do\n"
     + '  bench tell <label> "<text>"   give one its next turn\n'
-    + "  bench close <label>           done with a sub-agent you opened - shut it down\n",
+    + "  bench close <label>           done with a sub-agent you opened - shut it down\n"
+    + "  bench remote off              stop being reachable from your other devices\n",
   );
   process.exit(command ? 1 : 0);
 }

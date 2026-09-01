@@ -64,6 +64,28 @@ export interface RosterRow {
   pendingPrompt: string | null;
   /** Model reasoning/thinking effort level. */
   reasoningEffort?: "none" | "low" | "medium" | "high";
+  /**
+   * Whether this specialist may be mirrored to Firestore. Off by default -
+   * see `docs/superpowers/specs/2026-08-31-bench-over-firestore-design.md`.
+   * A specialist that is not broadcast is absent from the mirrored roster
+   * entirely, not merely marked; this flag is what the local roster (and the
+   * broadcast control on the specialist's own page) still needs to see.
+   */
+  broadcast: boolean;
+  /**
+   * Set only on a row the cockpit learned about from another machine's
+   * mirror, never on a row from this page's own daemon - see "The merged
+   * roster" in the design. Absent means "here", the same as every row has
+   * always meant before this existed.
+   */
+  machine?: {
+    id: string;
+    name: string;
+    /** No fresh heartbeat from that machine's daemon - shown greyed rather
+     * than dropped, since knowing a specialist is waiting somewhere asleep is
+     * still useful. */
+    asleep: boolean;
+  };
 }
 
 /**

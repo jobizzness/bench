@@ -81,6 +81,14 @@ export interface SessionRecord {
   reasoningEffort?: "none" | "low" | "medium" | "high";
   /** How many times the developer has cleared the conversation's context. */
   clearCount?: number;
+  /**
+   * Whether this specialist may be mirrored to Firestore for another device
+   * to reach. Off by default - absent means false, unlike `isolated` and
+   * `resumable`, which default to what every record before them already was.
+   * A specialist that was never broadcast has never had a reason to become
+   * one just because the field did not exist yet.
+   */
+  broadcast?: boolean;
 }
 
 const REQUIRED = ["id", "label", "project", "worktree", "reportsDir", "model"] as const;
@@ -295,6 +303,22 @@ export class SessionStore {
       const record = all.find((r) => r.id === id);
       if (!record) return;
       record.role = role;
+      await this.write(all);
+    });
+  }
+
+  /**
+   * Whether a specialist may leave this machine. Written immediately and
+   * synchronously ordered against every other change, because what turns off
+   * has to be gone from the mirror before anything else reads the roster -
+   * see `SessionRegistry.setBroadcast`.
+   */
+  async setBroadcast(id: string, broadcast: boolean): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.broadcast = broadcast;
       await this.write(all);
     });
   }

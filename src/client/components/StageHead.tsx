@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { projectName } from "../format.js";
+import { Broadcast } from "./Broadcast.js";
 import { GithubMark } from "./GithubMark.js";
 import { Meta } from "./Meta.js";
 import { StageLabel } from "./StageLabel.js";
@@ -30,6 +31,7 @@ export function StageHead({ onGithub }: {
       <div id="stage-title">
         <StageLabel sessionId={row.id} label={row.label} />
         <StageUsage />
+        <Broadcast sessionId={row.id} broadcast={row.broadcast} />
         {/* Top right of the pane the specialist is on, because the project it
             lists is that specialist's. */}
         <button

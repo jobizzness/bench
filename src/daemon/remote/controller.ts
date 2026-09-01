@@ -5,6 +5,9 @@ import {
 import { RefreshRejected, Refresher } from "./token-refresh.js";
 import { firestoreClient, type FirestoreClient } from "./firestore-rest.js";
 import { deregisterMachine, heartbeat, registerMachine } from "./machine.js";
+import { RemoteBridge } from "./bridge.js";
+import type { LocalCaller } from "./command-runner.js";
+import type { RosterRow } from "../../shared/types.js";
 import type { RemoteState } from "../../shared/remote.js";
 
 export type { RemoteState } from "../../shared/remote.js";
@@ -31,6 +34,24 @@ export interface RemoteControllerOptions {
   /** For tests: the machine name and platform this "laptop" reports as. */
   hostname?: string;
   platform?: string;
+  /** The roster, filtered to broadcast - what `RemoteBridge` is allowed to
+   * mirror. Absent leaves remote holding an identity but never wiring the
+   * bridge, which is what every existing test that does not care about #46
+   * gets by not passing it. */
+  listBroadcast?: () => RosterRow[];
+  /** Runs a command against this daemon's own HTTP server, on loopback, with
+   * its own token - see "Routing back through the daemon's own HTTP server"
+   * in the design. Required alongside `listBroadcast` for the bridge to run;
+   * either alone is a daemon that can hold an identity but never carries
+   * remote traffic. */
+  callLocal?: LocalCaller;
+  bridgeOpts?: {
+    viewerPollMs?: number;
+    tickMs?: number;
+    now?: () => number;
+    setIntervalImpl?: typeof setInterval;
+    clearIntervalImpl?: typeof clearInterval;
+  };
 }
 
 /**
@@ -49,6 +70,7 @@ export class RemoteController implements RemoteControllerLike {
   private machineName: string | null = null;
   private error: string | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private bridge: RemoteBridge | null = null;
 
   private readonly hostnameValue: string;
   private readonly platformValue: string;
@@ -98,6 +120,10 @@ export class RemoteController implements RemoteControllerLike {
   async disconnect(): Promise<RemoteState> {
     if (this.identity && this.client) {
       try {
+        // `bench remote off` per the design: the machine's whole subtree,
+        // not only its own document. Before deregistering the machine
+        // itself, since `wipe()` addresses paths under it.
+        await this.bridge?.wipe();
         await deregisterMachine(this.client, this.identity.uid, this.identity.machineId);
       } catch {
         // The local side of "off" still has to happen even if the network
@@ -130,6 +156,8 @@ export class RemoteController implements RemoteControllerLike {
     this.client = null;
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
+    this.bridge?.stop();
+    this.bridge = null;
     this.identity = null;
     this.machineName = null;
   }
@@ -166,6 +194,21 @@ export class RemoteController implements RemoteControllerLike {
       idToken: () => refresher.idToken(),
       fetchImpl: this.opts.fetchImpl,
     });
+
+    // Both have to be supplied for the bridge to run at all - a daemon can
+    // hold an identity with neither wired up (every test that predates #46,
+    // and any caller that only wants the identity slice from #45).
+    if (this.opts.listBroadcast && this.opts.callLocal) {
+      this.bridge = new RemoteBridge({
+        client: this.client,
+        uid: identity.uid,
+        machineId: identity.machineId,
+        listBroadcast: this.opts.listBroadcast,
+        callLocal: this.opts.callLocal,
+        ...this.opts.bridgeOpts,
+      });
+      this.bridge.start();
+    }
 
     saveIdentity(this.opts.home, identity);
 

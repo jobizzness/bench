@@ -1,4 +1,5 @@
-import { artifactUrl } from "../api.js";
+import { useEffect, useState } from "react";
+import { loadArtifact, type ArtifactContent } from "../api.js";
 
 export interface ArtifactRef {
   /** "report" or "answer" - what the card calls it. */
@@ -26,6 +27,15 @@ export function ArtifactCard({
   preview?: boolean;
   onOpen: (artifact: ArtifactRef) => void;
 }) {
+  const [content, setContent] = useState<ArtifactContent | null>(null);
+
+  useEffect(() => {
+    if (!preview) return;
+    let live = true;
+    void loadArtifact(sessionId, artifact.seq, artifact.file).then((result) => { if (live) setContent(result); });
+    return () => { live = false; };
+  }, [preview, sessionId, artifact.seq, artifact.file]);
+
   return (
     <article className="card">
       <button type="button" className="card-open" onClick={() => onOpen(artifact)}>
@@ -33,16 +43,11 @@ export function ArtifactCard({
         <span className="title">{artifact.title}</span>
         <span className="cue">open</span>
       </button>
-      {preview && (
-        // Untrusted generated HTML. The sandbox withholds everything except a
-        // same-origin document, so no script in a report can run; the daemon
-        // sends a matching Content-Security-Policy with the page itself.
-        <iframe
-          sandbox="allow-same-origin"
-          title={artifact.title}
-          src={artifactUrl(sessionId, artifact.seq, artifact.file)}
-        />
-      )}
+      {/* Untrusted generated HTML. The sandbox withholds everything except a
+          same-origin document, so no script in a report can run; the daemon
+          sends a matching Content-Security-Policy with the page itself. */}
+      {content?.kind === "url" && <iframe sandbox="allow-same-origin" title={artifact.title} src={content.url} />}
+      {content?.kind === "html" && <iframe sandbox="allow-same-origin" title={artifact.title} srcDoc={content.html} />}
     </article>
   );
 }
