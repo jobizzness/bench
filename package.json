@@ -14,15 +14,18 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json",
     "test:e2e": "BENCH_E2E=1 vitest run tests/e2e.test.ts tests/e2e-chat.test.ts",
+    "test:rules": "firebase emulators:exec --only firestore \"BENCH_RULES_TEST=1 vitest run tests/firestore-rules.test.ts\"",
     "dev:client": "esbuild src/client/main.tsx --bundle --format=esm --target=es2022 --outfile=dist/client/app.js --watch",
     "icons": "node scripts/icons.mjs",
     "deploy:web": "pnpm build && firebase deploy --only hosting"
   },
   "dependencies": {
+    "firebase": "^11.1.0",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
     "@types/node": "^22.10.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
