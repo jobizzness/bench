@@ -162,22 +162,27 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // by loadConfig(), which is the file allowed to read the world - so a
     // registry built for a test finds nothing, rather than whatever happens
     // to be exported on the machine running it.
-    // The developer's own answer to "should this key be spent", from the last
-    // time they gave one. Read before the key, so a key that arrives parked
-    // is never briefly live.
-    this.apiKeyOn = config.apiKeyParked !== true;
-
     const found = config.credentials;
-    if (found === undefined) return;
-    this.envSearched = found.searched;
-    if (found.anthropic) {
-      this.apiKey = found.anthropic.key;
-      this.apiKeyOrigin = found.anthropic.origin;
+    if (found !== undefined) {
+      this.envSearched = found.searched;
+      if (found.anthropic) {
+        this.apiKey = found.anthropic.key;
+        this.apiKeyOrigin = found.anthropic.origin;
+      }
+      if (found.router) {
+        this.routerKey = found.router.key;
+        this.routerKeyOrigin = found.router.origin;
+      }
     }
-    if (found.router) {
-      this.routerKey = found.router.key;
-      this.routerKeyOrigin = found.router.origin;
-    }
+
+    // The developer's own answer to "should this key be spent", from the
+    // last time they gave one - an explicit answer always wins, parked or
+    // not. Nobody has ever said the first time a key turns up this way: a
+    // key typed into Settings turns itself on the moment it is saved, so
+    // there is nothing to default here, but a key Bench found for itself in
+    // the environment or a `.env` was never a choice the developer made, and
+    // starts parked until they say otherwise in Settings.
+    this.apiKeyOn = config.apiKeyParked === undefined ? this.apiKey === null : !config.apiKeyParked;
   }
 
   /**
