@@ -6,12 +6,11 @@
  * client bundle imports it for `signInWithPopup`, and the daemon imports the
  * same values to call the Firestore and secure token REST APIs directly.
  *
- * `apiKey` is a placeholder. Filling it in requires a Web App registered
- * under the `bench-cockpit` Firebase project (console → Project settings →
- * Add app → Web), which this ticket deliberately does not do - creating and
- * configuring a live app in the developer's real Google Cloud project is a
- * one-way action outside what an implementer should do unattended. See the
- * report for this ticket for the exact steps left for the developer.
+ * The key is the real one for the `bench` web app on `bench-cockpit`, read
+ * back from `firebase apps:sdkconfig WEB` rather than copied from a console
+ * tab - a config for the wrong project is the one mistake here that is
+ * expensive, because deploying this repo's rules replaces whatever ruleset
+ * that project already had.
  */
 export const FIREBASE_PROJECT_ID = "bench-cockpit";
 
@@ -25,7 +24,7 @@ export interface FirebaseWebConfig {
 // browser bundle as well as the daemon, and `process.env` does not exist
 // there without a build-time --define for each variable it reads.
 export const FIREBASE_WEB_CONFIG: FirebaseWebConfig = {
-  apiKey: "REPLACE_WITH_FIREBASE_WEB_API_KEY",
+  apiKey: "AIzaSyDT-Dbp7hL4j_0kfjJwKE7wV3oORIG_38Q",
   authDomain: `${FIREBASE_PROJECT_ID}.firebaseapp.com`,
   projectId: FIREBASE_PROJECT_ID,
 };

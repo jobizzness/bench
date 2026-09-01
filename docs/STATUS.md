@@ -159,12 +159,16 @@ reach no specialist.
   Persistence, the file mode, refresh-before-expiry, a revoked token
   surfacing as "sign in again" instead of a crash loop, and all three routes
   are unit-tested against a fake Firestore and a fake `securetoken`
-  endpoint. What is unproven: a real round trip against the live
-  `bench-cockpit` project — the web app config is a placeholder
-  (`REPLACE_WITH_FIREBASE_WEB_API_KEY` in `src/shared/firebase-config.ts`)
-  until a Web App is registered on that project and Google sign-in is
-  enabled, neither of which this ticket did; and two machines under one
-  account, which needs a second laptop to actually check.
+  endpoint. The `bench-cockpit` project is now real: a web app is registered,
+  its config is committed, Firestore exists in `eur3`, and `firestore.rules`
+  is deployed. What is unproven: **nobody has signed in**. Firebase
+  Authentication has not been switched on for the project — the admin API for
+  it answers `CONFIGURATION_NOT_FOUND`, and turning it on is a console action
+  — so `signInWithPopup` has nothing to talk to. Also unproven: two machines
+  under one account, which needs a second laptop; and the rules, which are
+  deployed but have never been exercised by a request, because
+  `tests/firestore-rules.test.ts` needs a Java 21 emulator. Tracked as
+  [#52](https://github.com/jobizzness/bench/issues/52).
 - **The decision loop end to end through the browser.** Answers post back
   into the live session and the mechanics are tested, but nobody has yet
   run a real task to completion and answered it from the cockpit.
