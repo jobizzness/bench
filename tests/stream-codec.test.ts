@@ -98,6 +98,42 @@ describe("activityLine", () => {
     expect(activityLine(toolUse("Skill", { skill: "bench-report" }))).toBe("Skill bench-report");
   });
 
+  /**
+   * A phone's roster row holds around 35 characters of status, so a line that
+   * opens with an absolute path spends all of them on the path. Photographed
+   * on a real phone: "Bash cat > /var/www/bench/.be…" - which tool, and
+   * nothing else. The same rule `shortPath` already applies to a file
+   * argument, applied inside a command.
+   */
+  it("shortens an absolute path inside a command, the way it does a file argument", () => {
+    expect(activityLine(toolUse("Bash", { command: "cat > /var/www/bench/.bench/reports/abc/1/report.html" })))
+      .toBe("Bash cat > abc/1/report.html");
+  });
+
+  it("shortens every path in a command, not just the first", () => {
+    expect(activityLine(toolUse("Bash", { command: "cp /var/www/bench/a/b/c/one.png /var/www/bench/x/y/z/two.png" })))
+      .toBe("Bash cp b/c/one.png y/z/two.png");
+  });
+
+  it("leaves a command with no absolute path exactly as it was", () => {
+    expect(activityLine(toolUse("Bash", { command: "pnpm test -- --run" })))
+      .toBe("Bash pnpm test -- --run");
+  });
+
+  it("leaves a relative path alone - it is already short enough to read", () => {
+    expect(activityLine(toolUse("Bash", { command: "node scripts/shots.mjs" })))
+      .toBe("Bash node scripts/shots.mjs");
+  });
+
+  it("keeps a short absolute path whole rather than trimming it to nothing", () => {
+    expect(activityLine(toolUse("Bash", { command: "ls /etc/hosts" }))).toBe("Bash ls /etc/hosts");
+  });
+
+  it("does not maul a URL, which is not a path into a worktree", () => {
+    expect(activityLine(toolUse("Bash", { command: "curl https://bench-cockpit.web.app/a/b/c/d.js" })))
+      .toBe("Bash curl https://bench-cockpit.web.app/a/b/c/d.js");
+  });
+
   it("truncates something far too long to read at a glance", () => {
     const line = activityLine(toolUse("Bash", { command: "x".repeat(200) }))!;
     expect(line.length).toBeLessThanOrEqual(72);
