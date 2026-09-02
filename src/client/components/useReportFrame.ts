@@ -18,12 +18,19 @@ export interface ReportFrame {
  * setting it on the frame turns that back into one column - the same one
  * the decision's options are in (see `PhoneUnblock.tsx`).
  *
- * Only works where the iframe's document is actually reachable from here. A
- * relayed report rendered as `srcDoc` is - `sandbox="allow-same-origin"`
- * gives it the parent's origin - and a local one usually is too, since it is
- * served by the same daemon the page came from. Where it is not (a relayed
- * report opened by URL from a different origin) reading the height throws,
- * and the CSS fallback height in `styles.css` is what carries it instead.
+ * Only works where the iframe's document is actually reachable from here,
+ * and on a phone that is not a rare exception - it is closer to a coin
+ * flip. `loadArtifact` (`api.ts`) hands a local session's report over as a
+ * `src` URL and a relayed one (mirrored from another machine, which is the
+ * ordinary way a specialist reaches a phone at all) as `srcDoc` HTML;
+ * `sandbox="allow-same-origin"` gives the `srcDoc` case the parent's
+ * origin regardless of which machine actually rendered it, so that one
+ * reads fine here. The `src` case is the one that can go either way - it is
+ * only readable when the daemon happens to share an origin with the page,
+ * which a hosted cockpit reaching a daemon directly over a LAN address does
+ * not. Either kind can throw in practice, so the fixed-height fallback in
+ * `styles.css` is not a degraded path to tolerate - it is a real screen a
+ * phone shows often, sized and treated accordingly.
  */
 export function useReportFrame(sessionId: string, seq: number): ReportFrame {
   const [content, setContent] = useState<ArtifactContent | null>(null);

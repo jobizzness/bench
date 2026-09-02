@@ -3429,6 +3429,11 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
     column-gap: 12px;
     row-gap: 5px;
     padding: 18px 16px;
+    /* Right only: a dedicated gutter for the close button below (#58) so
+       its hit area and the trailer badge's stop sharing one strip of the
+       row. The badge's own "flush against the row's own padding" comment
+       still holds - the padding edge just moved. */
+    padding-right: 40px;
   }
   .row .label { grid-area: name; margin-bottom: 0; font-size: 17px; }
   .row .meta { grid-area: meta; font-size: 13px; color: var(--muted); }
@@ -3454,13 +3459,21 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
      same control. */
   .row .grip { display: none; }
 
-  /* Dropped for the same reason, and one more: it is drawn at `opacity: 0`
-     until `:hover`, which a touchscreen never fires, so on a phone it was an
-     invisible control sitting in the same strip of the row as the trailer
-     badge - aim at one, hit the other, and get a confirm dialog you did not
-     ask for (#58). Closing a specialist is a desk action anyway; the phone
-     is here to unblock one, not to tidy up after it. */
-  .row .close { display: none; }
+  /* Reachable rather than dropped: closing removes a worktree and a branch,
+     which is a real thing to be able to do from wherever you are, and it is
+     already guarded by a native confirm() (useCloseSpecialist.ts) - a
+     mis-tap costs a dialog, not the work. The bug was only ever that it
+     drew at `opacity: 0` until `:hover`, which a touchscreen never fires
+     (#58) - quietly visible at rest instead, quieter than the badge beside
+     it because it is the one thing on this row you did not come here to do.
+     Realigned to the name line rather than the row's full height, so it
+     sits beside the badge - in its own part of the gutter above - rather
+     than drifting down across the meta line underneath both. */
+  .row .close {
+    opacity: 0.4;
+    top: 18px;
+    transform: none;
+  }
 
   /* The one place this screen raises its voice. */
   .row[data-waiting="true"] {
@@ -3620,11 +3633,15 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
     color: var(--muted);
   }
 
-  /* The argument, not a card that hands you the buttons without it -
-     that was the whole finding. Sized to its own content on load
-     (PhoneUnblock.tsx) so the report and the options scroll as one
-     column; the fixed height here only ever shows while it's still
-     measuring, or on the rare frame it cannot. */
+  /* The argument, not a card that hands you the buttons without it - that
+     was the whole finding. Sized to its own content on load
+     (useReportFrame.ts) so the report and the options scroll as one column
+     - but that read can fail, and does often enough on a phone (a relayed
+     report served from a different origin than the page) that this height
+     is not a rare fallback to leave threadbare. 52vh matches the room
+     `.card iframe` already gives a report previewed in the thread: enough
+     to actually read before the frame's own scrollbar takes over, not a
+     keyhole. */
   #unblock-report {
     flex: none;
     margin: 0 18px 18px;
@@ -3637,7 +3654,7 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
     display: block;
     width: 100%;
     border: 0;
-    height: 46vh;
+    height: 52vh;
   }
 
   #unblock-options { margin: 0 18px 14px; }
