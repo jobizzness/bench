@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { createServer } from "./server.js";
 import { HomeInUse, takeHomeLock } from "./lock.js";
+import { clearLaunch, launchEnv, writeLaunch } from "./launch.js";
 import { SessionRegistry } from "./registry.js";
 import { usageSource } from "./usage.js";
 import { creditSource } from "./gemini.js";
@@ -66,6 +67,10 @@ const remote = new RemoteController({
 let releaseHome: () => void;
 try {
   releaseHome = takeHomeLock(config.home);
+  // Beside the lock and with the same lifetime: what the lock says is who is
+  // running, this says how to run them again. `bench restart` reads it rather
+  // than guessing at an environment it cannot see.
+  writeLaunch(config.home, { pid: process.pid, cwd: process.cwd(), argv: process.argv, env: launchEnv() });
 } catch (error) {
   if (!(error instanceof HomeInUse)) throw error;
   process.stderr.write(`bench: ${error.message}\n`);
@@ -158,6 +163,7 @@ const shutdown = () => {
  * already told the next one the home was free. Two processes, one index.
  */
 function done(): void {
+  clearLaunch(config.home, process.pid);
   releaseHome();
   process.exit(0);
 }

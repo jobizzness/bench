@@ -203,6 +203,32 @@ showing an empty panel.
 Nothing hot-reloads yet: `pnpm build` before `pnpm start`, and run it from the
 repository root.
 
+### Restarting it
+
+```bash
+bench restart --build
+```
+
+Every change under `src/daemon` needs the daemon started again, and the usual
+way to do that — find the terminal, Ctrl-C, `pnpm start` — is not available to
+a specialist, which is exactly who tends to have just made the change.
+
+Stopping the daemon stops every specialist, so this cannot be a straight
+`kill` and `start`: whoever typed it is about to be stopped by it. It hands
+the work to a detached process instead, which waits until no turn is running
+before it stops anything. So a specialist can restart the daemon it is running
+under, its turn finishes and is written down, and the roster comes back with
+everyone still on it. Nothing respawns until you prompt it, the same as any
+other restart.
+
+With `--build` it builds first and leaves the running daemon alone if the
+build fails — a daemon that will not start is worse than the one you had.
+
+Two things change after a restart run this way. The daemon has no terminal, so
+its output goes to `~/.bench/daemon.log`, and the restart's own progress to
+`~/.bench/restart.log`. And the terminal you originally started it in is now
+free: it printed `bench: stopping.` and exited.
+
 ## How it works
 
 ```
