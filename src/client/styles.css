@@ -476,6 +476,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* Above the breakpoint the roster is already on screen beside the stage, so
    there is nothing this button would go back to. */
 #stage-back { display: none; }
+
+/* The phone's own two screens - what opens when something is waiting, and
+   what is shown when nothing is. Hidden by default the same way #stage-back
+   is: above the breakpoint the roster and the stage are already both on
+   screen, so neither of these has a reason to exist yet. */
+#unblock, #empty { display: none; }
 /* With no specialist open there is no project, and so nothing to list. */
 #open-github:disabled { opacity: 0.35; cursor: default; }
 /* Broadcast's is the moment its own write is in flight. */
@@ -3402,6 +3408,69 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   #roster header { padding: 16px 14px 14px; }
   #stage-head { padding: 14px 16px 12px; }
   #thread { padding: 16px 16px 20px; }
+
+  /* ── Roster rows: a phone composition, not a squeezed desktop one ─────
+     #47 made a row fit; it kept a row authored for 276px. Fixed here: one
+     right edge instead of three widths stacked (the grip, the trailer
+     badge and the close button were each inset by a different amount),
+     type sized for arm's length rather than a monitor, and a waiting
+     specialist made unmistakably the boldest thing on the screen - a
+     specialist wanting you is the entire reason this app is open on a
+     phone, and that is the one place this composition raises its voice.
+     Everything else stays exactly the quiet furniture it already was. */
+
+  .group > summary { padding: 16px 16px 10px; font-size: 12px; }
+
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name trailer" "meta meta";
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 5px;
+    padding: 18px 16px;
+  }
+  .row .label { grid-area: name; margin-bottom: 0; font-size: 17px; }
+  .row .meta { grid-area: meta; font-size: 13px; color: var(--muted); }
+  /* Whatever ends up here - the spend or, before there is any, the model -
+     is the row's one right-hand slot. Flush against the row's own padding
+     in every row, which is what gives the column its single edge: the grid
+     track is `auto`, but the track always ends at the row's own right
+     boundary regardless of how wide its content is.
+
+     It sits on the name's line and not beside both lines, so the meta line
+     keeps the full width. The meta line is the one that says why a
+     specialist wants you, which is the whole reason this app is open on a
+     phone; a model name is not worth ten characters of it. */
+  .row .meta-trailer { grid-area: trailer; margin-top: 0; }
+  .row .meta-trailer .badge-model,
+  .row .meta-trailer .badge-spend { font-size: 11px; padding: 4px 9px; }
+
+  /* A mouse gesture, dropped rather than dimmed. Row order is remembered
+     per browser (order.ts), so a phone - a different browser from whatever
+     did the dragging - starts from the waiting-first sort in
+     RosterGroup.tsx anyway. Nothing here for a thumb to do, so nothing is
+     drawn asking for one; ↑/↓ nudging goes with it, since it lived on the
+     same control. */
+  .row .grip { display: none; }
+
+  /* Dropped for the same reason, and one more: it is drawn at `opacity: 0`
+     until `:hover`, which a touchscreen never fires, so on a phone it was an
+     invisible control sitting in the same strip of the row as the trailer
+     badge - aim at one, hit the other, and get a confirm dialog you did not
+     ask for (#58). Closing a specialist is a desk action anyway; the phone
+     is here to unblock one, not to tidy up after it. */
+  .row .close { display: none; }
+
+  /* The one place this screen raises its voice. */
+  .row[data-waiting="true"] {
+    background: color-mix(in srgb, var(--wants) 9%, transparent);
+  }
+  .row[data-waiting="true"]::before { width: 5px; }
+
+  .row[data-nested="true"] { padding-left: 24px; }
+  .row[data-nested="true"] .label { font-size: 15px; }
+  .row[data-nested="true"] .meta { font-size: 12px; }
   #composer {
     padding: 12px 16px 16px;
     /* A flex item's default minimum height is its content's, not 0 - so
@@ -3471,5 +3540,160 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
       env(safe-area-inset-top) env(safe-area-inset-right)
       env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
+
+  /* ── The front door: something waiting, or nothing does ───────────────
+     Below this width the roster is no longer where the app opens - see
+     #app[data-pane] below. A specialist wanting you is the entire reason
+     the phone is out of a pocket, so this is the one screen on the whole
+     phone build that is allowed to be bold: the title is the loudest text
+     anywhere in this file, the report is the first thing under it, and
+     everything else - the project name, the way back to the roster - is
+     furniture in the same quiet register the roster row now uses. */
+  #app[data-pane="unblock"],
+  #app[data-pane="empty"] { display: none; }
+
+  #unblock {
+    display: flex;
+    flex-direction: column;
+    height: var(--visual-viewport-height, 100dvh);
+    overflow-y: auto;
+    padding:
+      env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  #unblock-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+    padding: 16px 18px 6px;
+  }
+  #unblock-head .eyebrow {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+  /* How many are behind this one. Not a call to hurry - just what is true -
+     which is why it is the quietest thing in the header rather than a
+     counter shouting a number at you. */
+  #unblock-count {
+    flex: none;
+    font: 500 11px/1 var(--mono);
+    color: var(--wants);
+    background: var(--wants-dim);
+    padding: 4px 9px;
+    border-radius: 10px;
+  }
+  #unblock-roster {
+    flex: none;
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--muted);
+    font: 500 11px/1 var(--mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 7px 10px;
+    cursor: pointer;
+  }
+  #unblock-roster:hover { color: var(--text); border-color: var(--line-firm); }
+
+  /* The one loud thing on the phone. Everywhere else on this build, type
+     got bigger for legibility; here it also gets bigger because this is
+     the fact the screen exists to deliver. */
+  #unblock-title {
+    display: block;
+    margin: 10px 18px 6px;
+    font: 700 22px/1.3 var(--sans);
+    letter-spacing: -0.01em;
+    color: var(--wants);
+  }
+  #unblock-summary {
+    display: block;
+    margin: 0 18px 18px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+
+  /* The argument, not a card that hands you the buttons without it -
+     that was the whole finding. Sized to its own content on load
+     (PhoneUnblock.tsx) so the report and the options scroll as one
+     column; the fixed height here only ever shows while it's still
+     measuring, or on the rare frame it cannot. */
+  #unblock-report {
+    flex: none;
+    margin: 0 18px 18px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  #unblock-frame {
+    display: block;
+    width: 100%;
+    border: 0;
+    height: 46vh;
+  }
+
+  #unblock-options { margin: 0 18px 14px; }
+  #unblock-send { display: flex; gap: 9px; margin: 0 18px 10px; }
+  #unblock-text {
+    flex: 1;
+    min-width: 0;
+    background: var(--raised);
+    border: 1px solid var(--line-firm);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font: 400 14px/1.4 var(--sans);
+  }
+  #unblock-text::placeholder { color: var(--faint); }
+  #unblock-text:focus { outline: none; border-color: var(--wants-dim); }
+  #unblock-answer {
+    flex: none;
+    padding: 0 18px;
+    border: 1px solid var(--line-firm);
+    border-radius: 8px;
+    background: var(--raised);
+    color: var(--text);
+    font: 500 13px/1 var(--sans);
+    cursor: pointer;
+  }
+  #unblock-answer:hover:not(:disabled) { border-color: var(--wants); }
+  #unblock-answer:disabled { opacity: 0.4; cursor: default; }
+  #unblock-foot { margin: 0 18px 28px; color: var(--faint); font-size: 12px; }
+
+  /* Nothing waiting is a real answer, said plainly and then got out of the
+     way - the quietest screen in the build, on purpose: it is what a
+     working bench looks like most of the time. */
+  #empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    height: var(--visual-viewport-height, 100dvh);
+    gap: 10px;
+    padding: 24px;
+  }
+  #empty .mark-logo { opacity: 0.35; margin-bottom: 6px; }
+  #empty-title { font: 600 19px/1.35 var(--sans); color: var(--text); }
+  #empty-note { margin: 0; color: var(--muted); font-size: 14px; max-width: 30ch; line-height: 1.5; }
+  #empty-roster {
+    margin-top: 20px;
+    background: none;
+    border: 1px solid var(--line-firm);
+    border-radius: 8px;
+    color: var(--text);
+    font: 500 13px/1 var(--sans);
+    padding: 11px 20px;
+    cursor: pointer;
+  }
+  #empty-roster:hover { border-color: var(--wants-dim); color: var(--wants); }
 }
 
