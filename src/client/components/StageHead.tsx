@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { projectName } from "../format.js";
+import { BackMark } from "./BackMark.js";
 import { Broadcast } from "./Broadcast.js";
 import { GithubMark } from "./GithubMark.js";
 import { Meta } from "./Meta.js";
 import { StageLabel } from "./StageLabel.js";
 import { StageUsage } from "./StageUsage.js";
 import { RoleDialog } from "./RoleDialog.js";
-import { useBenchState } from "./context.js";
+import { useBenchActions, useBenchState } from "./context.js";
 
 /**
  * Who is on the stage: their name, and one line of everything else.
@@ -22,6 +23,7 @@ export function StageHead({ onGithub }: {
   onGithub: () => void;
 }) {
   const { rows, selectedId } = useBenchState();
+  const { select } = useBenchActions();
   const [roleOpen, setRoleOpen] = useState(false);
   const row = rows.find((r) => r.id === selectedId);
   if (!row) return null;
@@ -29,6 +31,20 @@ export function StageHead({ onGithub }: {
   return (
     <header id="stage-head">
       <div id="stage-title">
+        {/* Only drawn below the width breakpoint - see styles.css. Above it
+            the roster is already on screen, so there is nothing to go back
+            to. Goes through the same `select(null)` every close action
+            already uses, which is what makes the phone's own back gesture
+            work here too: it is a real history entry, not a mode. */}
+        <button
+          type="button"
+          id="stage-back"
+          aria-label="Back to roster"
+          title="Back to roster"
+          onClick={() => select(null)}
+        >
+          <BackMark />
+        </button>
         <StageLabel sessionId={row.id} label={row.label} />
         <StageUsage />
         <Broadcast sessionId={row.id} broadcast={row.broadcast} />

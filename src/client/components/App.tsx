@@ -45,6 +45,7 @@ import { useSelection } from "./useSelection.js";
 import { threadSignature, useThread } from "./useThread.js";
 import { useHiddenProjects } from "../hidden.js";
 import { isWaiting } from "../waiting.js";
+import { useVisualViewportHeight } from "./useVisualViewportHeight.js";
 
 /**
  * The whole cockpit. It owns the four things every screen reads — who exists,
@@ -54,6 +55,10 @@ import { isWaiting } from "../waiting.js";
  */
 export function App() {
   const { selectedId, select } = useSelection();
+  // Below the width breakpoint the composer has to survive a soft keyboard
+  // that `100dvh` alone does not always account for - see the hook's own
+  // comment and `#app` in styles.css.
+  useVisualViewportHeight();
   const { rows, live, wakingMachines, degradedMachines, activeMachineName } = useRoster(selectedId);
   const row = rows.find((r) => r.id === selectedId) ?? null;
 
@@ -255,7 +260,10 @@ export function App() {
         onChangeServer={isRemote() ? () => setSetupOpen(true) : null}
       />
 
-      <main id="app">
+      {/* Which pane is full-width below the breakpoint. Follows `selectedId`
+          rather than holding state of its own - a specialist and "the
+          roster" are already the same fact everywhere else in this file. */}
+      <main id="app" data-pane={selectedId ? "stage" : "roster"}>
         <aside id="roster">
           <header>
             <h1><Mark /><span>Bench</span></h1>

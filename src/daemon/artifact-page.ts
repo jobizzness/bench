@@ -213,6 +213,16 @@ const GROUND = `
   figure[data-bench="pair"] figcaption { grid-column: 1 / -1; }
   @media (max-width: 720px) {
     figure[data-bench="pair"] { grid-template-columns: 1fr; }
+
+    /* A table this narrow gets its own scrollbar rather than dragging the
+       whole document sideways with it - the fragment is somebody else's
+       markdown, so a table wide enough to need this is expected, not a bug
+       to fix upstream. */
+    table { display: block; overflow-x: auto; }
+
+    /* A long unbroken token - a hash, a URL - wraps instead of pushing the
+       frame wider than the measure it is set in. */
+    code { overflow-wrap: anywhere; }
   }
 
   /* The one-line answer, for a report whose whole point is a verdict. It sits

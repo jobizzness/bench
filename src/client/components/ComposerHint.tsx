@@ -13,7 +13,11 @@ export function ComposerHint({ kind, optionCount = 0 }: {
   optionCount?: number;
 }) {
   return (
-    <p id="composer-hint">
+    // `data-kind` lets the stylesheet drop the "intake"/"options" variants
+    // below the width breakpoint - they are keyboard shortcuts
+    // (useDecisionKeys.ts) for keys a touchscreen does not have, and the
+    // decision buttons are already thumb-sized there without them.
+    <p id="composer-hint" data-kind={kind}>
       {kind === "working" && "Working — a message queues and is answered when this turn ends."}
       {kind === "reply" && (
         <>
