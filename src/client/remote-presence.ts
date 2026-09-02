@@ -1,4 +1,5 @@
 import { deleteField, doc, setDoc, updateDoc, type Firestore } from "firebase/firestore";
+import { randomId } from "./uuid.js";
 
 /** Every 60s while the page is visible - see "Presence gates the mirror" in
  * the design. Not while hidden: a phone in a pocket is not a viewer, and an
@@ -60,12 +61,12 @@ export function deviceId(store: Storage = localStorage): string {
   try {
     const existing = store.getItem(KEY);
     if (existing) return existing;
-    const fresh = crypto.randomUUID();
+    const fresh = randomId();
     store.setItem(KEY, fresh);
     return fresh;
   } catch {
     // Storage disabled: a fresh id every call is a viewer that never quite
     // looks continuous, but it still heartbeats and still watches.
-    return crypto.randomUUID();
+    return randomId();
   }
 }

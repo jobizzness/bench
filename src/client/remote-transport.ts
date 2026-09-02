@@ -1,6 +1,7 @@
 import { deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { firestore } from "./firebase-app.js";
 import { encode, decode } from "../shared/remote-codec.js";
+import { randomId } from "./uuid.js";
 
 /**
  * The relayed half of the transport: a command written, a result listened
@@ -26,7 +27,7 @@ export function sendCommand(
   uid: string, machineId: string, method: string, path: string, body: unknown,
 ): Promise<RemoteResult> {
   const database = firestore();
-  const id = crypto.randomUUID();
+  const id = randomId();
   const commandRef = doc(database, `users/${uid}/machines/${machineId}/commands/${id}`);
   const resultRef = doc(database, `users/${uid}/machines/${machineId}/results/${id}`);
 
