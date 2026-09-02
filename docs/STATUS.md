@@ -1,12 +1,15 @@
 # Bench — where it stands
 
-Last updated 2026-09-02. 1520 tests passing, 8 skipped (2 end-to-end
+Last updated 2026-09-02. 1558 tests passing, 8 skipped (2 end-to-end
 suites run separately against the real CLI, and a Firestore rules suite
 run separately against the emulator), 4 failing and unrelated to anything
 on this page — pre-existing, tracked as
-[#50](https://github.com/jobizzness/bench/issues/50). A fifth failure
-appears intermittently and is a flaky test, not a regression:
-[#54](https://github.com/jobizzness/bench/issues/54) names it.
+[#50](https://github.com/jobizzness/bench/issues/50). A fifth failure appears
+intermittently and is never a regression: it is the suite colliding with
+another copy of itself, which happens whenever an agent runs the tests in its
+worktree while you run them here
+([#65](https://github.com/jobizzness/bench/issues/65)). Re-run it alone before
+believing it.
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
 work as decision-shaped pages served on localhost. This is an honest
@@ -85,6 +88,13 @@ to the turn already in flight, which is what [#1](https://github.com/jobizzness/
 was. Verified against the real CLI: a prompt enqueued 700ms into a running
 turn produced two turn ends rather than one.
 
+A tab opened by another specialist is different: its first brief is held for
+you to read, change the model on, and then dispatch or decline. That brief is
+on disk (`SessionRecord.pendingDispatch`), so `bench restart` no longer
+destroys it — it used to, silently, leaving the tab reading "ready" as though
+it had never been given work at all
+([#66](https://github.com/jobizzness/bench/issues/66)).
+
 **A dropped read says so.** The thread and the plan tell "could not fetch it"
 apart from "there is nothing there" — both used to arrive as empty, so a
 missed read drew "Working. Nothing to read yet" over a long conversation and
@@ -93,13 +103,6 @@ arrived and marks it stale. This matters because the relay genuinely drops
 reads: the daemon log names connect timeouts, resets and DNS failures against
 `firestore.googleapis.com`, several an hour from this machine
 ([#62](https://github.com/jobizzness/bench/issues/62)).
-
-A tab opened by another specialist is different: its first brief is held for
-you to read, change the model on, and then dispatch or decline. That brief is
-on disk (`SessionRecord.pendingDispatch`), so `bench restart` no longer
-destroys it — it used to, silently, leaving the tab reading "ready" as though
-it had never been given work at all
-([#66](https://github.com/jobizzness/bench/issues/66)).
 
 **Reply artifacts.** A chat answer with any structure comes back as a
 rendered page, not prose. Verified: a specialist wrote a 3127-byte
