@@ -148,15 +148,21 @@ export async function inspectWorktree(
     return { clean: true, changes: 0, unmergedCommits: 0 };
   }
 
-  // Commits reachable from this branch and from no other branch. Every other
-  // ref is listed explicitly rather than using `--all`, which would include
-  // this branch and so always report nothing. Comparing against all branches
+  // Commits reachable from this branch and from nowhere else. Every other ref
+  // is listed explicitly rather than using `--all`, which would include this
+  // branch and so always report nothing. Comparing against all branches
   // rather than a guessed default means a branch merged anywhere counts as
   // nothing to lose.
+  //
+  // Remote-tracking refs count too, and leaving them out was a bug: pushing is
+  // how a specialist's work becomes safe, and it is the moment closing its tab
+  // becomes the right thing to do - so the guard fired hardest exactly where
+  // it should have relaxed, and said "on no other branch" about commits that
+  // were demonstrably on one.
   let unmergedCommits = 0;
   try {
     const { stdout: refs } = await exec(
-      "git", ["for-each-ref", "--format=%(refname)", "refs/heads/"], { cwd: repo },
+      "git", ["for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/"], { cwd: repo },
     );
     const others = refs.split("\n")
       .map((r) => r.trim())

@@ -22,6 +22,8 @@ import { ServerSetup } from "./ServerSetup.js";
 import { SignIn } from "./SignIn.js";
 import { useFirebaseUser } from "./useFirebaseUser.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
+import { PhoneEmpty } from "./PhoneEmpty.js";
+import { PhoneUnblock } from "./PhoneUnblock.js";
 import { Queue } from "./Queue.js";
 import { Progress } from "./Progress.js";
 import { Roster } from "./Roster.js";
@@ -40,11 +42,13 @@ import { useQueue } from "./useQueue.js";
 import { useSessionPlan } from "./useSessionPlan.js";
 import { useDecisionKeys } from "./useDecisionKeys.js";
 import { useHandoff } from "./useHandoff.js";
+import { usePhoneLanding } from "./usePhoneLanding.js";
 import { useRoster } from "./useRoster.js";
 import { useSelection } from "./useSelection.js";
 import { threadSignature, useThread } from "./useThread.js";
 import { useHiddenProjects } from "../hidden.js";
 import { isWaiting } from "../waiting.js";
+import { useVisualViewportHeight } from "./useVisualViewportHeight.js";
 
 /**
  * The whole cockpit. It owns the four things every screen reads — who exists,
@@ -53,11 +57,24 @@ import { isWaiting } from "../waiting.js";
  * to draw it.
  */
 export function App() {
-  const { selectedId, select } = useSelection();
+  const { selectedId, select: rawSelect } = useSelection();
+  // Below the width breakpoint the composer has to survive a soft keyboard
+  // that `100dvh` alone does not always account for - see the hook's own
+  // comment and `#app` in styles.css.
+  useVisualViewportHeight();
   const { rows, live, wakingMachines, degradedMachines, activeMachineName } = useRoster(selectedId);
   const row = rows.find((r) => r.id === selectedId) ?? null;
 
-  const { entries, reload } = useThread(selectedId, threadSignature(row));
+  // Below the breakpoint, which of the phone's screens is in front of the
+  // developer - a roster, an open specialist, something waiting, or nothing
+  // waiting. Ignored above it: every rule that reads `effectivePane` lives
+  // inside the mobile media query. `select` is reassigned to the wrapped
+  // version once here, rather than at every call site below, so the rest of
+  // this file reads exactly as it did before this hook existed.
+  const landing = usePhoneLanding(rows, selectedId, rawSelect);
+  const select = landing.select;
+
+  const { entries, reload, threadUnreachable } = useThread(selectedId, threadSignature(row));
   const decisionState = useDecision(row);
   const { decision, answers, setAnswers, choice, setChoice, focus, setFocus, dismiss } = decisionState;
 
@@ -154,6 +171,14 @@ export function App() {
   const intake = isIntake(decision);
   const bar = decision && intake ? sendBar(decision, answers) : null;
 
+  // An intake wants the whole page - its brief rewrites itself as you
+  // answer, which does not fit the unblock screen's single column - so it
+  // is handed to the ordinary stage instead, the same way Queue.tsx already
+  // hands one over rather than answering it in place. usePhoneLanding
+  // decides everything else about where you land without knowing what kind
+  // of decision it found; this is the one override on top of it.
+  const effectivePane = landing.pane === "unblock" && intake ? "stage" : landing.pane;
+
   // A questionnaire that arrives while you are reading something else still
   // has to announce itself. Closing it leaves the card, not silence.
   useEffect(() => { if (intake) setSheetOpen(true); }, [decision, intake]);
@@ -212,8 +237,11 @@ export function App() {
 
   useDecisionKeys({
     // With the sheet closed, 1-9 would be changing answers nobody can see.
-    // The keys belong to whatever is actually in front of you.
-    decision: intake && !sheetOpen ? null : decision,
+    // The keys belong to whatever is actually in front of you - and on the
+    // phone's unblock screen that is PhoneUnblock's own choice/text state,
+    // not this one, even though the stage underneath is still holding the
+    // same decision (see effectivePane below).
+    decision: (intake && !sheetOpen) || effectivePane === "unblock" ? null : decision,
     answers,
     focus,
     setFocus,
@@ -232,7 +260,9 @@ export function App() {
   // is for. That question used to be asked before it existed.
   const placeholder = decision && !intake
     ? "Or type an answer"
-    : row && entries.length === 0
+    // Not while the thread simply failed to arrive: asking what a specialist
+    // is for, mid-conversation, is the same lie the empty thread told (#62).
+    : row && entries.length === 0 && !threadUnreachable
       ? "What should this specialist do?"
       : "Message this specialist";
 
@@ -255,7 +285,12 @@ export function App() {
         onChangeServer={isRemote() ? () => setSetupOpen(true) : null}
       />
 
-      <main id="app">
+      {/* Which pane is full-width below the breakpoint. Above it every rule
+          that reads this ignores the value entirely, so `#roster` and
+          `#stage` stay exactly what they always were - the two extra values
+          only ever mean anything inside `@media (max-width: 720px)`, where
+          `#unblock` and `#empty` live too (see `usePhoneLanding.ts`). */}
+      <main id="app" data-pane={effectivePane}>
         <aside id="roster">
           <header>
             <h1><Mark /><span>Bench</span></h1>
@@ -336,6 +371,7 @@ export function App() {
             sessionId={selectedId}
             hasRows={rows.length > 0}
             onOpen={setArtifact}
+            unreachable={threadUnreachable}
           />
           <Working steps={steps} />
 
@@ -345,7 +381,12 @@ export function App() {
             {decision && intake && bar && (
               <IntakeCard decision={decision} send={bar} onOpen={() => setSheetOpen(true)} />
             )}
-            {decision && !intake && (
+            {/* Not shown while the unblock screen owns this same decision -
+                CSS already hides all of #app there, but rendering a second,
+                fully wired copy of the options underneath is the kind of
+                thing that only looks harmless until something reaches it -
+                a focus ring, a keyboard shortcut, a test. */}
+            {decision && !intake && effectivePane !== "unblock" && (
               <DecisionPanel
                 decision={decision}
                 answers={answers}
@@ -379,6 +420,21 @@ export function App() {
           </footer>
         </section>
       </main>
+
+      {/* Siblings of #app, not children of it: the rule that hides #app
+          below the breakpoint when one of these is showing
+          (`#app[data-pane="unblock"] { display: none }`) would hide its own
+          descendants too if these lived inside it. */}
+      {effectivePane === "unblock" && row && (
+        <PhoneUnblock
+          row={row}
+          decision={decision}
+          waitingCount={landing.waitingCount}
+          onAnswered={() => { landing.advance(row); dismiss(); }}
+          onBrowseRoster={landing.browseRoster}
+        />
+      )}
+      {effectivePane === "empty" && <PhoneEmpty onBrowseRoster={landing.browseRoster} />}
 
       <ArtifactDialog
         open={artifact}

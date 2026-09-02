@@ -18,17 +18,20 @@ import { watchSessionMirror } from "../remote-roster.js";
  * actually changes.
  */
 export function useSessionPlan(id: string | null, live: boolean): PlanStep[] | null {
-  const [steps, setSteps] = useState<PlanStep[] | null>(null);
+  // Keyed by the specialist it came from, so keeping the last good copy
+  // across a failed read cannot leak one specialist's checklist onto another.
+  const [loaded, setLoaded] = useState<{ id: string | null; steps: PlanStep[] | null }>({ id: null, steps: null });
+  const steps = loaded.id === id ? loaded.steps : null;
   const machine = id === null ? null : getSessionMachine(id);
   const machineKey = machine ? `${machine.uid}:${machine.machineId}` : null;
 
   useEffect(() => {
-    if (!id) { setSteps(null); return; }
+    if (!id) { setLoaded({ id: null, steps: null }); return; }
 
     if (machine !== null) {
       return watchSessionMirror(firestore(), machine.uid, machine.machineId, id, (detail) => {
         const plan = detail?.plan as { steps?: PlanStep[] } | null;
-        setSteps(plan?.steps ?? null);
+        setLoaded({ id, steps: plan?.steps ?? null });
       });
     }
 
@@ -36,9 +39,13 @@ export function useSessionPlan(id: string | null, live: boolean): PlanStep[] | n
     const read = async () => {
       try {
         const res = await authFetch(`/api/sessions/${id}/plan`);
-        if (!cancelled) setSteps(res.ok ? (await res.json()).steps : null);
+        // A missed read is not an empty plan. This polls every two seconds
+        // and the link drops several reads an hour, so blanking on failure
+        // flickered the checklist away and back; the last good copy is the
+        // honest thing to keep showing (#62).
+        if (!cancelled && res.ok) setLoaded({ id, steps: (await res.json()).steps ?? null });
       } catch {
-        if (!cancelled) setSteps(null);
+        // Left alone, for the same reason.
       }
     };
 

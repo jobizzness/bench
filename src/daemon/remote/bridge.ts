@@ -12,6 +12,17 @@ import type { RosterRow } from "../../shared/types.js";
 const IDLE_AFTER_MS = 5 * 60_000;
 
 /**
+ * An error worth reading. `undici` reports every network failure as the same
+ * `TypeError: fetch failed` and puts the thing you actually need - a connect
+ * timeout, a reset, a DNS failure - in `cause`, so logging the error alone
+ * says only that something went wrong and never what.
+ */
+function describe(error: unknown): string {
+  const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+  return cause === undefined ? String(error) : `${String(error)} (${String(cause)})`;
+}
+
+/**
  * The daemon's half of "the wire": presence, commands, and the mirror, all
  * gated on the same question - is anyone actually watching this machine.
  *
@@ -57,6 +68,9 @@ export interface RemoteBridgeOptions {
   viewerStaleMs?: number;
   idleAfterMs?: number;
   budget?: WriteBudget;
+  /** Where an unreachable-Firestore notice goes. Injected so a test can read
+   * what was said rather than watch the process's own stderr. */
+  warn?: (message: string) => void;
 }
 
 export class RemoteBridge {
@@ -68,6 +82,13 @@ export class RemoteBridge {
   private watching = new Set<string>();
   private lastPollAt = 0;
   private lastActiveAt: number;
+  /** Which of the two pollers is currently failing, so each is reported once
+   * when it starts failing and once when it recovers. Per-poller rather than
+   * one flag for both: they run at different cadences and fail for different
+   * reasons, and a single flag made one consistently broken poller read as a
+   * flapping network - 189 "could not reach" lines alternating perfectly with
+   * 189 "reached again" lines, which is a log that actively misleads. */
+  private readonly unreachable = new Set<string>();
 
   constructor(opts: RemoteBridgeOptions) {
     const now = opts.now ?? Date.now;
@@ -86,6 +107,7 @@ export class RemoteBridge {
       viewerStaleMs: opts.viewerStaleMs ?? VIEWER_STALE_MS,
       idleAfterMs: opts.idleAfterMs ?? IDLE_AFTER_MS,
       budget: opts.budget ?? new WriteBudget({ now }),
+      warn: opts.warn ?? ((message: string) => { process.stderr.write(message); }),
     };
     this.mirror = new MirrorWriter(opts.client, opts.uid, opts.machineId, this.opts.budget, now);
     // A broadcast that has just turned on gets the fast cadence for its
@@ -115,13 +137,31 @@ export class RemoteBridge {
    * nothing broadcast (free, local - answers most ticks without touching
    * Firestore at all), then whether this cadence's interval has actually
    * elapsed (also free), and only then a real read.
+   *
+   * Never rejects. Both timers here are fire-and-forget, so a rejection has
+   * nowhere to go but the process - which is how ten seconds of no network
+   * took the whole daemon down and every specialist with it (#59). The
+   * cadence is already the retry: a failed poll costs one poll.
    */
   private async supervise(): Promise<void> {
+    try {
+      await this.superviseOnce();
+      this.noteReachable("presence poll");
+    } catch (error) {
+      this.noteUnreachable("presence poll", error);
+    }
+  }
+
+  private async superviseOnce(): Promise<void> {
     if (this.opts.listBroadcast().length === 0) {
       if (this.active) {
-        this.active = false;
         this.stopTicking();
+        // Emptied before the flag flips, not after: if this throws, the
+        // bridge has to still believe it is active or it will never come
+        // back to finish, leaving a stale mirror in Firestore for a phone
+        // to read as a live roster.
         await this.mirror.deleteAll();
+        this.active = false;
       }
       return;
     }
@@ -161,7 +201,17 @@ export class RemoteBridge {
     this.tickTimer = null;
   }
 
+  /** Never rejects, for the same reason `supervise` does not. */
   private async tick(): Promise<void> {
+    try {
+      await this.tickOnce();
+      this.noteReachable("mirror tick");
+    } catch (error) {
+      this.noteUnreachable("mirror tick", error);
+    }
+  }
+
+  private async tickOnce(): Promise<void> {
     if (!this.active) return;
     const broadcastRows = this.opts.listBroadcast();
 
@@ -171,6 +221,24 @@ export class RemoteBridge {
     this.opts.budget.record(commandWrites);
 
     await this.mirror.sync(broadcastRows, this.watching, this.opts.callLocal);
+  }
+
+  /**
+   * One line when a poller starts failing and one when it recovers, and
+   * nothing in between. Polling continues either way, so an hour of failure
+   * would otherwise be hundreds of identical lines - and a log nobody can
+   * read is the same as no log, which is how remote would go quietly dead
+   * without anyone noticing.
+   */
+  private noteUnreachable(what: string, error: unknown): void {
+    if (this.unreachable.has(what)) return;
+    this.unreachable.add(what);
+    this.opts.warn(`bench: remote ${what} failing, retrying on the next poll: ${describe(error)}\n`);
+  }
+
+  private noteReachable(what: string): void {
+    if (!this.unreachable.delete(what)) return;
+    this.opts.warn(`bench: remote ${what} succeeded again\n`);
   }
 
   /**

@@ -142,12 +142,14 @@ describe("clearing a specialist's context", () => {
 
     expect((entry as any).clearCount).toBe(1);
 
-    // Wait for the background report to actually land on disk.
-    let html = "";
-    for (let i = 0; i < 50 && html === ""; i++) {
+    // Wait for the background report to actually land: entry.threadSummary is
+    // assigned only after decision.json is written, which itself follows
+    // report.html - polling on report.html's mere existence races the rest of
+    // that chain instead of waiting for it.
+    for (let i = 0; i < 50 && (entry as any).threadSummary === undefined; i++) {
       await new Promise((resolve) => setTimeout(resolve, 5));
-      html = await readFile(join(reportsDir, "4", "report.html"), "utf8").catch(() => "");
     }
+    const html = await readFile(join(reportsDir, "4", "report.html"), "utf8").catch(() => "");
 
     expect((entry as any).threadSummary).toContain("CHRONOLOGICAL SUMMARY");
     expect((entry as any).threadSummary).toContain("Developer: Hello from developer");

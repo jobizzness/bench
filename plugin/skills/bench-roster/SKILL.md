@@ -15,6 +15,7 @@ bench ls                            who is on this project, what model, and what
 bench new <label> [--as <role>]     open a tab. It waits until you tell it what for
 bench tell <label> "<text>"         give one its next turn
 bench close <label>                 done with a sub-agent you opened - shut it down
+bench restart [--build]             stop the daemon and start it again
 ```
 
 `bench ls` and `bench new` both say what model a tab is on - see "What each
@@ -107,6 +108,48 @@ This only works on a tab you opened yourself with `bench new` - not this one,
 and not a tab the developer opened from the cockpit. If closing would destroy
 uncommitted work, it says so instead of doing it; that decision goes to the
 developer, not to you.
+
+## Restarting Bench itself
+
+If you have changed anything under `src/daemon`, the running daemon is still
+the old build and will stay that way until it is restarted. That used to mean
+asking the developer. It does not any more:
+
+```bash
+bench restart --build
+```
+
+You can run this safely from inside your own tab, even though stopping the
+daemon stops every specialist including you. It waits until no turn is running
+before it stops anything, so your turn finishes and is written down first.
+What happens next is worth knowing rather than being surprised by: your tab
+goes cold along with everyone else's, the roster comes back on the new daemon,
+and nothing resumes until the developer prompts it. So say in your reply that
+you restarted — the developer's next message is what brings you back, and they
+should know why.
+
+`--build` builds first and leaves the running daemon alone if the build fails.
+Use it: restarting onto a build you have not run is how you find out your
+change did not compile by having no cockpit.
+
+Do not reach for this on every turn. It is for when you have actually changed
+the daemon and need the change live — not for tidiness.
+
+## Do not install dependencies
+
+Your worktree's `node_modules` is a **symlink to the developer's checkout**,
+not a copy of it. So `pnpm install` from in here does not install into your
+worktree — it rewrites the tree that the developer and every other specialist
+are reading through, and a half-finished one breaks all of them at once.
+
+Nothing stops you. There used to be a blanket denial and it was removed,
+because a refusal with no explanation just sent agents round it. This is the
+explanation instead.
+
+If you genuinely need a dependency, say so in your report and let the
+developer add it. If you have already run an install and something looks
+wrong, say that too — it is much cheaper to hear it from you than to find it
+in somebody else's failing build.
 
 ## What it cannot do
 

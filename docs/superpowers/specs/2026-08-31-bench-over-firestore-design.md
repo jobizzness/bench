@@ -204,6 +204,21 @@ So the daemon polls, and the whole question becomes when it is allowed to stop:
 Idling means slowing down, not stopping. A broadcast specialist that became
 unreachable while you were at lunch would defeat the point of broadcasting it.
 
+**A poll that fails costs one poll.** The cadence is already the retry, so
+nothing on this path retries on its own — but nothing on it may reject either.
+Both of the bridge's timers are fire-and-forget, so a rejection there has
+nowhere to go but the process, and under Node's default that is the daemon
+exiting and taking every specialist with it. That is not hypothetical: ten
+seconds of no route to Google did exactly that (#59). `supervise()` and
+`tick()` therefore catch their own errors, the way `Refresher.tick()` and
+`RemoteController.beat()` already did. Firestore going away is announced once
+and its return is announced once, because polling continues either way and an
+hour offline would otherwise be seven hundred identical lines.
+
+Teardown is a network call too, so the bridge only stops believing it is
+active once the mirror is actually gone. Otherwise a failed delete would
+strand a stale mirror in Firestore for a phone to read as a live roster.
+
 A phone announces itself first and the machine answers, so a machine that does
 not answer is asleep — and after an idle period that can take up to a minute.
 The cockpit says it is waking rather than inventing a roster for it.

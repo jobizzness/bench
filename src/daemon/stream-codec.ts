@@ -308,6 +308,19 @@ function shortPath(path: string): string {
 }
 
 /**
+ * The same trimming, applied to whatever a command carries inside it.
+ *
+ * A phone's roster row holds around 35 characters of status, so a command
+ * that opens with an absolute path spends every one of them on the path:
+ * "Bash cat > /var/www/bench/.be…" says which tool and nothing else. Not
+ * matched after `:` or `/`, so a URL - which is not a path into a worktree
+ * and means nothing trimmed - is left alone.
+ */
+function shortenPaths(command: string): string {
+  return command.replace(/(?<![:\w/])\/[^\s'";|)]+/g, (path) => shortPath(path));
+}
+
+/**
  * What the tool is doing, not merely which tool it is. A roster that says
  * "Bash" for twelve minutes looks exactly like one that has wedged.
  */
@@ -316,7 +329,7 @@ function target(name: string, input: Record<string, unknown> | undefined): strin
 
   const command = input.command;
   // A trailing backslash is a line continuation, not part of the command.
-  if (typeof command === "string") return command.split("\n")[0].replace(/\\$/, "").trim();
+  if (typeof command === "string") return shortenPaths(command.split("\n")[0].replace(/\\$/, "").trim());
 
   const file = input.file_path ?? input.path ?? input.notebook_path;
   if (typeof file === "string") return shortPath(file);

@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Spend } from "../shared/types.js";
+import type { AttachmentRef, Spend } from "../shared/types.js";
 import type { NudgeState } from "../shared/nudge.js";
 
 /**
@@ -89,6 +89,21 @@ export interface SessionRecord {
    * one just because the field did not exist yet.
    */
   broadcast?: boolean;
+  /**
+   * A brief handed to this tab by another specialist and held for the
+   * developer to dispatch or decline.
+   *
+   * On disk because it is the entire subject of a decision nobody has made
+   * yet. It was once grouped with the genuinely transient pre-dispatch state
+   * and dropped on restore for that reason - but there is no process waiting
+   * on it, only a person, so a restart destroyed the brief and left the tab
+   * reading "ready" as if it had never been given work at all (#66).
+   */
+  pendingDispatch?: string | null;
+  /** The images that came with `pendingDispatch`. Refs only - the bytes are
+   * already in the session's images directory, and re-reading them costs
+   * less than keeping a second copy here. */
+  pendingImages?: AttachmentRef[];
 }
 
 const REQUIRED = ["id", "label", "project", "worktree", "reportsDir", "model"] as const;
@@ -319,6 +334,20 @@ export class SessionStore {
       const record = all.find((r) => r.id === id);
       if (!record) return;
       record.broadcast = broadcast;
+      await this.write(all);
+    });
+  }
+
+  /** What is waiting on the developer, or `null` once they have answered it
+   * either way. Both directions are written: a decline that did not survive a
+   * restart would hand back a brief the developer has already refused. */
+  async rememberDispatch(id: string, text: string | null, images: AttachmentRef[] = []): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.pendingDispatch = text;
+      record.pendingImages = text === null ? [] : images;
       await this.write(all);
     });
   }

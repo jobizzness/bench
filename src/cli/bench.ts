@@ -2,6 +2,8 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { askForRestart, runRestart, WORKER_COMMAND } from "./restart.js";
 import { isRole, ROLES } from "../shared/roles.js";
 import { slugify } from "../shared/slug.js";
 import { inheritedModel } from "../shared/auto-routers.js";
@@ -23,6 +25,7 @@ import { inheritedModel } from "../shared/auto-routers.js";
  *   bench new <label>
  *   bench tell <label|id> <text...>
  *   bench close <label|id>
+ *   bench restart [--build]
  *
  * There is no --project. A specialist works on one codebase and staffs it
  * with specialists on the same one; a tab somewhere else is the developer's
@@ -235,13 +238,44 @@ async function main(): Promise<void> {
     return;
   }
 
+  /**
+   * Stopping the daemon stops every specialist, including whichever one is
+   * typing this - so the work is handed to a detached copy of this CLI and
+   * this process returns immediately. It waits for turns to finish before it
+   * stops anything, which is what makes it safe to run from inside a tab.
+   */
+  if (command === "restart") {
+    askForRestart(HOME, args.includes("--build"), fileURLToPath(import.meta.url));
+    process.stderr.write(
+      "bench: restarting once turns are done."
+      + (args.includes("--build") ? " Building first.\n" : "\n")
+      + `  Progress: ${join(HOME, "restart.log")}\n`
+      + `  The daemon's own output goes to ${join(HOME, "daemon.log")} from here.\n`,
+    );
+    return;
+  }
+
+  if (command === WORKER_COMMAND) {
+    const home = process.env.BENCH_RESTART_HOME ?? HOME;
+    const stamp = () => new Date().toISOString();
+    const code = await runRestart({
+      home,
+      build: args.includes("--build"),
+      base: BASE,
+      token: token(),
+      say: (line) => process.stdout.write(`${stamp()} bench restart: ${line}\n`),
+    });
+    process.exit(code);
+  }
+
   process.stderr.write(
     "bench — the roster, from inside it\n\n"
     + "  bench ls                      who is on this project\n"
     + "  bench new <label> [--as <role>]  open a tab, waiting to be told what to do\n"
     + '  bench tell <label> "<text>"   give one its next turn\n'
     + "  bench close <label>           done with a sub-agent you opened - shut it down\n"
-    + "  bench remote off              stop being reachable from your other devices\n",
+    + "  bench remote off              stop being reachable from your other devices\n"
+    + "  bench restart [--build]       stop the daemon and start it again\n",
   );
   process.exit(command ? 1 : 0);
 }

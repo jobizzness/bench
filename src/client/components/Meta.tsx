@@ -2,8 +2,10 @@ import { contextTone } from "../../shared/context-window.js";
 import { dollars } from "../../shared/cost.js";
 import { modelLabel } from "../../shared/models.js";
 import type { RosterRow } from "../../shared/types.js";
+import { phoneActivity } from "../format.js";
 import { ClearContext } from "./ClearContext.js";
 import { ContextMeter } from "./ContextMeter.js";
+import { useNarrowViewport } from "./useNarrowViewport.js";
 
 /**
  * The quiet line under a specialist's name: what kind it is, what it is doing,
@@ -36,6 +38,10 @@ export function Meta({ row, status = false, branch = false, badges = false, onRo
    */
   onRole?: () => void;
 }) {
+  // The header only - see the phone branch below. Reads `false` in every
+  // test (jsdom has no `matchMedia`), so the desktop badges render is what
+  // every existing test still sees.
+  const narrow = useNarrowViewport();
   const shared = !row.isolated && row.branch !== "";
   // Absent on a row from a daemon that predates the field, and on nothing
   // else. Better a line without it than a line with the word "undefined".
@@ -75,6 +81,57 @@ export function Meta({ row, status = false, branch = false, badges = false, onRo
             column reads at a glance in a way a mid-sentence word does not. */}
         {(spent ?? model) && <div className="meta-trailer">{spent ?? model}</div>}
       </>
+    );
+  }
+
+  // Below the phone breakpoint, five badges is a desktop header shrunk, not
+  // a phone one - see #64. Status and branch drop: every status already
+  // reads as words in `row.detail` (the working line included, once phrased
+  // for a phone below), and the branch is usually the name already on the
+  // line above. Spend drops too - a fact worth checking, not one worth
+  // costing the room a phone does not have. What is worth a raised voice
+  // (working on the developer's own files) and what is worth acting on
+  // (the role, the context dial, clearing it) all stay.
+  if (narrow) {
+    return (
+      <div className="meta-phone">
+        <div className="meta meta-phone-facts">
+          <span className="meta-role">
+            {onRole
+              ? (
+                <button
+                  type="button"
+                  id="stage-role"
+                  className="meta-role-btn"
+                  title={`This agent is a ${row.role}. Change what it is.`}
+                  onClick={onRole}
+                >
+                  {row.role}
+                </button>
+              )
+              : row.role}
+          </span>
+          {shared && <span className="badge badge-shared">in your checkout</span>}
+          {fill && <ContextMeter context={row.context} />}
+          {row.context && <ClearContext id={row.id} />}
+        </div>
+        {/* The live line, its own row: the answer to "what is it doing", which
+            is what a phone opens this screen to find out. A working turn is
+            rephrased from the tool call it actually is into words - see
+            `phoneActivity` - since a shell command is the loudest and least
+            useful thing on a screen this narrow. Every other status already
+            reads as words.
+
+            `data-status` carries the one distinction the dropped status chip
+            used to: a crashed specialist's detail is the CLI's own last
+            words (registry.ts's `update(id, "crashed", said ?? ...)`), which
+            can read as ordinary output with nothing else on the line saying
+            otherwise - and #57 can land you straight on this specialist
+            without ever passing the roster rail that would have shown red. */}
+        <div className="meta-phone-detail" data-status={row.status}>
+          {row.status === "working" ? phoneActivity(row.detail) : row.detail}
+        </div>
+      </div>
     );
   }
 

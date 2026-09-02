@@ -7,7 +7,9 @@ export interface BenchState {
 }
 
 export interface BenchActions {
-  select: (id: string) => void;
+  /** null deselects - the stage's own way back to the roster below the
+   * width breakpoint. See `#stage-back` in StageHead.tsx. */
+  select: (id: string | null) => void;
   closeSpecialist: (row: RosterRow) => void;
 }
 

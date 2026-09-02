@@ -1,10 +1,15 @@
 # Bench — where it stands
 
-Last updated 2026-09-01. 1427 tests passing, 8 skipped (2 end-to-end
+Last updated 2026-09-02. 1558 tests passing, 8 skipped (2 end-to-end
 suites run separately against the real CLI, and a Firestore rules suite
 run separately against the emulator), 4 failing and unrelated to anything
 on this page — pre-existing, tracked as
-[#50](https://github.com/jobizzness/bench/issues/50).
+[#50](https://github.com/jobizzness/bench/issues/50). A fifth failure appears
+intermittently and is never a regression: it is the suite colliding with
+another copy of itself, which happens whenever an agent runs the tests in its
+worktree while you run them here
+([#65](https://github.com/jobizzness/bench/issues/65)). Re-run it alone before
+believing it.
 
 Bench supervises Claude Code specialists running in WSL and surfaces their
 work as decision-shaped pages served on localhost. This is an honest
@@ -83,6 +88,22 @@ to the turn already in flight, which is what [#1](https://github.com/jobizzness/
 was. Verified against the real CLI: a prompt enqueued 700ms into a running
 turn produced two turn ends rather than one.
 
+A tab opened by another specialist is different: its first brief is held for
+you to read, change the model on, and then dispatch or decline. That brief is
+on disk (`SessionRecord.pendingDispatch`), so `bench restart` no longer
+destroys it — it used to, silently, leaving the tab reading "ready" as though
+it had never been given work at all
+([#66](https://github.com/jobizzness/bench/issues/66)).
+
+**A dropped read says so.** The thread and the plan tell "could not fetch it"
+apart from "there is nothing there" — both used to arrive as empty, so a
+missed read drew "Working. Nothing to read yet" over a long conversation and
+asked the composer what the specialist was for. It keeps the last copy that
+arrived and marks it stale. This matters because the relay genuinely drops
+reads: the daemon log names connect timeouts, resets and DNS failures against
+`firestore.googleapis.com`, several an hour from this machine
+([#62](https://github.com/jobizzness/bench/issues/62)).
+
 **Reply artifacts.** A chat answer with any structure comes back as a
 rendered page, not prose. Verified: a specialist wrote a 3127-byte
 fragment and spoke a one-line summary, unprompted beyond the skill.
@@ -144,31 +165,64 @@ reach no specialist.
 
 ## Built, not yet proven in anger
 
-- **A Google identity for the daemon** ([#45](https://github.com/jobizzness/bench/issues/45),
-  slice 1 of the [Firestore design](superpowers/specs/2026-08-31-bench-over-firestore-design.md)).
-  "Turn on remote" in Settings signs in with Google, hands the daemon the
-  refresh token and uid, and the daemon persists both plus a machine id it
-  mints once to `~/.bench/firebase.json` at mode `0600` — then exchanges
-  the refresh token for an hour-long ID token at
-  `securetoken.googleapis.com/v1/token` directly, refreshing five minutes
-  before it expires, and registers `/users/{uid}/machines/{machineId}` over
-  the plain Firestore REST API. No Admin SDK and no Firebase SDK of any kind
-  on the daemon side — only the browser bundle imports `firebase/auth`, for
-  `signInWithPopup`. Nothing is mirrored and no traffic moves through
-  Firestore yet; that is slice 2 ([#46](https://github.com/jobizzness/bench/issues/46)).
-  Persistence, the file mode, refresh-before-expiry, a revoked token
-  surfacing as "sign in again" instead of a crash loop, and all three routes
-  are unit-tested against a fake Firestore and a fake `securetoken`
-  endpoint. The `bench-cockpit` project is now real: a web app is registered,
-  its config is committed, Firestore exists in `eur3`, and `firestore.rules`
-  is deployed. What is unproven: **nobody has signed in**. Firebase
-  Authentication has not been switched on for the project — the admin API for
-  it answers `CONFIGURATION_NOT_FOUND`, and turning it on is a console action
-  — so `signInWithPopup` has nothing to talk to. Also unproven: two machines
-  under one account, which needs a second laptop; and the rules, which are
-  deployed but have never been exercised by a request, because
-  `tests/firestore-rules.test.ts` needs a Java 21 emulator. Tracked as
-  [#52](https://github.com/jobizzness/bench/issues/52).
+- **Bench from a phone** — all three slices of the
+  [Firestore design](superpowers/specs/2026-08-31-bench-over-firestore-design.md)
+  are merged and the cockpit is deployed at `bench-cockpit.web.app`.
+
+  *Identity* ([#45](https://github.com/jobizzness/bench/issues/45)): "Turn on
+  remote" in Settings signs in with Google and hands the daemon the refresh
+  token, which it keeps at `~/.bench/firebase.json` mode `0600` and trades for
+  an hour-long ID token at `securetoken.googleapis.com` directly. No Firebase
+  SDK on the daemon side at all — only the browser bundle imports
+  `firebase/auth`, for `signInWithPopup`.
+
+  *The wire* ([#46](https://github.com/jobizzness/bench/issues/46)): a
+  specialist is **broadcast**, deliberately, from its own page; nothing else
+  leaves the machine. Actions become command documents the daemon executes
+  against its own loopback server; watched state becomes a mirror it pushes.
+  Both gates compose — the mirror is `broadcast ∧ watched` — so with nothing
+  broadcast the daemon touches Firestore not at all.
+
+  *The phone* ([#47](https://github.com/jobizzness/bench/issues/47)): below
+  720px the cockpit shows one pane at a time, driven by the `selectedId` the
+  URL already carries, so the phone's own back gesture works without new
+  state. Decision options stack to 44px targets; the keyboard hints hide.
+
+  *The phone, redesigned* ([#57](https://github.com/jobizzness/bench/issues/57)):
+  #47 made the layout fit a phone; this makes the phone open on whatever is
+  waiting rather than on a roster you would then have to navigate out of.
+  `usePhoneLanding.ts` remembers whether the developer has looked at the
+  roster on purpose — until they have, opening the app with something
+  waiting lands on it directly, the report rendered inline (the iframe reads
+  its own content height on load and resizes to it, so it scrolls as one
+  column with the decision's options rather than in a little window of its
+  own) and answerable without a detour through the roster. Answering one
+  moves straight to the next; nothing waiting is a designed screen rather
+  than a blank list. An intake is handed over to the ordinary stage instead
+  of forced into the single column, since it wants the whole page (`Queue.tsx`
+  already made the same call). The one piece of this that is not just CSS —
+  moving `selectedId` on its own — is gated on a real `matchMedia` check
+  rather than the stylesheet's breakpoint, so opening the app above 720px
+  never touches who is selected; missing that gate first broke
+  `tests/queue.test.tsx` by auto-selecting a specialist under a desktop-width
+  test. The roster row composition from the same ticket — one right edge
+  instead of three, the drag grip gone below the breakpoint, bigger type —
+  landed alongside it.
+
+  **What has never happened: a phone has never driven a specialist.** Every
+  part of the transport is proven against a fake Firestore, and the identity
+  half has been signed into for real — but no command document has ever been
+  written by a real browser, no mirror has been read on a real network, and
+  the soft-keyboard behaviour is simulated rather than checked. Two machines
+  under one account is likewise unproven; it needs a second laptop.
+  [#55](https://github.com/jobizzness/bench/issues/55) is that list.
+
+  One design decision worth knowing rather than rediscovering: the daemon
+  **polls** rather than holding a listener. Firestore's SDK takes its token
+  from a component only `firebase/auth` registers, and `firebase/auth` cannot
+  be signed in from a stored refresh token in Node. Both ways round it rest on
+  parts of Firebase whose versioning policy excludes them. Broadcast is what
+  makes polling affordable.
 - **The decision loop end to end through the browser.** Answers post back
   into the live session and the mechanics are tested, but nobody has yet
   run a real task to completion and answered it from the cockpit.

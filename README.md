@@ -34,9 +34,14 @@ subagents, web search. Bench supervises it; it does not replace it.
   checkout instead, on the branch you already have open.
 - **Nothing is installed, and nothing is copied.** A worktree borrows the
   dependencies your checkout already has, so provisioning takes milliseconds
-  rather than the twenty seconds an install cost. The flip side is that a
-  specialist cannot add a dependency: those commands are denied, because
-  through the link they would rewrite your own `node_modules`.
+  rather than the twenty seconds an install cost. The flip side is worth
+  knowing: `node_modules` is a symlink to yours, so a specialist that runs
+  `pnpm install` is installing into *your* checkout, and every other worktree
+  reads through the same link. Nothing stops it — a specialist has a full
+  shell, and the blanket denial that used to be here was removed because an
+  unexplained refusal sent agents round it rather than stopping them. Ask for
+  a dependency to be added rather than adding it, and if one appears in a
+  diff you did not expect, that is why.
 - **Decisions, not transcripts.** Reports render as pages with numbered options.
   Press `1`–`n`, `Enter`. The answer goes back into the live session.
 - **Intake.** A specialist can ask everything it needs at once, with its own
@@ -202,6 +207,61 @@ showing an empty panel.
 
 Nothing hot-reloads yet: `pnpm build` before `pnpm start`, and run it from the
 repository root.
+
+### Restarting it
+
+```bash
+bench restart --build
+```
+
+Every change under `src/daemon` needs the daemon started again, and the usual
+way to do that — find the terminal, Ctrl-C, `pnpm start` — is not available to
+a specialist, which is exactly who tends to have just made the change.
+
+Stopping the daemon stops every specialist, so this cannot be a straight
+`kill` and `start`: whoever typed it is about to be stopped by it. It hands
+the work to a detached process instead, which waits until no turn is running
+before it stops anything. So a specialist can restart the daemon it is running
+under, its turn finishes and is written down, and the roster comes back with
+everyone still on it. Nothing respawns until you prompt it, the same as any
+other restart.
+
+With `--build` it builds first and leaves the running daemon alone if the
+build fails — a daemon that will not start is worse than the one you had.
+
+Two things change after a restart run this way. The daemon has no terminal, so
+its output goes to `~/.bench/daemon.log`, and the restart's own progress to
+`~/.bench/restart.log`. And the terminal you originally started it in is now
+free: it printed `bench: stopping.` and exited.
+
+## The `bench` command
+
+Installed alongside the daemon, and mostly for the specialists rather than for
+you: a specialist that has been asked to spec something and hand it to an
+implementer needs a way to open a tab, and inventing an API call is exactly
+what an agent should not be doing.
+
+```
+bench ls                         who is on this project, on what model, doing what
+bench new <label> [--as <role>]  open a tab; it waits until it is told what for
+bench tell <label> "<text>"      give one its next turn
+bench close <label>              done with a sub-agent you opened — shut it down
+bench restart [--build]          stop the daemon and start it again
+bench remote off                 stop being reachable from your other devices
+```
+
+A specialist may only open, tell and close tabs on its own project, and may
+only close one it opened itself — not the developer's, and not its own. That
+check is in the command rather than the daemon, because the token is shared
+and the daemon cannot otherwise tell who is asking.
+
+It reads the token itself rather than taking one on the command line. `curl
+"...?token=$(cat ~/.bench/token)"` puts the secret into `ps` output for every
+process on the machine to read; this does not.
+
+`bench restart` is the one of these you are as likely to type as they are —
+see [Restarting it](#restarting-it) for what it does and where the output
+goes afterwards.
 
 ## How it works
 

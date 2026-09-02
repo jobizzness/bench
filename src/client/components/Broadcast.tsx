@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { postJson } from "../api.js";
+import { BroadcastMark } from "./BroadcastMark.js";
 
 /**
  * The one control that lets a specialist leave this machine.
@@ -30,18 +31,26 @@ export function Broadcast({ sessionId, broadcast }: {
     }
   };
 
+  // A mark rather than a word, because its neighbour on this header is one
+  // and a lone text button beside an icon reads as something bolted on. The
+  // state it carries is worth a label a screen reader can say, though, so
+  // that goes on `aria-label` rather than being left to the tooltip.
+  const said = broadcast
+    ? "Reachable from your other devices. Click to stop."
+    : "Not reachable from anywhere but this machine. Click to broadcast it.";
+
   return (
     <button
       type="button"
       id="broadcast-toggle"
+      className={broadcast ? "on" : undefined}
       aria-pressed={broadcast}
+      aria-label={said}
       disabled={busy}
-      title={broadcast
-        ? "Reachable from your other devices. Click to stop."
-        : "Not reachable from anywhere but this machine. Click to broadcast it."}
+      title={said}
       onClick={() => void toggle()}
     >
-      {broadcast ? "Broadcasting" : "Broadcast"}
+      <BroadcastMark />
     </button>
   );
 }

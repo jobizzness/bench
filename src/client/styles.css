@@ -448,7 +448,15 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* An icon rather than a word, because it is a place you already recognise -
    and square, so it does not read as a third button of the same kind. */
-#open-github {
+/* The two marks at the right of the stage header share one shape: an icon, a
+   hairline box, and colour that only arrives on hover. Broadcast is the one
+   of them that holds state, so it also has an on-position. `#stage-back`
+   (below the width breakpoint only - see "Phone width" at the foot of this
+   file) is drawn from the same shape rather than inventing a second kind of
+   icon button. */
+#open-github,
+#broadcast-toggle,
+#stage-back {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -460,11 +468,32 @@ button, input, textarea, select { font: inherit; color: inherit; }
   cursor: pointer;
   transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
 }
-#open-github:hover:not(:disabled) {
+#open-github:hover:not(:disabled),
+#broadcast-toggle:hover:not(:disabled),
+#stage-back:hover {
   color: var(--text); border-color: var(--wants-dim); background: var(--hover);
 }
+/* Above the breakpoint the roster is already on screen beside the stage, so
+   there is nothing this button would go back to. */
+#stage-back { display: none; }
+
+/* The phone's own two screens - what opens when something is waiting, and
+   what is shown when nothing is. Hidden by default the same way #stage-back
+   is: above the breakpoint the roster and the stage are already both on
+   screen, so neither of these has a reason to exist yet. */
+#unblock, #empty { display: none; }
 /* With no specialist open there is no project, and so nothing to list. */
 #open-github:disabled { opacity: 0.35; cursor: default; }
+/* Broadcast's is the moment its own write is in flight. */
+#broadcast-toggle:disabled { opacity: 0.35; cursor: default; }
+
+/* Off, the outer arcs are nearly gone: a beacon that is not reaching
+   anywhere. On, it takes the colour this cockpit already uses for "this
+   wants something from you" — a specialist that has left the machine is the
+   kind of fact worth seeing from across the room. */
+#broadcast-toggle .broadcast-far { opacity: 0.25; }
+#broadcast-toggle.on { color: var(--wants); border-color: var(--wants-dim); }
+#broadcast-toggle.on .broadcast-far { opacity: 1; }
 
 #roster-list {
   list-style: none;
@@ -890,7 +919,9 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   border-color: var(--line-firm);
   outline: none;
 }
-#stage-head #open-github { margin-left: auto; }
+/* The pair sits together at the right, so the gap goes before the first of
+   them rather than between them. */
+#stage-head #broadcast-toggle { margin-left: auto; }
 
 /* The one window that stops a specialist without warning, said on the
    header itself once it is past the point of being worth interrupting
@@ -937,6 +968,22 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   font-size: 14px;
 }
 #empty b { display: block; color: var(--text); font-weight: 500; margin-bottom: 4px; }
+
+/* The conversation below this is the last that reached the device, not what
+   the specialist has said since. Amber rather than red, and above the thread
+   rather than over it: nothing is broken and nothing is lost - the read will
+   land on the next try - but a stale thread that says nothing is how a phone
+   ends up looking like a specialist has gone quiet (#62). */
+#thread-stale {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--busy-dim);
+  background: color-mix(in srgb, var(--busy) 8%, transparent);
+  color: var(--busy);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
 
 /* Entries run the full width of the thread. Three separate measure caps -
    74ch here, 56ch for your own messages floated to the right, 108ch for a
@@ -1431,6 +1478,12 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   border-color: var(--busy-dim);
   cursor: not-allowed;
 }
+#composer-send:disabled { opacity: 0.45; cursor: default; }
+/* The phone's send button, which a keyboard does not need - there, Enter is
+   the send key and a second one beside it is furniture. Hidden here and
+   revealed inside the mobile media query, rather than the other way round,
+   so every existing width behaves exactly as it did. */
+#composer-send.phone-only { display: none; }
 
 #composer-text {
   flex: 1;
@@ -3311,5 +3364,454 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 }
 .entry-attachment img:hover {
   opacity: 0.9;
+}
+
+/* ── Phone width ───────────────────────────────────────────────────────
+   720px matches the one width breakpoint that already existed in this
+   codebase, on the report template's side-by-side screenshot pair
+   (src/daemon/artifact-page.ts) - reused rather than inventing a second
+   number. Comfortably covers a phone in either orientation and a small
+   tablet in portrait.
+
+   Everything below is additive: every rule here lives inside this query, so
+   nothing above 720px changes. */
+@media (max-width: 720px) {
+  /* One pane at a time, full width, chosen by `data-pane` - which is just
+     `selectedId` read out loud (see App.tsx). The grid that puts a fixed
+     276px roster beside the stage is what breaks this width in the first
+     place; below the breakpoint it is a column of one full-height pane
+     instead. */
+  #app {
+    display: flex;
+    flex-direction: column;
+    /* Falls back to 100dvh wherever `useVisualViewportHeight` has nothing to
+       report - no `window.visualViewport`, or the property just hasn't been
+       set yet on first paint. */
+    height: var(--visual-viewport-height, 100dvh);
+  }
+  #app > #roster,
+  #app > #stage {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+  }
+  #app[data-pane="roster"] #stage { display: none; }
+  #app[data-pane="stage"] #roster { display: none; }
+
+  /* The way back: drawn now that there is somewhere for it to go. */
+  #stage-back { display: flex; }
+
+  /* The name already carries text-overflow:ellipsis, but a flex item's
+     default min-width is its own content width, not 0 - so without this it
+     never actually shrinks, and a long name pushes the back button,
+     broadcast and GitHub off the edge instead of truncating. Only surfaces
+     now: the row gained a fourth item (the back button) and lost the room a
+     desktop-width header always had to spare. */
+  #stage-title { min-width: 0; }
+  #stage-label,
+  #stage-label-input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Thumb-sized rather than mouse-sized. Centred content means padding
+     alone would grow the icon along with the target, so the box is set
+     directly instead. */
+  #open-github,
+  #broadcast-toggle,
+  #stage-back {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px;
+  }
+
+  /* The chrome that made sense beside a 276px roster is just eating the one
+     pane's whole width now. */
+  #roster header { padding: 16px 14px 14px; }
+  #stage-head { padding: 14px 16px 12px; }
+  #thread { padding: 16px 16px 20px; }
+
+  /* ── The stage header: a phone composition, not a squeezed desktop one ──
+     #47 gave this row padding and nothing else - see #64. Five badges was a
+     desktop header's worth of facts; `Meta.tsx`'s `narrow` branch cuts that
+     to what a phone actually reaches for (the role, the one warning worth a
+     raised voice, the context dial and its clear control) and gives the
+     live line - what it is doing - a row of its own underneath, in words
+     rather than the tool call producing them. */
+  .meta-phone { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  /* Spaced by gap, not by the dotted line's separators: a wrapped line that
+     opens with "· clear context" reads as a stray mark, and this row mixes
+     plain text with a pill already (`badge-shared`) the way the dotted
+     line's punctuation was never meant to sit next to. */
+  .meta-phone-facts {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    row-gap: 6px;
+    font-size: 12px;
+  }
+  .meta-phone-facts > * + *::before { content: none; margin: 0; }
+  .meta-role-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-decoration: underline dotted;
+    text-decoration-color: var(--line-firm);
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .meta-role-btn:hover, .meta-role-btn:focus-visible {
+    color: var(--wants);
+    text-decoration-color: var(--wants);
+    outline: none;
+  }
+  /* The answer to "what is it doing" - the reason the screen was opened -
+     said in a full sentence rather than squeezed into the dotted line
+     above. Wraps instead of ellipsising: cutting the one fact this row
+     exists for is a worse failure than a second line, and `phoneActivity`
+     (format.ts) has already made a working turn's line short. `break-word`
+     is the backstop for whatever it does not shorten - an unbroken token
+     (a long path, a URL) must still wrap rather than push past the edge,
+     which is the bug #64 reported against the old single-line reading. */
+  .meta-phone-detail {
+    font: 400 13px/1.4 var(--mono);
+    color: var(--muted);
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+  /* With the status chip gone, this line is the only thing on a phone
+     saying whether the specialist is dead - and a crash's detail is the
+     CLI's own last words (registry.ts), which can read as ordinary output
+     on its own. Same `--broken` the roster rail already carries for both
+     statuses (styles.css around line 661) - the desktop badge is not
+     colour-coded, so this is deliberately better than desktop, not merely
+     equal to it. */
+  .meta-phone-detail[data-status="crashed"],
+  .meta-phone-detail[data-status="provisioning_failed"] {
+    color: var(--broken);
+  }
+
+  /* ── Roster rows: a phone composition, not a squeezed desktop one ─────
+     #47 made a row fit; it kept a row authored for 276px. Fixed here: one
+     right edge instead of three widths stacked (the grip, the trailer
+     badge and the close button were each inset by a different amount),
+     type sized for arm's length rather than a monitor, and a waiting
+     specialist made unmistakably the boldest thing on the screen - a
+     specialist wanting you is the entire reason this app is open on a
+     phone, and that is the one place this composition raises its voice.
+     Everything else stays exactly the quiet furniture it already was. */
+
+  .group > summary { padding: 16px 16px 10px; font-size: 12px; }
+
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name trailer" "meta meta";
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 5px;
+    padding: 18px 16px;
+  }
+  .row .label { grid-area: name; margin-bottom: 0; font-size: 17px; }
+  .row .meta { grid-area: meta; font-size: 13px; color: var(--muted); }
+  /* Whatever ends up here - the spend or, before there is any, the model -
+     is the row's one right-hand slot. Flush against the row's own padding
+     in every row, which is what gives the column its single edge: the grid
+     track is `auto`, but the track always ends at the row's own right
+     boundary regardless of how wide its content is.
+
+     It sits on the name's line and not beside both lines, so the meta line
+     keeps the full width. The meta line is the one that says why a
+     specialist wants you, which is the whole reason this app is open on a
+     phone; a model name is not worth ten characters of it. */
+  .row .meta-trailer { grid-area: trailer; margin-top: 0; }
+  .row .meta-trailer .badge-model,
+  .row .meta-trailer .badge-spend { font-size: 11px; padding: 4px 9px; }
+
+  /* A mouse gesture, dropped rather than dimmed. Row order is remembered
+     per browser (order.ts), so a phone - a different browser from whatever
+     did the dragging - starts from the waiting-first sort in
+     RosterGroup.tsx anyway. Nothing here for a thumb to do, so nothing is
+     drawn asking for one; ↑/↓ nudging goes with it, since it lived on the
+     same control. */
+  .row .grip { display: none; }
+
+  /* Dropped for the same reason, and one more: it is drawn at `opacity: 0`
+     until `:hover`, which a touchscreen never fires, so on a phone it was an
+     invisible control sitting in the same strip of the row as the trailer
+     badge - aim at one, hit the other, and get a confirm dialog you did not
+     ask for (#58). Closing a specialist is a desk action anyway; the phone
+     is here to unblock one, not to tidy up after it. */
+  .row .close { display: none; }
+
+  /* The one place this screen raises its voice. */
+  .row[data-waiting="true"] {
+    background: color-mix(in srgb, var(--wants) 9%, transparent);
+  }
+  .row[data-waiting="true"]::before { width: 5px; }
+
+  .row[data-nested="true"] { padding-left: 24px; }
+  .row[data-nested="true"] .label { font-size: 15px; }
+  .row[data-nested="true"] .meta { font-size: 12px; }
+  #composer {
+    padding: 12px 16px 16px;
+    /* A flex item's default minimum height is its content's, not 0 - so
+       without this, a long decision under a soft keyboard that has already
+       squeezed #thread down to nothing keeps pushing past the bottom of
+       #app, which has nowhere left to give and does not scroll itself. The
+       send button ends up past the edge of the actual screen, not just
+       scrolled out of view - unreachable, which is the one thing this
+       footer cannot afford to be. Scrolling within its own footer instead
+       is what keeps it reachable in that squeeze. */
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* The one control this footer could not do without on a phone: a soft
+     keyboard's Enter is a return key, and there is nothing else here that
+     says "send". Sized for a thumb rather than a pointer. */
+  #composer-send.phone-only {
+    display: block;
+    min-height: 44px;
+    padding: 12px 16px;
+  }
+
+  /* Decisions: read it, tap it. The keycap numbers and the composer's own
+     "1-9 pick" hint both describe keys (useDecisionKeys.ts) a touchscreen
+     does not have - meaningless below this width, and the buttons are
+     already big enough to tap without them. */
+  .options,
+  .q-options {
+    flex-direction: column;
+  }
+  .option {
+    max-width: none;
+    width: 100%;
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+  .option .key { display: none; }
+  #composer-hint[data-kind="intake"],
+  #composer-hint[data-kind="options"] {
+    display: none;
+  }
+  /* A decision with several options is taller than a short keyboard-open
+     viewport can hold, and #decision is not the flexible region - #thread
+     is. Without a cap, a long list of options pushes the actual composer
+     input past the bottom of the screen, which is the one thing this
+     footer must never do. Scrolls within its own box instead, the same
+     way #intake already does for the intake sheet. */
+  #decision {
+    max-height: 38vh;
+    overflow-y: auto;
+  }
+
+  /* Four facts - the step count, the elapsed time, the token estimate and
+     Stop - in one nowrap row is a #47 desktop leftover: it fits at 720px
+     and wraps mid-fact below it (#64). The count and the elapsed time are
+     what answer "how far along is this"; the token estimate is the one a
+     phone can do without, so it drops here rather than wrapping. Stop moves
+     to the glyph's row, where the thumb already is - the meta row is read,
+     not tapped. */
+  #working { flex-wrap: wrap; padding: 10px 16px 11px; row-gap: 4px; }
+  #working-meta { flex: 1 1 100%; margin-left: 0; order: 3; }
+  #stop-turn { order: 2; }
+
+  /* The one line worth reading on the checklist a phone opened this screen
+     to see (#64). No CSS truncation was doing this - `.step` already wraps
+     - but free-form text can still carry an unbroken run (a path, a URL)
+     long enough to push past the edge the way the header's activity line
+     did, so it gets the same backstop. */
+  .step .what {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  /* One account, several machines (see the design doc's "More than one
+     machine"): the badge naming which one a row is on must not be the thing
+     that makes a name wrap or run past the row's edge. */
+  .badge-machine {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* A report is read full-bleed here rather than as a card with margins
+     around it a phone does not have room to spare - which means it is now
+     the one surface below the breakpoint that reaches the actual screen
+     edge, and needs the same safe-area padding #app gives itself for
+     exactly that reason: full-bleed on a notched phone means behind the
+     notch and the home indicator unless something pushes back off them. */
+  #artifact-dialog {
+    width: 100vw;
+    height: var(--visual-viewport-height, 100dvh);
+    max-width: none;
+    border-radius: 0;
+    padding:
+      env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* ── The front door: something waiting, or nothing does ───────────────
+     Below this width the roster is no longer where the app opens - see
+     #app[data-pane] below. A specialist wanting you is the entire reason
+     the phone is out of a pocket, so this is the one screen on the whole
+     phone build that is allowed to be bold: the title is the loudest text
+     anywhere in this file, the report is the first thing under it, and
+     everything else - the project name, the way back to the roster - is
+     furniture in the same quiet register the roster row now uses. */
+  #app[data-pane="unblock"],
+  #app[data-pane="empty"] { display: none; }
+
+  #unblock {
+    display: flex;
+    flex-direction: column;
+    height: var(--visual-viewport-height, 100dvh);
+    overflow-y: auto;
+    padding:
+      env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  #unblock-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+    padding: 16px 18px 6px;
+  }
+  #unblock-head .eyebrow {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+  /* How many are behind this one. Not a call to hurry - just what is true -
+     which is why it is the quietest thing in the header rather than a
+     counter shouting a number at you. */
+  #unblock-count {
+    flex: none;
+    font: 500 11px/1 var(--mono);
+    color: var(--wants);
+    background: var(--wants-dim);
+    padding: 4px 9px;
+    border-radius: 10px;
+  }
+  #unblock-roster {
+    flex: none;
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--muted);
+    font: 500 11px/1 var(--mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 7px 10px;
+    cursor: pointer;
+  }
+  #unblock-roster:hover { color: var(--text); border-color: var(--line-firm); }
+
+  /* The one loud thing on the phone. Everywhere else on this build, type
+     got bigger for legibility; here it also gets bigger because this is
+     the fact the screen exists to deliver. */
+  #unblock-title {
+    display: block;
+    margin: 10px 18px 6px;
+    font: 700 22px/1.3 var(--sans);
+    letter-spacing: -0.01em;
+    color: var(--wants);
+  }
+  #unblock-summary {
+    display: block;
+    margin: 0 18px 18px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+
+  /* The argument, not a card that hands you the buttons without it - that
+     was the whole finding. Sized to its own content on load
+     (useReportFrame.ts) so the report and the options scroll as one column
+     - but that read can fail, and does often enough on a phone (a relayed
+     report served from a different origin than the page) that this height
+     is not a rare fallback to leave threadbare. 52vh matches the room
+     `.card iframe` already gives a report previewed in the thread: enough
+     to actually read before the frame's own scrollbar takes over, not a
+     keyhole. */
+  #unblock-report {
+    flex: none;
+    margin: 0 18px 18px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  #unblock-frame {
+    display: block;
+    width: 100%;
+    border: 0;
+    height: 52vh;
+  }
+
+  #unblock-options { margin: 0 18px 14px; }
+  #unblock-send { display: flex; gap: 9px; margin: 0 18px 10px; }
+  #unblock-text {
+    flex: 1;
+    min-width: 0;
+    background: var(--raised);
+    border: 1px solid var(--line-firm);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font: 400 14px/1.4 var(--sans);
+  }
+  #unblock-text::placeholder { color: var(--faint); }
+  #unblock-text:focus { outline: none; border-color: var(--wants-dim); }
+  #unblock-answer {
+    flex: none;
+    padding: 0 18px;
+    border: 1px solid var(--line-firm);
+    border-radius: 8px;
+    background: var(--raised);
+    color: var(--text);
+    font: 500 13px/1 var(--sans);
+    cursor: pointer;
+  }
+  #unblock-answer:hover:not(:disabled) { border-color: var(--wants); }
+  #unblock-answer:disabled { opacity: 0.4; cursor: default; }
+  #unblock-foot { margin: 0 18px 28px; color: var(--faint); font-size: 12px; }
+
+  /* Nothing waiting is a real answer, said plainly and then got out of the
+     way - the quietest screen in the build, on purpose: it is what a
+     working bench looks like most of the time. */
+  #empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    height: var(--visual-viewport-height, 100dvh);
+    gap: 10px;
+    padding: 24px;
+  }
+  #empty .mark-logo { opacity: 0.35; margin-bottom: 6px; }
+  #empty-title { font: 600 19px/1.35 var(--sans); color: var(--text); }
+  #empty-note { margin: 0; color: var(--muted); font-size: 14px; max-width: 30ch; line-height: 1.5; }
+  #empty-roster {
+    margin-top: 20px;
+    background: none;
+    border: 1px solid var(--line-firm);
+    border-radius: 8px;
+    color: var(--text);
+    font: 500 13px/1 var(--sans);
+    padding: 11px 20px;
+    cursor: pointer;
+  }
+  #empty-roster:hover { border-color: var(--wants-dim); color: var(--wants); }
 }
 

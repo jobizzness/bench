@@ -3,6 +3,7 @@ import type { RosterRow } from "../../shared/types.js";
 import { elapsedSince, formatTokens, hashOf } from "../format.js";
 import { useBenchState } from "./context.js";
 import { StopTurn } from "./StopTurn.js";
+import { useNarrowViewport } from "./useNarrowViewport.js";
 import { useTick } from "./useTick.js";
 
 // Deliberately unhurried words. A specialist is reading and thinking, not
@@ -15,11 +16,15 @@ const VERBS = [
 ];
 const GLYPHS = ["✢", "✦", "✧", "✶"];
 
-function meta(row: RosterRow): string {
+function meta(row: RosterRow, narrow: boolean): string {
   const parts: string[] = [];
   if (row.startedAt) parts.push(elapsedSince(row.startedAt));
 
-  const tokens = formatTokens(row.tokens);
+  // The token estimate is the fact a phone can do without - the step count
+  // and the elapsed time are what answer "how far along is this", and a
+  // fourth number is what turned this row into a wrap nobody could read
+  // (#64).
+  const tokens = narrow ? null : formatTokens(row.tokens);
   if (tokens) parts.push(`↓ ${tokens}`);
 
   // What it is running, and when it last ran anything, used to be repeated
@@ -47,6 +52,7 @@ export function fractionDone(steps: PlanStep[] | null): number | null {
 export function Working({ steps }: { steps: PlanStep[] | null }) {
   const { rows, selectedId } = useBenchState();
   const tick = useTick();
+  const narrow = useNarrowViewport();
   const row = rows.find((r) => r.id === selectedId);
 
   if (!row || (row.status !== "working" && row.status !== "provisioning")) return null;
@@ -76,7 +82,7 @@ export function Working({ steps }: { steps: PlanStep[] | null }) {
       <span id="working-verb">{verb}</span>
       <span id="working-meta">
         {fraction !== null && <span id="working-steps">{done} of {steps!.length}</span>}
-        {meta(row)}
+        {meta(row, narrow)}
       </span>
       {/* Only while there is a turn to end. Provisioning is a worktree being
           built, and stopping that leaves half a checkout behind. */}
