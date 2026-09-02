@@ -22,7 +22,16 @@ function row(id: string, over: Partial<RosterRow> = {}): RosterRow {
 
 function harness(overrides: Partial<RemoteBridgeOptions> = {}) {
   const backend = fakeFirestore();
-  const client = firestoreClient({ projectId: "p", idToken: () => "tok", fetchImpl: backend.fetchImpl });
+  // The one thing the fake cannot do on its own: not answer at all. A
+  // connect timeout to Firestore rejects the `fetch` rather than returning a
+  // status, which is a different code path from any error response.
+  let unreachable: string | null = null;
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (unreachable !== null) throw new TypeError(unreachable);
+    return (backend.fetchImpl as unknown as typeof fetch)(url as unknown as URL, init);
+  }) as unknown as typeof fetch;
+  const client = firestoreClient({ projectId: "p", idToken: () => "tok", fetchImpl });
+  const warnings: string[] = [];
   let now = 1_000_000;
   const localCalls: Array<{ method: string; path: string; body: unknown }> = [];
   let rows: RosterRow[] = [];
@@ -47,11 +56,14 @@ function harness(overrides: Partial<RemoteBridgeOptions> = {}) {
     tickMs: 2_000,
     setIntervalImpl: ((fn: () => void) => ({ fn, unref: () => {} } as any)) as any,
     clearIntervalImpl: (() => {}) as any,
+    warn: (message: string) => { warnings.push(message); },
     ...overrides,
   });
 
   return {
-    backend, client, bridge, callLocal, localCalls, localHandlers,
+    backend, client, bridge, callLocal, localCalls, localHandlers, warnings,
+    /** Cut the wire, the way a connect timeout does. `null` reconnects it. */
+    setUnreachable: (reason: string | null) => { unreachable = reason; },
     setRows: (r: RosterRow[]) => { rows = r; },
     advance: (ms: number) => { now += ms; },
     /** Directly poking the fake's document, the same as a device's dotted-path
@@ -339,6 +351,115 @@ describe("RemoteBridge and the write budget", () => {
 
     const mirrored = h.backend.docs.get(`users/${UID}/machines/${MACHINE}/mirror/roster`);
     expect(mirrored?.degraded).toBe(1);
+  });
+});
+
+describe("RemoteBridge when Firestore is unreachable", () => {
+  /** The crash in #59: the presence read rejected, nothing caught it, and
+   * Node 22 turned the unhandled rejection into process exit - so ten seconds
+   * of no network took down every specialist on the bench. */
+  it("does not reject when the presence read fails", async () => {
+    const h = harness();
+    h.setRows([row("s1", { broadcast: true })]);
+    h.setViewer("dev1", null);
+    h.bridge.start();
+    h.setUnreachable("fetch failed");
+
+    await expect(h.supervise()).resolves.toBeUndefined();
+  });
+
+  it("does not reject when a tick's command run or mirror write fails", async () => {
+    const h = harness();
+    h.setRows([row("s1", { broadcast: true })]);
+    h.setViewer("dev1", "s1");
+    h.bridge.start();
+    await h.supervise();
+
+    h.setUnreachable("fetch failed");
+    await expect(h.tick()).resolves.toBeUndefined();
+  });
+
+  /** The fire-and-forget path is the one that actually killed the daemon:
+   * `setInterval` throws the return value away, so a rejection there has
+   * nowhere to go but the process. */
+  it("leaves no unhandled rejection behind when the timer fires", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const h = harness();
+      h.setRows([row("s1", { broadcast: true })]);
+      h.setViewer("dev1", "s1");
+      h.bridge.start();
+      h.setUnreachable("fetch failed");
+
+      // Exactly what setInterval does with it: call it, discard the result.
+      (h.bridge as any).supervisorTimer.fn();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("recovers on the next poll once the network comes back", async () => {
+    const h = harness();
+    h.setRows([row("s1", { broadcast: true })]);
+    h.setViewer("dev1", "s1");
+    h.bridge.start();
+
+    h.setUnreachable("fetch failed");
+    await h.supervise();
+    expect(h.backend.docs.has(`users/${UID}/machines/${MACHINE}/mirror/roster`)).toBe(false);
+
+    h.setUnreachable(null);
+    h.advance(5_000);
+    await h.supervise();
+    await h.tick();
+    expect(h.backend.docs.has(`users/${UID}/machines/${MACHINE}/mirror/roster`)).toBe(true);
+  });
+
+  it("says so once and says when it comes back, not once every poll", async () => {
+    const h = harness();
+    h.setRows([row("s1", { broadcast: true })]);
+    h.setViewer("dev1", "s1");
+    h.bridge.start();
+
+    h.setUnreachable("fetch failed");
+    for (let i = 0; i < 5; i += 1) {
+      h.advance(5_000);
+      await h.supervise();
+    }
+    expect(h.warnings).toHaveLength(1);
+    expect(h.warnings[0]).toContain("fetch failed");
+
+    h.setUnreachable(null);
+    h.advance(5_000);
+    await h.supervise();
+    expect(h.warnings).toHaveLength(2);
+    expect(h.warnings[1]).toMatch(/again/);
+  });
+
+  /** Teardown is a network call too. If the mirror could not be emptied, the
+   * bridge has to still believe it is active, or the stale mirror is left in
+   * Firestore for a phone to read as a live roster. */
+  it("retries the teardown when the mirror could not be emptied", async () => {
+    const h = harness();
+    h.setRows([row("s1", { broadcast: true })]);
+    h.setViewer("dev1", "s1");
+    h.bridge.start();
+    await h.supervise();
+    expect(h.backend.docs.has(`users/${UID}/machines/${MACHINE}/mirror/roster`)).toBe(true);
+
+    h.setRows([]); // broadcast turned off
+    h.setUnreachable("fetch failed");
+    await h.supervise();
+    expect(h.backend.docs.has(`users/${UID}/machines/${MACHINE}/mirror/roster`)).toBe(true);
+
+    h.setUnreachable(null);
+    await h.supervise();
+    expect(h.backend.docs.has(`users/${UID}/machines/${MACHINE}/mirror/roster`)).toBe(false);
   });
 });
 

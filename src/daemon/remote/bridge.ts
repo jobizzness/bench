@@ -57,6 +57,9 @@ export interface RemoteBridgeOptions {
   viewerStaleMs?: number;
   idleAfterMs?: number;
   budget?: WriteBudget;
+  /** Where an unreachable-Firestore notice goes. Injected so a test can read
+   * what was said rather than watch the process's own stderr. */
+  warn?: (message: string) => void;
 }
 
 export class RemoteBridge {
@@ -68,6 +71,10 @@ export class RemoteBridge {
   private watching = new Set<string>();
   private lastPollAt = 0;
   private lastActiveAt: number;
+  /** Whether the last attempt to reach Firestore failed - the state that
+   * turns a per-poll error into one line when it starts and one when it
+   * stops. */
+  private unreachable = false;
 
   constructor(opts: RemoteBridgeOptions) {
     const now = opts.now ?? Date.now;
@@ -86,6 +93,7 @@ export class RemoteBridge {
       viewerStaleMs: opts.viewerStaleMs ?? VIEWER_STALE_MS,
       idleAfterMs: opts.idleAfterMs ?? IDLE_AFTER_MS,
       budget: opts.budget ?? new WriteBudget({ now }),
+      warn: opts.warn ?? ((message: string) => { process.stderr.write(message); }),
     };
     this.mirror = new MirrorWriter(opts.client, opts.uid, opts.machineId, this.opts.budget, now);
     // A broadcast that has just turned on gets the fast cadence for its
@@ -115,13 +123,31 @@ export class RemoteBridge {
    * nothing broadcast (free, local - answers most ticks without touching
    * Firestore at all), then whether this cadence's interval has actually
    * elapsed (also free), and only then a real read.
+   *
+   * Never rejects. Both timers here are fire-and-forget, so a rejection has
+   * nowhere to go but the process - which is how ten seconds of no network
+   * took the whole daemon down and every specialist with it (#59). The
+   * cadence is already the retry: a failed poll costs one poll.
    */
   private async supervise(): Promise<void> {
+    try {
+      await this.superviseOnce();
+      this.noteReachable();
+    } catch (error) {
+      this.noteUnreachable(error);
+    }
+  }
+
+  private async superviseOnce(): Promise<void> {
     if (this.opts.listBroadcast().length === 0) {
       if (this.active) {
-        this.active = false;
         this.stopTicking();
+        // Emptied before the flag flips, not after: if this throws, the
+        // bridge has to still believe it is active or it will never come
+        // back to finish, leaving a stale mirror in Firestore for a phone
+        // to read as a live roster.
         await this.mirror.deleteAll();
+        this.active = false;
       }
       return;
     }
@@ -161,7 +187,17 @@ export class RemoteBridge {
     this.tickTimer = null;
   }
 
+  /** Never rejects, for the same reason `supervise` does not. */
   private async tick(): Promise<void> {
+    try {
+      await this.tickOnce();
+      this.noteReachable();
+    } catch (error) {
+      this.noteUnreachable(error);
+    }
+  }
+
+  private async tickOnce(): Promise<void> {
     if (!this.active) return;
     const broadcastRows = this.opts.listBroadcast();
 
@@ -171,6 +207,25 @@ export class RemoteBridge {
     this.opts.budget.record(commandWrites);
 
     await this.mirror.sync(broadcastRows, this.watching, this.opts.callLocal);
+  }
+
+  /**
+   * One line when Firestore goes away and one when it comes back, and
+   * nothing in between. Polling continues either way, so a network out for an
+   * hour would otherwise be seven hundred identical lines - and a log nobody
+   * can read is the same as no log, which is how remote would go quietly
+   * dead without anyone noticing.
+   */
+  private noteUnreachable(error: unknown): void {
+    if (this.unreachable) return;
+    this.unreachable = true;
+    this.opts.warn(`bench: remote could not reach Firestore, retrying on the next poll: ${String(error)}\n`);
+  }
+
+  private noteReachable(): void {
+    if (!this.unreachable) return;
+    this.unreachable = false;
+    this.opts.warn("bench: remote reached Firestore again\n");
   }
 
   /**
