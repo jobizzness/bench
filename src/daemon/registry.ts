@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdir, access } from "node:fs/promises";
+import { mkdir, access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { loadConfig } from "./config.js";
@@ -24,13 +24,35 @@ import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./
 import { describeOrigin, type Origin } from "./env-file.js";
 import { writeParked } from "./key-park.js";
 import { isModelId, modelLabel } from "../shared/models.js";
-import type { RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
+import type { AttachmentRef, RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
 import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
 import { costFrom, shapeFrom } from "./stream-codec.js";
 import type { ResultEvent } from "./stream-codec.js";
 import { TurnLog } from "./turns.js";
 import { Ledger, type Total } from "./ledger.js";
 import { nudgeFor, type NudgeState } from "../shared/nudge.js";
+import { attachmentPath } from "./attachments.js";
+
+/**
+ * The bytes behind a held brief's images, read back off disk.
+ *
+ * Only refs are recorded with the brief, so this is where they become
+ * something the CLI can be handed again. An image that has gone missing is
+ * dropped rather than failing the restore: losing one picture from a brief
+ * is recoverable, losing the whole roster because of it is not.
+ */
+async function rereadAttachments(reportsDir: string, refs: AttachmentRef[]): Promise<StoredAttachment[]> {
+  const read = await Promise.all(refs.map(async (ref) => {
+    const path = attachmentPath(reportsDir, ref.name);
+    if (path === null) return null;
+    try {
+      return { ...ref, data: (await readFile(path)).toString("base64") };
+    } catch {
+      return null;
+    }
+  }));
+  return read.filter((image): image is StoredAttachment => image !== null);
+}
 
 interface Entry {
   row: RosterRow;
@@ -62,9 +84,9 @@ interface Entry {
   /** The specialist whose `bench new` opened this tab, if one did. Persisted:
    * the roster nests a child under its opener, and the nesting has to survive
    * a restart. It does double duty before the first turn, where it is also how
-   * the daemon knows to hold a sender's message for dispatch - but that part
-   * cannot outlive a restart anyway (see `resumable`), which is why it used to
-   * be held in memory only. */
+   * the daemon knows to hold a sender's message for dispatch - and the held
+   * brief is on disk too now (`pendingDispatch`), so both halves of that job
+   * survive a restart together. */
   createdBy: string | null;
   /** Whether the held first message has ever been released to the process.
    * Turn count alone used to stand in for this, which held every message -
@@ -76,7 +98,10 @@ interface Entry {
    * the thread on restore, since a delivered message is exactly what leaves
    * one. */
   dispatched: boolean;
-  /** What an agent told this tab, waiting on the developer to dispatch it. */
+  /** What an agent told this tab, waiting on the developer to dispatch it.
+   * Mirrored to the store: it waits on a person rather than a process, so a
+   * restart has nothing to invalidate - and dropping it left the tab reading
+   * "ready", as if the brief had never been sent (#66). */
   pendingDispatch: string | null;
   /** Any images that came with it. Empty on every held message bench has seen
    * - `bench tell` sends text - but held separately from the text so that
@@ -600,6 +625,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       // Read once and used twice: what has already been answered, and whether
       // this specialist has ever spoken.
       const thread = await readThread(join(rec.reportsDir, "thread.jsonl"));
+      const held = rec.pendingDispatch ?? null;
+      const heldImages = held === null ? [] : await rereadAttachments(rec.reportsDir, rec.pendingImages ?? []);
       this.entries.set(rec.id, {
         reportsDir: rec.reportsDir,
         threadPath: join(rec.reportsDir, "thread.jsonl"),
@@ -621,13 +648,16 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         resumable: rec.resumable ?? thread.length > 0,
         model: rec.model,
         port: rec.port,
-        // Not persisted: whatever was pending before a restart cannot
-        // survive one anyway, since the idle process it was waiting on is
-        // gone too.
         createdBy: rec.createdBy ?? null,
         dispatched: thread.length > 0,
-        pendingDispatch: null,
-        pendingImages: [],
+        // A brief waits on a person, not on a process, so unlike everything
+        // else that was in flight it loses nothing by a restart - and being
+        // dropped left the tab reading "ready", indistinguishable from one
+        // never given work (#66). Images are refs on disk; the bytes are
+        // re-read below, and an image that has gone is dropped from the
+        // brief rather than failing the whole restore.
+        pendingDispatch: held,
+        pendingImages: heldImages,
         nudged: rec.nudged ?? {},
         clearCount: rec.clearCount,
         row: {
@@ -638,8 +668,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           isolated: rec.isolated ?? true,
           project: rec.project,
           model: rec.model,
-          status: worktreeGone ? "crashed" : "awaiting_decision",
-          detail: worktreeGone ? "worktree is gone" : "ready",
+          status: worktreeGone ? "crashed" : held !== null ? "awaiting_dispatch" : "awaiting_decision",
+          detail: worktreeGone
+            ? "worktree is gone"
+            : held !== null ? "waiting on you to dispatch" : "ready",
           latestReportSeq: await latestReportSeq(rec.reportsDir),
           // Derived from the thread rather than stored: the conversation
           // already records who spoke last, so it cannot drift.
@@ -651,7 +683,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           spend: rec.spend ?? null,
           answeredBy: rec.answeredBy ?? null,
           createdBy: rec.createdBy ?? null,
-          pendingPrompt: null,
+          pendingPrompt: held,
           reasoningEffort: rec.reasoningEffort,
           broadcast: rec.broadcast ?? false,
         },
@@ -1125,6 +1157,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       entry.pendingDispatch = text;
       entry.pendingImages = images;
       entry.row.pendingPrompt = text;
+      this.rememberDispatch(id, text, images);
       this.update(id, "awaiting_dispatch", "waiting on you to dispatch");
       return;
     }
@@ -1143,7 +1176,25 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.pendingImages = [];
     entry.row.pendingPrompt = null;
     entry.dispatched = true;
+    this.rememberDispatch(id, null);
     this.deliver(id, entry, text, images);
+  }
+
+  /**
+   * Mirror a held brief to disk, or clear it once it has been answered.
+   *
+   * Fire-and-forget because every caller is synchronous, so the rejection has
+   * nowhere to go but the process - which is precisely how an unhandled
+   * rejection took the whole daemon down once already (#59). A brief that
+   * fails to reach disk is still held in memory for this daemon's lifetime;
+   * saying so is better than dying over it.
+   */
+  private rememberDispatch(id: string, text: string | null, images: StoredAttachment[] = []): void {
+    void this.store
+      .rememberDispatch(id, text, images.map(({ name, mediaType }) => ({ name, mediaType })))
+      .catch((error) => {
+        process.stderr.write(`bench: could not record the held brief for ${id}: ${String(error)}\n`);
+      });
   }
 
   /** Discard a held message. The tab goes back to exactly its just-created
@@ -1156,6 +1207,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.pendingDispatch = null;
     entry.pendingImages = [];
     entry.row.pendingPrompt = null;
+    this.rememberDispatch(id, null);
     this.update(id, "awaiting_decision", "ready");
   }
 

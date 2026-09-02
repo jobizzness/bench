@@ -85,6 +85,13 @@ to the turn already in flight, which is what [#1](https://github.com/jobizzness/
 was. Verified against the real CLI: a prompt enqueued 700ms into a running
 turn produced two turn ends rather than one.
 
+A tab opened by another specialist is different: its first brief is held for
+you to read, change the model on, and then dispatch or decline. That brief is
+on disk (`SessionRecord.pendingDispatch`), so `bench restart` no longer
+destroys it — it used to, silently, leaving the tab reading "ready" as though
+it had never been given work at all
+([#66](https://github.com/jobizzness/bench/issues/66)).
+
 **Reply artifacts.** A chat answer with any structure comes back as a
 rendered page, not prose. Verified: a specialist wrote a 3127-byte
 fragment and spoke a one-line summary, unprompted beyond the skill.

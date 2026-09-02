@@ -1390,7 +1390,16 @@ async function setupForCreate(cli: string = REPLYING_CLI) {
   };
 
   const registry = new SessionRegistry(config as any);
-  return { home, project, registry };
+  return { home, project, registry, config };
+}
+
+/** A second daemon over the same home - the only way to test what a restart
+ * actually keeps, rather than what the object in memory still happens to
+ * hold. */
+async function afterRestart(config: unknown): Promise<SessionRegistry> {
+  const next = new SessionRegistry(config as any);
+  await next.restore();
+  return next;
 }
 
 const rowOf = (registry: SessionRegistry, id: string) => registry.list().find((r) => r.id === id)!;
@@ -1461,6 +1470,64 @@ describe("a tab another specialist spins up", () => {
     const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
 
     await expect(registry.dispatch(id)).rejects.toThrow(/nothing/i);
+  });
+
+  /**
+   * A held brief is the whole subject of a decision the developer has not
+   * made yet. Held in memory only, `bench restart` destroyed it and left the
+   * tab reading "ready" - indistinguishable from one never given work, so
+   * the natural reading was that the agent had ignored its instructions
+   * (#66).
+   */
+  describe("across a daemon restart", () => {
+    it("still has the brief, and still says it is waiting on you", async () => {
+      const { project, registry, config } = await setupForCreate();
+      const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+      registry.send(id, "build the thing", "sess-parent");
+      await new Promise((r) => setTimeout(r, 50));
+
+      const row = rowOf(await afterRestart(config), id);
+      expect(row.status).toBe("awaiting_dispatch");
+      expect(row.detail).toBe("waiting on you to dispatch");
+      expect(row.pendingPrompt).toBe("build the thing");
+    });
+
+    it("delivers exactly the text that was held, not a summary of it", async () => {
+      const { project, registry, config } = await setupForCreate();
+      const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+      registry.send(id, "line one\n\nline two", "sess-parent");
+      await new Promise((r) => setTimeout(r, 50));
+
+      const next = await afterRestart(config);
+      const deliver = vi.spyOn(next as any, "deliver").mockImplementation(() => {});
+      await next.dispatch(id);
+
+      expect(deliver).toHaveBeenCalledWith(id, expect.anything(), "line one\n\nline two", []);
+    });
+
+    it("keeps a decline declined, rather than resurrecting the brief", async () => {
+      const { project, registry, config } = await setupForCreate();
+      const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+      registry.send(id, "build the thing", "sess-parent");
+      await new Promise((r) => setTimeout(r, 50));
+      registry.decline(id);
+      await new Promise((r) => setTimeout(r, 50));
+
+      const row = rowOf(await afterRestart(config), id);
+      expect(row.status).toBe("awaiting_decision");
+      expect(row.pendingPrompt).toBeNull();
+    });
+
+    it("leaves a tab that was never given work reading as ready", async () => {
+      const { project, registry, config } = await setupForCreate();
+      const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const row = rowOf(await afterRestart(config), id);
+      expect(row.status).toBe("awaiting_decision");
+      expect(row.detail).toBe("ready");
+      expect(row.pendingPrompt).toBeNull();
+    });
   });
 
   it("declines the held message, leaving the tab as if it were never told", async () => {
