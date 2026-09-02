@@ -85,6 +85,15 @@ to the turn already in flight, which is what [#1](https://github.com/jobizzness/
 was. Verified against the real CLI: a prompt enqueued 700ms into a running
 turn produced two turn ends rather than one.
 
+**A dropped read says so.** The thread and the plan tell "could not fetch it"
+apart from "there is nothing there" — both used to arrive as empty, so a
+missed read drew "Working. Nothing to read yet" over a long conversation and
+asked the composer what the specialist was for. It keeps the last copy that
+arrived and marks it stale. This matters because the relay genuinely drops
+reads: the daemon log names connect timeouts, resets and DNS failures against
+`firestore.googleapis.com`, several an hour from this machine
+([#62](https://github.com/jobizzness/bench/issues/62)).
+
 A tab opened by another specialist is different: its first brief is held for
 you to read, change the model on, and then dispatch or decline. That brief is
 on disk (`SessionRecord.pendingDispatch`), so `bench restart` no longer
