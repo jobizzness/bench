@@ -3424,7 +3424,7 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   .row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "name trailer" "meta trailer";
+    grid-template-areas: "name trailer" "meta meta";
     align-items: center;
     column-gap: 12px;
     row-gap: 5px;
@@ -3436,7 +3436,12 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
      is the row's one right-hand slot. Flush against the row's own padding
      in every row, which is what gives the column its single edge: the grid
      track is `auto`, but the track always ends at the row's own right
-     boundary regardless of how wide its content is. */
+     boundary regardless of how wide its content is.
+
+     It sits on the name's line and not beside both lines, so the meta line
+     keeps the full width. The meta line is the one that says why a
+     specialist wants you, which is the whole reason this app is open on a
+     phone; a model name is not worth ten characters of it. */
   .row .meta-trailer { grid-area: trailer; margin-top: 0; }
   .row .meta-trailer .badge-model,
   .row .meta-trailer .badge-spend { font-size: 11px; padding: 4px 9px; }
@@ -3448,6 +3453,14 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
      drawn asking for one; ↑/↓ nudging goes with it, since it lived on the
      same control. */
   .row .grip { display: none; }
+
+  /* Dropped for the same reason, and one more: it is drawn at `opacity: 0`
+     until `:hover`, which a touchscreen never fires, so on a phone it was an
+     invisible control sitting in the same strip of the row as the trailer
+     badge - aim at one, hit the other, and get a confirm dialog you did not
+     ask for (#58). Closing a specialist is a desk action anyway; the phone
+     is here to unblock one, not to tidy up after it. */
+  .row .close { display: none; }
 
   /* The one place this screen raises its voice. */
   .row[data-waiting="true"] {
