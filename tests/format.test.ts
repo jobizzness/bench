@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { elapsedSince, formatTokens, ago, relativeTime, hashOf } from "../src/client/format.js";
+import { elapsedSince, formatTokens, ago, relativeTime, hashOf, phoneActivity } from "../src/client/format.js";
 
 const NOW = Date.parse("2026-08-22T12:00:00.000Z");
 const at = (secondsAgo: number) => new Date(NOW - secondsAgo * 1000).toISOString();
@@ -41,6 +41,24 @@ describe("ago", () => {
 
   it("never goes negative on a clock that disagrees", () => {
     expect(ago(new Date(NOW + 5000).toISOString(), NOW)).toBe("0s ago");
+  });
+});
+
+describe("phoneActivity", () => {
+  it("drops a Bash command entirely - shell syntax is not a phone's business", () => {
+    expect(phoneActivity("Bash timeout 600 pnpm deploy:web 2>&1 | tail -4"))
+      .toBe("Running a command");
+  });
+
+  it("keeps a file tool's already-short target", () => {
+    expect(phoneActivity("Edit src/client/styles.css")).toBe("Editing src/client/styles.css");
+    expect(phoneActivity("Read src/client/format.ts")).toBe("Reading src/client/format.ts");
+  });
+
+  it("puts a generic verb ahead of a target for a tool it does not know, and falls back to the bare name for one with none", () => {
+    expect(phoneActivity("Task code-reviewer")).toBe("Using code-reviewer");
+    expect(phoneActivity("Skill bench-report")).toBe("Using bench-report");
+    expect(phoneActivity("KillShell")).toBe("KillShell");
   });
 });
 

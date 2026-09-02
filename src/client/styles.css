@@ -3431,6 +3431,68 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   #stage-head { padding: 14px 16px 12px; }
   #thread { padding: 16px 16px 20px; }
 
+  /* ── The stage header: a phone composition, not a squeezed desktop one ──
+     #47 gave this row padding and nothing else - see #64. Five badges was a
+     desktop header's worth of facts; `Meta.tsx`'s `narrow` branch cuts that
+     to what a phone actually reaches for (the role, the one warning worth a
+     raised voice, the context dial and its clear control) and gives the
+     live line - what it is doing - a row of its own underneath, in words
+     rather than the tool call producing them. */
+  .meta-phone { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  /* Spaced by gap, not by the dotted line's separators: a wrapped line that
+     opens with "· clear context" reads as a stray mark, and this row mixes
+     plain text with a pill already (`badge-shared`) the way the dotted
+     line's punctuation was never meant to sit next to. */
+  .meta-phone-facts {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    row-gap: 6px;
+    font-size: 12px;
+  }
+  .meta-phone-facts > * + *::before { content: none; margin: 0; }
+  .meta-role-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-decoration: underline dotted;
+    text-decoration-color: var(--line-firm);
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .meta-role-btn:hover, .meta-role-btn:focus-visible {
+    color: var(--wants);
+    text-decoration-color: var(--wants);
+    outline: none;
+  }
+  /* The answer to "what is it doing" - the reason the screen was opened -
+     said in a full sentence rather than squeezed into the dotted line
+     above. Wraps instead of ellipsising: cutting the one fact this row
+     exists for is a worse failure than a second line, and `phoneActivity`
+     (format.ts) has already made a working turn's line short. `break-word`
+     is the backstop for whatever it does not shorten - an unbroken token
+     (a long path, a URL) must still wrap rather than push past the edge,
+     which is the bug #64 reported against the old single-line reading. */
+  .meta-phone-detail {
+    font: 400 13px/1.4 var(--mono);
+    color: var(--muted);
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+  /* With the status chip gone, this line is the only thing on a phone
+     saying whether the specialist is dead - and a crash's detail is the
+     CLI's own last words (registry.ts), which can read as ordinary output
+     on its own. Same `--broken` the roster rail already carries for both
+     statuses (styles.css around line 661) - the desktop badge is not
+     colour-coded, so this is deliberately better than desktop, not merely
+     equal to it. */
+  .meta-phone-detail[data-status="crashed"],
+  .meta-phone-detail[data-status="provisioning_failed"] {
+    color: var(--broken);
+  }
+
   /* ── Roster rows: a phone composition, not a squeezed desktop one ─────
      #47 made a row fit; it kept a row authored for 276px. Fixed here: one
      right edge instead of three widths stacked (the grip, the trailer
@@ -3544,6 +3606,27 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   #decision {
     max-height: 38vh;
     overflow-y: auto;
+  }
+
+  /* Four facts - the step count, the elapsed time, the token estimate and
+     Stop - in one nowrap row is a #47 desktop leftover: it fits at 720px
+     and wraps mid-fact below it (#64). The count and the elapsed time are
+     what answer "how far along is this"; the token estimate is the one a
+     phone can do without, so it drops here rather than wrapping. Stop moves
+     to the glyph's row, where the thumb already is - the meta row is read,
+     not tapped. */
+  #working { flex-wrap: wrap; padding: 10px 16px 11px; row-gap: 4px; }
+  #working-meta { flex: 1 1 100%; margin-left: 0; order: 3; }
+  #stop-turn { order: 2; }
+
+  /* The one line worth reading on the checklist a phone opened this screen
+     to see (#64). No CSS truncation was doing this - `.step` already wraps
+     - but free-form text can still carry an unbroken run (a path, a URL)
+     long enough to push past the edge the way the header's activity line
+     did, so it gets the same backstop. */
+  .step .what {
+    overflow-wrap: break-word;
+    word-break: break-word;
   }
 
   /* One account, several machines (see the design doc's "More than one
