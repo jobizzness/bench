@@ -10,9 +10,11 @@ import type { Attachment } from "../../shared/types.js";
 /**
  * The one input, and the button that says what sending will do.
  *
- * The send button only appears for an intake, where "what will happen" is not
- * obvious from the box — a plain message or a single-option decision goes on
- * Enter, as it always has.
+ * On a keyboard the send button only appears for an intake, where "what will
+ * happen" is not obvious from the box — a plain message or a single-option
+ * decision goes on Enter, as it always has. Below the phone breakpoint that
+ * bargain does not hold, so a plain Send is drawn there instead; see the
+ * button itself for why.
  *
  * It is a textarea because it was an `<input>`, which cannot hold a newline at
  * all: a brief with two paragraphs in it went to the specialist as one line.
@@ -154,7 +156,7 @@ export function Composer({
               onSubmit();
             }}
           />
-          {send && (
+          {send ? (
             <button
               id="composer-send"
               type="submit"
@@ -162,6 +164,21 @@ export function Composer({
               data-pending={send.blocked}
             >
               {send.label}
+            </button>
+          ) : (
+            // A phone has no Enter key that means "send" - a soft keyboard
+            // draws a return key, nothing on screen suggests it would submit,
+            // and the IME guard above swallows it outright while predictive
+            // text is composing. So below the breakpoint the button is not
+            // optional, and CSS hides it again above one (#61). Same
+            // `onSubmit` as Enter, never a second way to send.
+            <button
+              id="composer-send"
+              className="phone-only"
+              type="submit"
+              disabled={disabled || (text.trim() === "" && attachments.length === 0)}
+            >
+              Send
             </button>
           )}
         </div>

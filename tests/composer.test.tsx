@@ -67,6 +67,46 @@ describe("typing more than one line", () => {
 });
 
 /**
+ * A soft keyboard draws a return key, not a send key, and nothing on the
+ * screen said Enter would submit - so the phone had a box you could type into
+ * and no way to post it (#61). The button is drawn at every width and hidden
+ * again above the breakpoint by CSS, which jsdom does not apply; these assert
+ * the markup and the wiring, and the width itself is a stylesheet question.
+ */
+describe("the send button", () => {
+  const sendButton = () => ui.$<HTMLButtonElement>("#composer-send")!;
+
+  it("is there for an ordinary message", async () => {
+    await open();
+    expect(sendButton()).not.toBeNull();
+    expect(sendButton().className).toBe("phone-only");
+  });
+
+  it("is disabled with nothing to send, and enabled once there is", async () => {
+    await open();
+    expect(sendButton().disabled).toBe(true);
+
+    await ui.type(box(), "do the thing");
+    expect(sendButton().disabled).toBe(false);
+  });
+
+  it("stays disabled for whitespace alone", async () => {
+    await open();
+    await ui.type(box(), "   ");
+    expect(sendButton().disabled).toBe(true);
+  });
+
+  it("sends exactly what Enter sends", async () => {
+    await open();
+    await ui.type(box(), "do the thing");
+    await ui.click(sendButton());
+
+    expect(sent()).toHaveLength(1);
+    expect(sent()[0].body.text).toBe("do the thing");
+  });
+});
+
+/**
  * Which model this specialist runs on, at the moment you are deciding to send
  * it work.
  *

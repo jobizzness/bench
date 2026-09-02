@@ -12,6 +12,17 @@ import type { RosterRow } from "../../shared/types.js";
 const IDLE_AFTER_MS = 5 * 60_000;
 
 /**
+ * An error worth reading. `undici` reports every network failure as the same
+ * `TypeError: fetch failed` and puts the thing you actually need - a connect
+ * timeout, a reset, a DNS failure - in `cause`, so logging the error alone
+ * says only that something went wrong and never what.
+ */
+function describe(error: unknown): string {
+  const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+  return cause === undefined ? String(error) : `${String(error)} (${String(cause)})`;
+}
+
+/**
  * The daemon's half of "the wire": presence, commands, and the mirror, all
  * gated on the same question - is anyone actually watching this machine.
  *
@@ -71,10 +82,13 @@ export class RemoteBridge {
   private watching = new Set<string>();
   private lastPollAt = 0;
   private lastActiveAt: number;
-  /** Whether the last attempt to reach Firestore failed - the state that
-   * turns a per-poll error into one line when it starts and one when it
-   * stops. */
-  private unreachable = false;
+  /** Which of the two pollers is currently failing, so each is reported once
+   * when it starts failing and once when it recovers. Per-poller rather than
+   * one flag for both: they run at different cadences and fail for different
+   * reasons, and a single flag made one consistently broken poller read as a
+   * flapping network - 189 "could not reach" lines alternating perfectly with
+   * 189 "reached again" lines, which is a log that actively misleads. */
+  private readonly unreachable = new Set<string>();
 
   constructor(opts: RemoteBridgeOptions) {
     const now = opts.now ?? Date.now;
@@ -132,9 +146,9 @@ export class RemoteBridge {
   private async supervise(): Promise<void> {
     try {
       await this.superviseOnce();
-      this.noteReachable();
+      this.noteReachable("presence poll");
     } catch (error) {
-      this.noteUnreachable(error);
+      this.noteUnreachable("presence poll", error);
     }
   }
 
@@ -191,9 +205,9 @@ export class RemoteBridge {
   private async tick(): Promise<void> {
     try {
       await this.tickOnce();
-      this.noteReachable();
+      this.noteReachable("mirror tick");
     } catch (error) {
-      this.noteUnreachable(error);
+      this.noteUnreachable("mirror tick", error);
     }
   }
 
@@ -210,22 +224,21 @@ export class RemoteBridge {
   }
 
   /**
-   * One line when Firestore goes away and one when it comes back, and
-   * nothing in between. Polling continues either way, so a network out for an
-   * hour would otherwise be seven hundred identical lines - and a log nobody
-   * can read is the same as no log, which is how remote would go quietly
-   * dead without anyone noticing.
+   * One line when a poller starts failing and one when it recovers, and
+   * nothing in between. Polling continues either way, so an hour of failure
+   * would otherwise be hundreds of identical lines - and a log nobody can
+   * read is the same as no log, which is how remote would go quietly dead
+   * without anyone noticing.
    */
-  private noteUnreachable(error: unknown): void {
-    if (this.unreachable) return;
-    this.unreachable = true;
-    this.opts.warn(`bench: remote could not reach Firestore, retrying on the next poll: ${String(error)}\n`);
+  private noteUnreachable(what: string, error: unknown): void {
+    if (this.unreachable.has(what)) return;
+    this.unreachable.add(what);
+    this.opts.warn(`bench: remote ${what} failing, retrying on the next poll: ${describe(error)}\n`);
   }
 
-  private noteReachable(): void {
-    if (!this.unreachable) return;
-    this.unreachable = false;
-    this.opts.warn("bench: remote reached Firestore again\n");
+  private noteReachable(what: string): void {
+    if (!this.unreachable.delete(what)) return;
+    this.opts.warn(`bench: remote ${what} succeeded again\n`);
   }
 
   /**

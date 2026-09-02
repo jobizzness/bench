@@ -1462,6 +1462,12 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   border-color: var(--busy-dim);
   cursor: not-allowed;
 }
+#composer-send:disabled { opacity: 0.45; cursor: default; }
+/* The phone's send button, which a keyboard does not need - there, Enter is
+   the send key and a second one beside it is furniture. Hidden here and
+   revealed inside the mobile media query, rather than the other way round,
+   so every existing width behaves exactly as it did. */
+#composer-send.phone-only { display: none; }
 
 #composer-text {
   flex: 1;
@@ -3483,6 +3489,15 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
        is what keeps it reachable in that squeeze. */
     min-height: 0;
     overflow-y: auto;
+  }
+
+  /* The one control this footer could not do without on a phone: a soft
+     keyboard's Enter is a return key, and there is nothing else here that
+     says "send". Sized for a thumb rather than a pointer. */
+  #composer-send.phone-only {
+    display: block;
+    min-height: 44px;
+    padding: 12px 16px;
   }
 
   /* Decisions: read it, tap it. The keycap numbers and the composer's own

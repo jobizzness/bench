@@ -433,12 +433,13 @@ describe("RemoteBridge when Firestore is unreachable", () => {
     }
     expect(h.warnings).toHaveLength(1);
     expect(h.warnings[0]).toContain("fetch failed");
+    expect(h.warnings[0]).toContain("presence poll");
 
     h.setUnreachable(null);
     h.advance(5_000);
     await h.supervise();
     expect(h.warnings).toHaveLength(2);
-    expect(h.warnings[1]).toMatch(/again/);
+    expect(h.warnings[1]).toMatch(/succeeded again/);
   });
 
   /** Teardown is a network call too. If the mirror could not be emptied, the
