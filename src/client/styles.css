@@ -450,9 +450,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
    and square, so it does not read as a third button of the same kind. */
 /* The two marks at the right of the stage header share one shape: an icon, a
    hairline box, and colour that only arrives on hover. Broadcast is the one
-   of them that holds state, so it also has an on-position. */
+   of them that holds state, so it also has an on-position. `#stage-back`
+   (below the width breakpoint only - see "Phone width" at the foot of this
+   file) is drawn from the same shape rather than inventing a second kind of
+   icon button. */
 #open-github,
-#broadcast-toggle {
+#broadcast-toggle,
+#stage-back {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -465,9 +469,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
   transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
 }
 #open-github:hover:not(:disabled),
-#broadcast-toggle:hover:not(:disabled) {
+#broadcast-toggle:hover:not(:disabled),
+#stage-back:hover {
   color: var(--text); border-color: var(--wants-dim); background: var(--hover);
 }
+/* Above the breakpoint the roster is already on screen beside the stage, so
+   there is nothing this button would go back to. */
+#stage-back { display: none; }
 /* With no specialist open there is no project, and so nothing to list. */
 #open-github:disabled { opacity: 0.35; cursor: default; }
 /* Broadcast's is the moment its own write is in flight. */
@@ -3328,5 +3336,140 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 }
 .entry-attachment img:hover {
   opacity: 0.9;
+}
+
+/* ── Phone width ───────────────────────────────────────────────────────
+   720px matches the one width breakpoint that already existed in this
+   codebase, on the report template's side-by-side screenshot pair
+   (src/daemon/artifact-page.ts) - reused rather than inventing a second
+   number. Comfortably covers a phone in either orientation and a small
+   tablet in portrait.
+
+   Everything below is additive: every rule here lives inside this query, so
+   nothing above 720px changes. */
+@media (max-width: 720px) {
+  /* One pane at a time, full width, chosen by `data-pane` - which is just
+     `selectedId` read out loud (see App.tsx). The grid that puts a fixed
+     276px roster beside the stage is what breaks this width in the first
+     place; below the breakpoint it is a column of one full-height pane
+     instead. */
+  #app {
+    display: flex;
+    flex-direction: column;
+    /* Falls back to 100dvh wherever `useVisualViewportHeight` has nothing to
+       report - no `window.visualViewport`, or the property just hasn't been
+       set yet on first paint. */
+    height: var(--visual-viewport-height, 100dvh);
+  }
+  #app > #roster,
+  #app > #stage {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+  }
+  #app[data-pane="roster"] #stage { display: none; }
+  #app[data-pane="stage"] #roster { display: none; }
+
+  /* The way back: drawn now that there is somewhere for it to go. */
+  #stage-back { display: flex; }
+
+  /* The name already carries text-overflow:ellipsis, but a flex item's
+     default min-width is its own content width, not 0 - so without this it
+     never actually shrinks, and a long name pushes the back button,
+     broadcast and GitHub off the edge instead of truncating. Only surfaces
+     now: the row gained a fourth item (the back button) and lost the room a
+     desktop-width header always had to spare. */
+  #stage-title { min-width: 0; }
+  #stage-label,
+  #stage-label-input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Thumb-sized rather than mouse-sized. Centred content means padding
+     alone would grow the icon along with the target, so the box is set
+     directly instead. */
+  #open-github,
+  #broadcast-toggle,
+  #stage-back {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px;
+  }
+
+  /* The chrome that made sense beside a 276px roster is just eating the one
+     pane's whole width now. */
+  #roster header { padding: 16px 14px 14px; }
+  #stage-head { padding: 14px 16px 12px; }
+  #thread { padding: 16px 16px 20px; }
+  #composer {
+    padding: 12px 16px 16px;
+    /* A flex item's default minimum height is its content's, not 0 - so
+       without this, a long decision under a soft keyboard that has already
+       squeezed #thread down to nothing keeps pushing past the bottom of
+       #app, which has nowhere left to give and does not scroll itself. The
+       send button ends up past the edge of the actual screen, not just
+       scrolled out of view - unreachable, which is the one thing this
+       footer cannot afford to be. Scrolling within its own footer instead
+       is what keeps it reachable in that squeeze. */
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* Decisions: read it, tap it. The keycap numbers and the composer's own
+     "1-9 pick" hint both describe keys (useDecisionKeys.ts) a touchscreen
+     does not have - meaningless below this width, and the buttons are
+     already big enough to tap without them. */
+  .options,
+  .q-options {
+    flex-direction: column;
+  }
+  .option {
+    max-width: none;
+    width: 100%;
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+  .option .key { display: none; }
+  #composer-hint[data-kind="intake"],
+  #composer-hint[data-kind="options"] {
+    display: none;
+  }
+  /* A decision with several options is taller than a short keyboard-open
+     viewport can hold, and #decision is not the flexible region - #thread
+     is. Without a cap, a long list of options pushes the actual composer
+     input past the bottom of the screen, which is the one thing this
+     footer must never do. Scrolls within its own box instead, the same
+     way #intake already does for the intake sheet. */
+  #decision {
+    max-height: 38vh;
+    overflow-y: auto;
+  }
+
+  /* One account, several machines (see the design doc's "More than one
+     machine"): the badge naming which one a row is on must not be the thing
+     that makes a name wrap or run past the row's edge. */
+  .badge-machine {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* A report is read full-bleed here rather than as a card with margins
+     around it a phone does not have room to spare - which means it is now
+     the one surface below the breakpoint that reaches the actual screen
+     edge, and needs the same safe-area padding #app gives itself for
+     exactly that reason: full-bleed on a notched phone means behind the
+     notch and the home indicator unless something pushes back off them. */
+  #artifact-dialog {
+    width: 100vw;
+    height: var(--visual-viewport-height, 100dvh);
+    max-width: none;
+    border-radius: 0;
+    padding:
+      env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
 }
 
