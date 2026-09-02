@@ -32,12 +32,16 @@ function usePinToBottom(host: React.RefObject<HTMLDivElement | null>, entries: E
 }
 
 export function Thread({
-  entries, sessionId, hasRows, onOpen,
+  entries, sessionId, hasRows, onOpen, unreachable = false,
 }: {
   entries: Entry[];
   sessionId: string | null;
   hasRows: boolean;
   onOpen: (artifact: ArtifactRef) => void;
+  /** The last read of this thread did not land. Says so rather than passing
+   * off what did not arrive as a specialist that has said nothing (#62) - on
+   * a relayed session that read fails several times an hour. */
+  unreachable?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   usePinToBottom(host, entries);
@@ -52,10 +56,19 @@ export function Thread({
           ? <Empty heading="Nothing selected." body="Pick a specialist on the left to read what it has for you." />
           : <Empty heading="No specialists yet." body="Start one with New and it will appear on the left." />)
         : entries.length === 0
-          ? <Empty heading="Working." body="Nothing to read yet — the first report will land here." />
-          : entries.map((entry) => (
-            <ThreadEntry key={entry.seq} entry={entry} sessionId={sessionId} refs={refs} onOpen={onOpen} />
-          ))}
+          ? (unreachable
+            ? <Empty heading="Can't reach this machine." body="The conversation is on it; this device could not fetch it. Still trying." />
+            : <Empty heading="Working." body="Nothing to read yet — the first report will land here." />)
+          : (
+            <>
+              {unreachable && (
+                <p id="thread-stale">Lost the connection. This is the last of it that reached you.</p>
+              )}
+              {entries.map((entry) => (
+                <ThreadEntry key={entry.seq} entry={entry} sessionId={sessionId} refs={refs} onOpen={onOpen} />
+              ))}
+            </>
+          )}
     </div>
   );
 }

@@ -969,6 +969,22 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 }
 #empty b { display: block; color: var(--text); font-weight: 500; margin-bottom: 4px; }
 
+/* The conversation below this is the last that reached the device, not what
+   the specialist has said since. Amber rather than red, and above the thread
+   rather than over it: nothing is broken and nothing is lost - the read will
+   land on the next try - but a stale thread that says nothing is how a phone
+   ends up looking like a specialist has gone quiet (#62). */
+#thread-stale {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--busy-dim);
+  background: color-mix(in srgb, var(--busy) 8%, transparent);
+  color: var(--busy);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
 /* Entries run the full width of the thread. Three separate measure caps -
    74ch here, 56ch for your own messages floated to the right, 108ch for a
    report card - left a wide window mostly empty gutter, with your own

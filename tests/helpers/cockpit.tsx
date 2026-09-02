@@ -28,6 +28,9 @@ export interface Fixtures {
   plan?: PlanStep[] | null;
   /** The id the daemon hands back from POST /api/sessions. */
   createdId?: string;
+  /** Make the thread read fail: "reject" for a dead link, a status number for
+   * a daemon that answered badly. Both used to render as an empty thread. */
+  threadFails?: "reject" | number;
   /** House rules already on the daemon when the page opens. */
   settings?: { codingStyle: string; workflowRules: string; reviewModel?: string };
   /** What GitHub says about the project the drawer is opened on. */
@@ -253,6 +256,13 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       return { ok: true, status: 200, json: async () => ({ ok: true, ...created }) };
     }
     if (url.includes("/thread")) {
+      // A read that never lands, which on a relayed session is what several
+      // reads an hour actually do. "reject" is a dead link; a number is a
+      // daemon that answered with a status.
+      if (fixtures.threadFails === "reject") throw new TypeError("fetch failed");
+      if (typeof fixtures.threadFails === "number") {
+        return { ok: false, status: fixtures.threadFails, json: async () => ({}) };
+      }
       return { ok: true, status: 200, json: async () => ({ entries: fixtures.entries ?? [] }) };
     }
     if (url.includes("/report/")) {

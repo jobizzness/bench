@@ -74,7 +74,7 @@ export function App() {
   const landing = usePhoneLanding(rows, selectedId, rawSelect);
   const select = landing.select;
 
-  const { entries, reload } = useThread(selectedId, threadSignature(row));
+  const { entries, reload, threadUnreachable } = useThread(selectedId, threadSignature(row));
   const decisionState = useDecision(row);
   const { decision, answers, setAnswers, choice, setChoice, focus, setFocus, dismiss } = decisionState;
 
@@ -260,7 +260,9 @@ export function App() {
   // is for. That question used to be asked before it existed.
   const placeholder = decision && !intake
     ? "Or type an answer"
-    : row && entries.length === 0
+    // Not while the thread simply failed to arrive: asking what a specialist
+    // is for, mid-conversation, is the same lie the empty thread told (#62).
+    : row && entries.length === 0 && !threadUnreachable
       ? "What should this specialist do?"
       : "Message this specialist";
 
@@ -369,6 +371,7 @@ export function App() {
             sessionId={selectedId}
             hasRows={rows.length > 0}
             onOpen={setArtifact}
+            unreachable={threadUnreachable}
           />
           <Working steps={steps} />
 
