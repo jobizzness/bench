@@ -448,7 +448,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* An icon rather than a word, because it is a place you already recognise -
    and square, so it does not read as a third button of the same kind. */
-#open-github {
+/* The two marks at the right of the stage header share one shape: an icon, a
+   hairline box, and colour that only arrives on hover. Broadcast is the one
+   of them that holds state, so it also has an on-position. */
+#open-github,
+#broadcast-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -460,11 +464,22 @@ button, input, textarea, select { font: inherit; color: inherit; }
   cursor: pointer;
   transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
 }
-#open-github:hover:not(:disabled) {
+#open-github:hover:not(:disabled),
+#broadcast-toggle:hover:not(:disabled) {
   color: var(--text); border-color: var(--wants-dim); background: var(--hover);
 }
 /* With no specialist open there is no project, and so nothing to list. */
 #open-github:disabled { opacity: 0.35; cursor: default; }
+/* Broadcast's is the moment its own write is in flight. */
+#broadcast-toggle:disabled { opacity: 0.35; cursor: default; }
+
+/* Off, the outer arcs are nearly gone: a beacon that is not reaching
+   anywhere. On, it takes the colour this cockpit already uses for "this
+   wants something from you" — a specialist that has left the machine is the
+   kind of fact worth seeing from across the room. */
+#broadcast-toggle .broadcast-far { opacity: 0.25; }
+#broadcast-toggle.on { color: var(--wants); border-color: var(--wants-dim); }
+#broadcast-toggle.on .broadcast-far { opacity: 1; }
 
 #roster-list {
   list-style: none;
@@ -890,7 +905,9 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   border-color: var(--line-firm);
   outline: none;
 }
-#stage-head #open-github { margin-left: auto; }
+/* The pair sits together at the right, so the gap goes before the first of
+   them rather than between them. */
+#stage-head #broadcast-toggle { margin-left: auto; }
 
 /* The one window that stops a specialist without warning, said on the
    header itself once it is past the point of being worth interrupting
