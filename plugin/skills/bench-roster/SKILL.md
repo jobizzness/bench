@@ -135,6 +135,22 @@ change did not compile by having no cockpit.
 Do not reach for this on every turn. It is for when you have actually changed
 the daemon and need the change live — not for tidiness.
 
+## Do not install dependencies
+
+Your worktree's `node_modules` is a **symlink to the developer's checkout**,
+not a copy of it. So `pnpm install` from in here does not install into your
+worktree — it rewrites the tree that the developer and every other specialist
+are reading through, and a half-finished one breaks all of them at once.
+
+Nothing stops you. There used to be a blanket denial and it was removed,
+because a refusal with no explanation just sent agents round it. This is the
+explanation instead.
+
+If you genuinely need a dependency, say so in your report and let the
+developer add it. If you have already run an install and something looks
+wrong, say that too — it is much cheaper to hear it from you than to find it
+in somebody else's failing build.
+
 ## What it cannot do
 
 Only this project. A tab somewhere else is the developer's call, made in the

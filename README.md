@@ -34,9 +34,14 @@ subagents, web search. Bench supervises it; it does not replace it.
   checkout instead, on the branch you already have open.
 - **Nothing is installed, and nothing is copied.** A worktree borrows the
   dependencies your checkout already has, so provisioning takes milliseconds
-  rather than the twenty seconds an install cost. The flip side is that a
-  specialist cannot add a dependency: those commands are denied, because
-  through the link they would rewrite your own `node_modules`.
+  rather than the twenty seconds an install cost. The flip side is worth
+  knowing: `node_modules` is a symlink to yours, so a specialist that runs
+  `pnpm install` is installing into *your* checkout, and every other worktree
+  reads through the same link. Nothing stops it — a specialist has a full
+  shell, and the blanket denial that used to be here was removed because an
+  unexplained refusal sent agents round it rather than stopping them. Ask for
+  a dependency to be added rather than adding it, and if one appears in a
+  diff you did not expect, that is why.
 - **Decisions, not transcripts.** Reports render as pages with numbered options.
   Press `1`–`n`, `Enter`. The answer goes back into the live session.
 - **Intake.** A specialist can ask everything it needs at once, with its own

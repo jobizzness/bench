@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFile, writeFile, mkdir, symlink } from "node:fs/promises";
+import { readFile, writeFile, mkdir, mkdtemp, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -153,6 +154,46 @@ describe("inspectWorktree", () => {
     expect(state.clean).toBe(false);
     expect(state.unmergedCommits).toBe(1);
     expect(state.changes).toBe(0);
+  });
+
+  /* Pushing is how a specialist's work becomes safe, and it is the moment
+   * closing its tab becomes right - so the guard has to see a remote-tracking
+   * ref as somewhere the commits survive. Counting only local heads made it
+   * refuse hardest exactly where it should have relaxed, while saying "on no
+   * other branch" about commits that were on one. #53. */
+  it("calls a pushed branch clean, because its commits survive the worktree", async () => {
+    const repo = await makeScratchRepo();
+    const { worktree, branch } = await createWorktree(repo, "pushed", ID_A);
+    await writeFile(join(worktree, "feature.txt"), "done");
+    await exec("git", ["add", "-A"], { cwd: worktree });
+    await exec("git", ["commit", "-qm", "add feature"], { cwd: worktree });
+
+    // A bare repo standing in for the remote, so this is a real push and a
+    // real remote-tracking ref rather than a ref invented by hand.
+    const remote = await mkdtemp(join(tmpdir(), "bench-remote-"));
+    await exec("git", ["init", "--bare", "-q"], { cwd: remote });
+    await exec("git", ["remote", "add", "origin", remote], { cwd: worktree });
+    await exec("git", ["push", "-q", "origin", branch], { cwd: worktree });
+
+    const state = await inspectWorktree(repo, worktree, branch);
+    expect(state.unmergedCommits).toBe(0);
+    expect(state.clean).toBe(true);
+  });
+
+  it("still refuses a branch whose commits were never pushed anywhere", async () => {
+    const repo = await makeScratchRepo();
+    const { worktree, branch } = await createWorktree(repo, "unpushed", ID_A);
+    await writeFile(join(worktree, "feature.txt"), "done");
+    await exec("git", ["add", "-A"], { cwd: worktree });
+    await exec("git", ["commit", "-qm", "add feature"], { cwd: worktree });
+    // A remote exists but this branch never reached it.
+    const remote = await mkdtemp(join(tmpdir(), "bench-remote-"));
+    await exec("git", ["init", "--bare", "-q"], { cwd: remote });
+    await exec("git", ["remote", "add", "origin", remote], { cwd: worktree });
+
+    const state = await inspectWorktree(repo, worktree, branch);
+    expect(state.unmergedCommits).toBe(1);
+    expect(state.clean).toBe(false);
   });
 
   it("calls a merged branch clean, since nothing would be lost", async () => {
