@@ -229,6 +229,35 @@ its output goes to `~/.bench/daemon.log`, and the restart's own progress to
 `~/.bench/restart.log`. And the terminal you originally started it in is now
 free: it printed `bench: stopping.` and exited.
 
+## The `bench` command
+
+Installed alongside the daemon, and mostly for the specialists rather than for
+you: a specialist that has been asked to spec something and hand it to an
+implementer needs a way to open a tab, and inventing an API call is exactly
+what an agent should not be doing.
+
+```
+bench ls                         who is on this project, on what model, doing what
+bench new <label> [--as <role>]  open a tab; it waits until it is told what for
+bench tell <label> "<text>"      give one its next turn
+bench close <label>              done with a sub-agent you opened — shut it down
+bench restart [--build]          stop the daemon and start it again
+bench remote off                 stop being reachable from your other devices
+```
+
+A specialist may only open, tell and close tabs on its own project, and may
+only close one it opened itself — not the developer's, and not its own. That
+check is in the command rather than the daemon, because the token is shared
+and the daemon cannot otherwise tell who is asking.
+
+It reads the token itself rather than taking one on the command line. `curl
+"...?token=$(cat ~/.bench/token)"` puts the secret into `ps` output for every
+process on the machine to read; this does not.
+
+`bench restart` is the one of these you are as likely to type as they are —
+see [Restarting it](#restarting-it) for what it does and where the output
+goes afterwards.
+
 ## How it works
 
 ```
