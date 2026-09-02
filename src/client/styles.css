@@ -3635,11 +3635,15 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
     color: var(--muted);
   }
 
-  /* The argument, not a card that hands you the buttons without it -
-     that was the whole finding. Sized to its own content on load
-     (PhoneUnblock.tsx) so the report and the options scroll as one
-     column; the fixed height here only ever shows while it's still
-     measuring, or on the rare frame it cannot. */
+  /* The argument, not a card that hands you the buttons without it - that
+     was the whole finding. Sized to its own content on load
+     (useReportFrame.ts) so the report and the options scroll as one column
+     - but that read can fail, and does often enough on a phone (a relayed
+     report served from a different origin than the page) that this height
+     is not a rare fallback to leave threadbare. 52vh matches the room
+     `.card iframe` already gives a report previewed in the thread: enough
+     to actually read before the frame's own scrollbar takes over, not a
+     keyhole. */
   #unblock-report {
     flex: none;
     margin: 0 18px 18px;
@@ -3652,7 +3656,7 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
     display: block;
     width: 100%;
     border: 0;
-    height: 46vh;
+    height: 52vh;
   }
 
   #unblock-options { margin: 0 18px 14px; }
