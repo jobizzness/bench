@@ -79,6 +79,22 @@ specialist works, the thread does not change at all — the roster carries
 in-flight visibility. A work turn produces exactly one thread entry: its
 report card.
 
+**What gets mounted, not just what gets fetched.** The daemon's `/thread`
+route always returns every entry — the record is the record, and trimming
+it was ruled out. But a specialist that runs for hundreds of turns produces
+a thread the browser should not fully mount: the worst thread on this bench
+reached 237 entries and 3048 DOM nodes for `#thread` alone, 80% of the
+page's DOM, laid out and reconciled on every roster push (#68). `Thread.tsx`
+therefore renders only the newest entries — `useThreadWindow.ts`'s `WINDOW`,
+12 by default, chosen empirically against that session's own node density
+rather than rounded for looks — plus a `#thread-load-older` button that
+reveals the rest, all at once, when pressed. A thread under the window
+renders exactly as before: no button, nothing new. Opening a specialist
+still lands on its newest entry; loading older entries preserves the
+developer's scroll position rather than jumping to either end; and the
+window resets to collapsed whenever the selected specialist changes, so an
+expanded thread never carries over onto the next one read.
+
 This is a deliberate rejection of the live activity feed. Watching an agent
 work is not the product; reading its conclusions and answering is.
 

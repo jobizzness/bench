@@ -985,6 +985,25 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   line-height: 1.45;
 }
 
+/* Only ever seen on a thread long enough to be windowed (#68) - a normal
+   session never mounts this at all. */
+#thread-load-older {
+  display: block;
+  margin: 0 auto 22px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+#thread-load-older:hover, #thread-load-older:focus-visible {
+  color: var(--wants);
+  border-color: var(--wants-dim);
+}
+
 /* Entries run the full width of the thread. Three separate measure caps -
    74ch here, 56ch for your own messages floated to the right, 108ch for a
    report card - left a wide window mostly empty gutter, with your own
