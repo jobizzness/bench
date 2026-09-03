@@ -41,13 +41,15 @@ export interface BenchConfig {
    */
   credentials?: { anthropic: Found | null; router: Found | null; searched: string[] };
   /**
-   * Whether the developer had parked their Anthropic key when this daemon
-   * last stopped.
+   * Whether the developer had explicitly parked, or explicitly un-parked,
+   * their Anthropic key when this daemon last stopped.
    *
    * Read here for the same reason the keys are: a registry that reads the
    * disk in its constructor is a registry whose tests depend on the machine
-   * running them. Absent means not parked, which is what Bench did before
-   * the flag was written down at all.
+   * running them. Absent means nobody has ever said either way - the
+   * registry, not this file, decides what that defaults to, because the
+   * default differs for a key typed into Settings and one Bench found for
+   * itself.
    */
   apiKeyParked?: boolean;
 }

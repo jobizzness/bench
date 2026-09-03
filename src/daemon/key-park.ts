@@ -15,9 +15,16 @@
  * around, the second tells you something untrue about where the money is
  * going.
  *
+ * It also has to tell "the developer has never touched this switch" apart
+ * from "the developer explicitly turned it on". A key typed into Settings is
+ * turned on by the act of saving it, but a key Bench finds for itself in the
+ * environment or a `.env` should not start spending money nobody chose to
+ * spend - it has to wait for that explicit "on" before it is ever handed
+ * out. Only an explicit answer, once given, survives a restart either way.
+ *
  * Only the flag is written down, never the key. This file holds one boolean
- * and is safe to read - it says a credential is *not* being used, which is
- * the absence of a secret rather than one.
+ * and is safe to read - it says a credential is or is not being used, which
+ * is the absence of a secret rather than one.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -27,19 +34,24 @@ import { join } from "node:path";
 const path = (home: string) => join(home, "keys.json");
 
 /**
- * Whether the key is parked, as of the last time anyone said.
+ * Whether the key is parked, as of the last time anyone said - or
+ * `undefined` when nobody ever has.
  *
- * Anything unreadable, missing or malformed means "not parked", which is the
- * behaviour Bench had before this file existed. Refusing to start over a
- * one-boolean file nobody edits by hand would be absurd, and defaulting the
- * other way would hide a key that is present and working.
+ * Anything unreadable, missing or malformed also comes back as `undefined`:
+ * a one-boolean file nobody edits by hand should not refuse to start over a
+ * typo, and it would be wrong to read a broken file as either a deliberate
+ * "on" or a deliberate "off". Callers that need a plain default for "nobody
+ * has said" choose it themselves, because that default is not the same for
+ * every key - it depends on where the key came from.
  */
-export function readParked(home: string): boolean {
+export function readParked(home: string): boolean | undefined {
   try {
     const held = JSON.parse(readFileSync(path(home), "utf8")) as { anthropicKeyParked?: unknown };
-    return held?.anthropicKeyParked === true;
+    if (held?.anthropicKeyParked === true) return true;
+    if (held?.anthropicKeyParked === false) return false;
+    return undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 

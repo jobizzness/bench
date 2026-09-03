@@ -21,10 +21,10 @@ async function home() {
 }
 
 describe("remembering that a key is parked", () => {
-  it("says not parked when nobody has ever said", async () => {
-    // The behaviour Bench had before this file existed. Defaulting the other
-    // way would hide a key that is present and working.
-    expect(readParked(await home())).toBe(false);
+  it("says nothing when nobody has ever said", async () => {
+    // Neither "on" nor "off" - a default that differs by where the key came
+    // from, and is not this file's to pick.
+    expect(readParked(await home())).toBeUndefined();
   });
 
   it("comes back the way it was left", async () => {
@@ -37,16 +37,17 @@ describe("remembering that a key is parked", () => {
     expect(readParked(dir)).toBe(false);
   });
 
-  it("reads a file that is not what it expected as not parked", async () => {
+  it("reads a file that is not what it expected as nobody having said", async () => {
     // One boolean nobody edits by hand. Refusing to start over it would be
     // absurd, and a daemon that will not come up is worse than a switch that
-    // forgot.
+    // forgot - but a broken file is not a deliberate answer either, so it
+    // reads the same as no file at all.
     const dir = await home();
     await writeFile(join(dir, "keys.json"), "{ this is not json", "utf8");
-    expect(readParked(dir)).toBe(false);
+    expect(readParked(dir)).toBeUndefined();
 
     await writeFile(join(dir, "keys.json"), '{"somethingElse":true}', "utf8");
-    expect(readParked(dir)).toBe(false);
+    expect(readParked(dir)).toBeUndefined();
   });
 
   it("writes down the flag and never the key", async () => {

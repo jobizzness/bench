@@ -138,15 +138,20 @@ export function AnthropicKey({ open }: { open: boolean }) {
         from <code>claude setup-token</code>, which bills the subscription it
         was minted from. Whichever is here takes precedence over this
         machine's claude.ai login. A key typed here is held in memory only —
-        a daemon restart forgets it — and it reaches specialists started
-        after it, not the ones already running.
+        a daemon restart forgets it. It reaches every specialist, including
+        the ones already running: their process is let go and comes back on
+        the new key at the next prompt, on the same conversation. One that is
+        mid-turn finishes the turn first.
         {" "}
         Bench also reads <code>ANTHROPIC_API_KEY</code> or{" "}
         <code>CLAUDE_CODE_OAUTH_TOKEN</code> from its environment or a{" "}
-        <code>.env</code>, and one found that way comes back on every restart.
-        Typing one here replaces it until the daemon stops. The switch above
-        is remembered either way — a key you parked stays parked across a
-        restart, so nothing starts billing again without you saying so.
+        <code>.env</code>, and one found that way comes back on every
+        restart — switched off, since finding a key is not you choosing to
+        spend it. Flip the switch above to start using it. Typing one here
+        replaces it until the daemon stops, and is live the moment you save
+        it. The switch is remembered either way — the answer you leave it on
+        stays across a restart, so nothing changes what is billed without you
+        saying so.
       </p>
     </section>
   );

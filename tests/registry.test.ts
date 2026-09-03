@@ -1059,6 +1059,48 @@ describe("the developer's own API key", () => {
     expect(new SessionRegistry(config as any).apiKeyState()).toEqual({ present: false, hint: "", enabled: true, origin: "", searched: [] });
   });
 
+  /**
+   * A key nobody typed defaults to off. Bench finding one in the environment
+   * is not the developer choosing to spend it - that choice happens in
+   * Settings, and until it does specialists keep using this machine's own
+   * login.
+   */
+  it("starts switched off when it is only found, never typed", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({
+      ...config,
+      credentials: {
+        anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
+        router: null,
+        searched: ["/w/.env"],
+      },
+    } as any);
+
+    expect(registry.apiKeyState()).toEqual({
+      present: true, hint: "…4f2a", enabled: false,
+      origin: "from ANTHROPIC_API_KEY in /w/.env", searched: ["/w/.env"],
+    });
+    expect(registry.getApiKey()).toBeNull();
+  });
+
+  it("is in use the moment it is typed in, unlike one only found", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({
+      ...config,
+      credentials: {
+        anthropic: { key: "sk-ant-api03-found-in-the-env-0000", origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
+        router: null,
+        searched: ["/w/.env"],
+      },
+    } as any);
+    expect(registry.getApiKey()).toBeNull();
+
+    registry.setApiKey(KEY);
+
+    expect(registry.apiKeyState().enabled).toBe(true);
+    expect(registry.getApiKey()).toBe(KEY);
+  });
+
   it("shows only its last four characters once set", async () => {
     const { config } = await setup();
     const registry = new SessionRegistry(config as any);
@@ -1198,13 +1240,50 @@ describe("the developer's own API key", () => {
     });
 
     /**
-     * A key Bench found for itself has to travel the same road.
-     *
-     * Seeding a field that nothing reads would look right in Settings and do
-     * nothing at all, which is the shape of the bug the switch above already
-     * had once.
+     * The reported bug: changing accounts in Settings changed nothing for the
+     * tabs that were open. A credential reaches a process in its environment
+     * and an environment is fixed at spawn, so the running process has to be
+     * let go - as it already is for the model and the role.
      */
-    it("hands over a key that was found in a .env, without anyone typing it", async () => {
+    it("moves a specialist that is already running onto the new key", async () => {
+      const { home, project, worktree, id, reportsDir, config } = await setup();
+      await new SessionStore(home).put({
+        id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+        model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+      });
+      const registry = new SessionRegistry({
+        ...config, claudeBin: await fakeCli(CREDENTIAL_CLI),
+      } as any);
+      await registry.restore();
+
+      const threadPath = registry.get(id)!.threadPath;
+      const replies = async () =>
+        (await readThread(threadPath)).filter((e) => e.kind === "reply").map((e) => e.body);
+
+      registry.setApiKey("sk-ant-api03-account-a");
+      registry.send(id, "off you go");
+      await waitFor(async () => (await replies()).length === 1 || null, "the first account to answer");
+      expect((await replies())[0]).toBe("key:sk-ant-api03-account-a");
+
+      // The developer changes accounts while the tab sits there, idle.
+      registry.setApiKey("sk-ant-api03-account-b");
+      await waitFor(
+        () => (registry.get(id)!.alive === false ? "gone" : null),
+        "the process holding the old account to go",
+      );
+      expect(rowOf(registry, id).detail).toBe("the Anthropic key changed");
+
+      // Still the same specialist, on the same conversation.
+      registry.send(id, "and again");
+      await waitFor(async () => (await replies()).length === 2 || null, "the second account to answer");
+      expect((await replies())[1]).toBe("key:sk-ant-api03-account-b");
+    });
+
+    /**
+     * A key found rather than typed defaults to parked - nobody chose to
+     * spend it yet, it just happened to be sitting in the environment.
+     */
+    it("does not hand over a key that was found in a .env until it is switched on", async () => {
       const { home, project, worktree, id, reportsDir, config } = await setup();
       await new SessionStore(home).put({
         id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
@@ -1212,6 +1291,50 @@ describe("the developer's own API key", () => {
       });
       const registry = new SessionRegistry({
         ...config,
+        claudeBin: await fakeCli(CREDENTIAL_CLI),
+        credentials: {
+          anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
+          router: null,
+          searched: ["/w/.env"],
+        },
+      } as any);
+      await registry.restore();
+
+      expect(registry.apiKeyState().enabled).toBe(false);
+
+      registry.send(id, "off you go");
+
+      const threadPath = registry.get(id)!.threadPath;
+      for (let tries = 0; tries < 60; tries++) {
+        await new Promise((r) => setTimeout(r, 50));
+        const reply = (await readThread(threadPath)).find((e) => e.kind === "reply");
+        if (reply) {
+          expect(reply.body).toBe("key:none");
+          return;
+        }
+      }
+      throw new Error("the specialist never answered");
+    });
+
+    /**
+     * A key Bench found for itself has to travel the same road once the
+     * developer has actually switched it on in Settings.
+     *
+     * Seeding a field that nothing reads would look right in Settings and do
+     * nothing at all, which is the shape of the bug the switch above already
+     * had once.
+     */
+    it("hands over a key that was found in a .env, once it is switched on", async () => {
+      const { home, project, worktree, id, reportsDir, config } = await setup();
+      await new SessionStore(home).put({
+        id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+        model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+      });
+      const registry = new SessionRegistry({
+        ...config,
+        // What loadConfig() would hand a daemon whose developer had already
+        // turned this on in Settings on some earlier run.
+        apiKeyParked: false,
         claudeBin: await fakeCli(CREDENTIAL_CLI),
         credentials: {
           anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },

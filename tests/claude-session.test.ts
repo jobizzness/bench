@@ -571,15 +571,60 @@ describe("ClaudeSession", () => {
   it("leaves the environment as it found it when no key is set", async () => {
     // A bench with nothing set is a bench that changes nothing: a daemon
     // started with a key already in its environment keeps using it.
+    // `undefined` is that state - "this bench has no opinion" - and it is the
+    // only one of the three that touches nothing.
     const before = process.env.ANTHROPIC_API_KEY;
     process.env.ANTHROPIC_API_KEY = "sk-ant-from-the-shell";
     try {
-      const session = await makeSession(ENV_CLI, { apiKey: () => null });
+      const session = await makeSession(ENV_CLI, { apiKey: () => undefined });
       const replied = once(session, "reply");
       session.open();
       session.send("go");
 
       expect((await replied)[0]).toBe("key:sk-ant-from-the-shell");
+      session.stop();
+    } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = before;
+    }
+  });
+
+  it("takes an inherited credential away from a specialist whose key is parked", async () => {
+    // The whole point of the switch. A key the daemon merely inherited is
+    // still in the child's environment unless it is taken out, so switching
+    // off in Settings would say "using this machine's login" while the
+    // specialist carried on spending the key.
+    const before = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-from-the-shell";
+    try {
+      const session = await makeSession(OAUTH_CLI, { apiKey: () => null });
+      const replied = once(session, "reply");
+      session.open();
+      session.send("go");
+
+      // "none" here is the fake CLI's own word for a variable that is not
+      // set, not a value anything put there.
+      expect((await replied)[0]).toBe("oat:none key:none");
+      session.stop();
+    } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = before;
+    }
+  });
+
+  it("clears the other variable when a setup token replaces an inherited key", async () => {
+    // Swapping accounts. The two credentials go on different variables, so
+    // setting one without clearing the other hands the child both - and the
+    // old account is still there to be spent.
+    const before = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-account-a";
+    try {
+      const session = await makeSession(OAUTH_CLI, { apiKey: () => "sk-ant-oat01-account-b" });
+      const replied = once(session, "reply");
+      session.open();
+      session.send("go");
+
+      expect((await replied)[0]).toBe("oat:sk-ant-oat01-account-b key:none");
       session.stop();
     } finally {
       if (before === undefined) delete process.env.ANTHROPIC_API_KEY;
