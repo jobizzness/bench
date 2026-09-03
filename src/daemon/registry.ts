@@ -79,6 +79,15 @@ interface Entry {
    * thing the developer did not do.
    */
   stoppedBecause?: string;
+  /**
+   * The Anthropic credential changed while this specialist was mid-turn.
+   *
+   * The process cannot be moved onto the new one - env is fixed at spawn -
+   * but killing it under a running turn loses the turn. So the change is
+   * noted here and acted on at turn-end, which is the first moment letting
+   * the process go costs nothing.
+   */
+  credentialStale?: boolean;
   model: string;
   port: number;
   /** The specialist whose `bench new` opened this tab, if one did. Persisted:
@@ -305,7 +314,27 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     return this.apiKeyOn ? this.apiKey : null;
   }
 
+  /**
+   * The credential to spawn a specialist with, as the three answers the
+   * session needs and `getApiKey` cannot give.
+   *
+   * `getApiKey` returns null for both "no key" and "key parked", because its
+   * caller - the usage panel - has no use for the difference. The spawn does:
+   * a parked key has to reach the child as both variables cleared, or a
+   * credential this daemon merely inherited from its own environment is still
+   * there and still spending the old account, and the switch in Settings is a
+   * control that moves and changes nothing.
+   */
+  private credentialForSpawn(): string | null | undefined {
+    // Nothing of our own to say. Whatever the daemon was started with stands.
+    if (this.apiKey === null) return undefined;
+    return this.apiKeyOn ? this.apiKey : null;
+  }
+
   setApiKey(key: string): void {
+    // Typing the key that is already in use, switched on, is a developer
+    // making sure - not a reason to drop every process on the bench.
+    const moved = this.apiKey !== key || !this.apiKeyOn;
     this.apiKey = key;
     // Typed now beats written down earlier, for as long as this daemon runs.
     this.apiKeyOrigin = { from: "settings" };
@@ -315,6 +344,50 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // developer just went to the trouble of typing.
     this.apiKeyOn = true;
     this.rememberParked(false);
+    if (moved) this.credentialChanged();
+  }
+
+  /**
+   * A specialist already running is still spending the credential it was
+   * spawned with. Let it go.
+   *
+   * The same shape as setModel, and for the same reason: the credential
+   * reaches the process in its environment, and an environment is fixed at
+   * spawn. So the change is recorded and the process is let go - the next
+   * prompt revives it on the new credential, resuming the same transcript.
+   * Without this, "change the key to another account" is a setting that takes
+   * effect on tabs opened afterwards and on no others, which is not what
+   * anyone means by it.
+   *
+   * Lazy rather than eager, as everywhere else here: reviving now would spend
+   * a turn's startup on every tab at once, for a key the developer may still
+   * be adjusting.
+   */
+  private credentialChanged(): void {
+    for (const entry of this.entries.values()) {
+      if (!entry.session) continue;
+
+      // Mid-turn. Killing it here loses the turn and the developer did
+      // nothing to that tab; it is dropped at turn-end instead.
+      if (entry.session.turnStartedAt !== null) {
+        entry.credentialStale = true;
+        continue;
+      }
+
+      this.letGoForCredential(entry);
+    }
+    this.emit("roster");
+  }
+
+  /** Drop the process, saying why. `stoppedBecause` rather than a bare stop,
+   * which would put "stopped by you" on a row for something the developer did
+   * not do to that tab. */
+  private letGoForCredential(entry: Entry): void {
+    entry.credentialStale = false;
+    if (!entry.session) return;
+    entry.stopping = true;
+    entry.stoppedBecause = "the Anthropic key changed";
+    entry.session.stop();
   }
 
   /**
@@ -324,8 +397,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * goes and a daemon restart is not them changing their mind.
    */
   setApiKeyEnabled(on: boolean): void {
+    const moved = this.apiKeyOn !== on;
     this.apiKeyOn = on;
     this.rememberParked(!on);
+    // Writing the flag down again when the switch was already there is how a
+    // developer confirms a default they were given, and costs nothing.
+    // Dropping every running process for it is not nothing, so that part only
+    // happens when the switch actually moved.
+    if (moved) this.credentialChanged();
   }
 
   /** What may be said about the OpenRouter key: that there is one, and which
@@ -374,10 +453,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * looking for.
    */
   clearApiKey(): void {
+    const moved = this.apiKey !== null;
     this.apiKey = null;
     this.apiKeyOrigin = { from: "settings" };
     this.apiKeyOn = true;
     this.rememberParked(false);
+    if (moved) this.credentialChanged();
   }
 
   async saveSettings(input: unknown): Promise<Settings> {
@@ -769,10 +850,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       startTurn: opts.startTurn,
       rules: () => houseRules(this.settings),
       nudge: () => this.nudgeTextFor(id),
-      // Through the getter, not off the field: a parked key must reach the
-      // process as no key at all, or the switch in Settings is a control
-      // that moves and changes nothing.
-      apiKey: () => this.getApiKey(),
+      // Through the three-state getter, not off the field: a parked key must
+      // reach the process as both variables cleared rather than as silence,
+      // or an inherited credential stands and the switch in Settings is a
+      // control that moves and changes nothing.
+      apiKey: () => this.credentialForSpawn(),
       via: opts.via,
     });
 
@@ -963,6 +1045,17 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         hasNewReport,
       });
       this.update(id, outcome.status, outcome.detail);
+
+      // The key changed under this turn. Now that the turn is over, letting
+      // the process go costs nothing, and the next prompt brings it back on
+      // the credential the developer actually chose.
+      //
+      // Unless a queued prompt has already become the running turn - the
+      // session starts one the moment the last ends - in which case this is
+      // the same "mid-turn" it was before and waits for the next turn-end.
+      if (entry.credentialStale && session.turnStartedAt === null) {
+        this.letGoForCredential(entry);
+      }
     });
 
     entry.session = session;

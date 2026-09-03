@@ -18,6 +18,18 @@ import { ROLE_BRIEF, COST_AWARENESS_BRIEF, DEFAULT_ROLE, type Role } from "../sh
 const STDERR_KEPT = 4000;
 
 /**
+ * Both ways of authenticating to Anthropic, switched off.
+ *
+ * Undefined rather than empty: node omits an env entry whose value is
+ * undefined, and omitted is the only state the CLI reads as "not set". An
+ * empty string is still a credential as far as it is concerned.
+ */
+const NO_CREDENTIAL = {
+  ANTHROPIC_API_KEY: undefined,
+  CLAUDE_CODE_OAUTH_TOKEN: undefined,
+} satisfies NodeJS.ProcessEnv;
+
+/**
  * Several prompts arrived while one turn was running. Answering each as its
  * own turn would resend the whole conversation once per message instead of
  * once for the lot - exactly the cost holding them in a queue was supposed
@@ -121,11 +133,23 @@ export interface SessionOptions {
    */
   nudge?: () => string;
   /**
-   * The developer's own Anthropic key, if the cockpit has one. Read at spawn
-   * rather than captured: env is fixed for the life of a process, so a key
-   * saved now reaches the specialists started after it and no others.
+   * The developer's own Anthropic credential, if the cockpit has one. Read at
+   * spawn rather than captured: env is fixed for the life of a process, so a
+   * key saved now reaches the specialists started after it and no others -
+   * which is why the registry lets a running specialist go when the
+   * credential changes, rather than leaving it on the old account.
+   *
+   * Three answers, not two, and the difference is the whole point:
+   *
+   * - a string: authenticate as this.
+   * - `null`: this bench has a credential and the developer has switched it
+   *   off, or is running somewhere other than Anthropic. Neither variable may
+   *   reach the child - including one this daemon merely inherited, which is
+   *   otherwise still there and still spends the old account.
+   * - `undefined`: this bench has no credential of its own and has no opinion.
+   *   The environment is left exactly as it was found.
    */
-  apiKey?: () => string | null;
+  apiKey?: () => string | null | undefined;
   /**
    * Set when this specialist is answered by OpenRouter rather than Anthropic:
    * the key to authenticate with, and how much the model will actually hold.
@@ -247,7 +271,9 @@ export class ClaudeSession extends EventEmitter {
     // login it would otherwise use, which turns off connectors. Its key is
     // the OpenRouter one instead, carried in `via`.
     const via = this.opts.via;
-    const apiKey = via ? null : (this.opts.apiKey?.() ?? undefined);
+    // Not `?? undefined`: `??` fires on null too, which collapsed "switched
+    // off" into "no opinion" and made the parked case below unreachable.
+    const apiKey = via ? null : this.opts.apiKey?.();
 
     // --verbose is not optional: claude -p with stream-json exits without it.
     const args = [
@@ -297,23 +323,24 @@ export class ClaudeSession extends EventEmitter {
         // it never has to appear on a command line, where `ps` would show it
         // to everything else on the machine.
         BENCH_URL: this.opts.cockpitUrl,
-        // Only when there is one. Spreading nothing leaves whatever the
-        // daemon was started with intact - a bench that has no key of its
-        // own must not take away the one already in the environment.
-        // A setup-token is an OAuth token and the CLI reads those from their
-        // own variable; put one in ANTHROPIC_API_KEY and it is a key the API
-        // has never issued.
-        // If apiKey is explicitly null (parked), we must explicitly set both
-        // variables to "none" or delete them from the spawned environment
-        // so that any real environment variables in the daemon process are
-        // not inherited by the spawned process. Unless it is explicitly undefined
-        // (meaning no custom key was ever supplied/attempted, e.g., in a default
-        // bench without any key set, where we want to let the environment leak).
-        ...(apiKey !== undefined && apiKey !== null
-          ? credentialEnv(apiKey)
-          : apiKey === null
-            ? { ANTHROPIC_API_KEY: "none", CLAUDE_CODE_OAUTH_TOKEN: "none" }
-            : {}),
+        // The credential, or its deliberate absence, or no opinion at all.
+        //
+        // A key and a setup-token go on different variables - the CLI reads
+        // an OAuth token from CLAUDE_CODE_OAUTH_TOKEN and a console key from
+        // ANTHROPIC_API_KEY - so whichever one is not in use is cleared as
+        // well as the one in use being set. Leaving the other standing is how
+        // a developer who swapped a key for a token from a second account
+        // carried on spending the first.
+        //
+        // Cleared means absent, not "none": node drops an env entry whose
+        // value is undefined, where the string would be a literal credential
+        // the API has never issued - and the CLI retries a 401 ten times with
+        // a doubling delay before saying so.
+        //
+        // `undefined` is the one case that touches nothing. A bench with no
+        // credential of its own must not take away the login the daemon was
+        // started with.
+        ...(apiKey === undefined ? {} : { ...NO_CREDENTIAL, ...(apiKey === null ? {} : credentialEnv(apiKey)) }),
         // Everything OpenRouter needs, or nothing at all. Nothing at all is
         // the Anthropic case, and it has to leave the environment exactly as
         // it found it: a bench with no key of its own must not take away the
