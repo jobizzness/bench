@@ -31,6 +31,10 @@ export interface Fixtures {
   /** Make the thread read fail: "reject" for a dead link, a status number for
    * a daemon that answered badly. Both used to render as an empty thread. */
   threadFails?: "reject" | number;
+  /** Make POST .../answer fail: "reject" for a dead link, a status number for
+   * a daemon that answered badly. Both used to un-disable the button and say
+   * nothing at all (#60). */
+  answerFails?: "reject" | number;
   /** House rules already on the daemon when the page opens. */
   settings?: { codingStyle: string; workflowRules: string; reviewModel?: string };
   /** What GitHub says about the project the drawer is opened on. */
@@ -249,6 +253,16 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       };
     }
 
+    if (init?.method === "POST" && url.includes("/answer")) {
+      sent.push({ url, body: JSON.parse(String(init.body)) });
+      // A POST that never lands, or lands as a bad status - both used to
+      // un-disable the button and say nothing at all (#60).
+      if (fixtures.answerFails === "reject") throw new TypeError("fetch failed");
+      if (typeof fixtures.answerFails === "number") {
+        return { ok: false, status: fixtures.answerFails, json: async () => ({}) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
     if (init?.method === "POST") {
       sent.push({ url, body: JSON.parse(String(init.body)) });
       // Creating a specialist answers with its id, and the cockpit acts on it.

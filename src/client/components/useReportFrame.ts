@@ -3,6 +3,11 @@ import { loadArtifact, type ArtifactContent } from "../api.js";
 
 export interface ReportFrame {
   content: ArtifactContent | null;
+  /** The load rejected - a relayed report the daemon could not reach, or a
+   * local one the browser refused. `content` stays null either way, so this
+   * is what tells a report that has not arrived yet apart from one that is
+   * never coming (#60). */
+  failed: boolean;
   frameRef: RefObject<HTMLIFrameElement | null>;
   /** Wire to the iframe's `onLoad`. */
   onFrameLoad: () => void;
@@ -34,12 +39,16 @@ export interface ReportFrame {
  */
 export function useReportFrame(sessionId: string, seq: number): ReportFrame {
   const [content, setContent] = useState<ArtifactContent | null>(null);
+  const [failed, setFailed] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     setContent(null);
+    setFailed(false);
     let live = true;
-    void loadArtifact(sessionId, seq, "report.html").then((result) => { if (live) setContent(result); });
+    loadArtifact(sessionId, seq, "report.html")
+      .then((result) => { if (live) setContent(result); })
+      .catch(() => { if (live) setFailed(true); });
     return () => { live = false; };
   }, [sessionId, seq]);
 
@@ -55,5 +64,5 @@ export function useReportFrame(sessionId: string, seq: number): ReportFrame {
     }
   };
 
-  return { content, frameRef, onFrameLoad };
+  return { content, failed, frameRef, onFrameLoad };
 }
