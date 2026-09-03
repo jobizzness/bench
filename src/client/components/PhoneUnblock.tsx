@@ -31,23 +31,30 @@ export function PhoneUnblock({ row, decision, waitingCount, onAnswered, onBrowse
   const [choice, setChoice] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // A fresh decision starts with nothing chosen - without this, answering
   // one and landing on the next would carry the previous pick with it.
-  useEffect(() => { setChoice(null); setText(""); }, [row.id]);
+  useEffect(() => { setChoice(null); setText(""); setError(null); }, [row.id]);
 
   // isWaiting(row) is what put this row in front of you in the first place
   // (usePhoneLanding.ts), and that guarantees latestReportSeq is not null;
   // the fallback here only matters for the type, never for what actually
   // renders.
-  const { content, frameRef, onFrameLoad } = useReportFrame(row.id, row.latestReportSeq ?? 0);
+  const { content, failed: reportFailed, frameRef, onFrameLoad } = useReportFrame(row.id, row.latestReportSeq ?? 0);
 
   const send = async () => {
     if (busy || (!choice && text.trim() === "")) return;
     setBusy(true);
+    setError(null);
     try {
-      await postJson(`/api/sessions/${row.id}/answer`, { optionId: choice, text: text.trim() });
+      const res = await postJson(`/api/sessions/${row.id}/answer`, { optionId: choice, text: text.trim() });
+      if (!res.ok) throw new Error(`answer failed: ${res.status}`);
       onAnswered();
+    } catch {
+      // choice and text are untouched above, so the retry this invites does
+      // not ask the developer to type the answer again (#60).
+      setError("Didn't send. Check the connection and try again.");
     } finally {
       setBusy(false);
     }
@@ -81,9 +88,15 @@ export function PhoneUnblock({ row, decision, waitingCount, onAnswered, onBrowse
                 sandbox="allow-same-origin" title="Report" srcDoc={content.html}
               />
             )}
+            {reportFailed && (
+              <p id="unblock-report-failed" role="alert">
+                Couldn't load the report. The options below still work.
+              </p>
+            )}
           </div>
 
           <DecisionOptions id="unblock-options" decision={decision} choice={choice} onChoose={setChoice} />
+          {error && <p id="unblock-error" role="alert">{error}</p>}
           <div id="unblock-send">
             <input
               id="unblock-text"

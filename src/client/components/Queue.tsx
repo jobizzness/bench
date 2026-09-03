@@ -31,6 +31,7 @@ export function Queue({ items, open, onClose, onOpenSpecialist }: {
   const [text, setText] = useState("");
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -46,6 +47,7 @@ export function Queue({ items, open, onClose, onOpenSpecialist }: {
     setSent(new Set());
     setChoice(null);
     setText("");
+    setError(null);
   }, [open]);
 
   // What is left, in the order the roster had them. Answered ones drop out
@@ -59,22 +61,28 @@ export function Queue({ items, open, onClose, onOpenSpecialist }: {
     if (!choice && text.trim() === "") return;
 
     setBusy(true);
+    setError(null);
     try {
-      await postJson(`/api/sessions/${current.row.id}/answer`, {
+      const res = await postJson(`/api/sessions/${current.row.id}/answer`, {
         optionId: choice,
         text: text.trim(),
       });
+      if (!res.ok) throw new Error(`answer failed: ${res.status}`);
       setSent((current$) => new Set(current$).add(current.row.id));
       setChoice(null);
       setText("");
       // Staying at the same index lands on whatever moved up into this slot.
       setAt((index) => Math.min(index, Math.max(0, left.length - 2)));
+    } catch {
+      // choice and text are untouched above, so the retry this invites does
+      // not ask the developer to type the answer again (#60).
+      setError("Didn't send. Check the connection and try again.");
     } finally {
       setBusy(false);
     }
   };
 
-  const pick = (index: number) => { setAt(index); setChoice(null); setText(""); };
+  const pick = (index: number) => { setAt(index); setChoice(null); setText(""); setError(null); };
 
   // Read it, press one key - the same bargain the decision bar makes. A queue
   // you have to click through is a list.
@@ -154,6 +162,7 @@ export function Queue({ items, open, onClose, onOpenSpecialist }: {
             text={text}
             setText={setText}
             busy={busy}
+            error={error}
             onSend={() => void send()}
             onOpen={() => { onOpenSpecialist(current.row.id); onClose(); }}
           />}
@@ -164,13 +173,16 @@ export function Queue({ items, open, onClose, onOpenSpecialist }: {
 }
 
 /** The one you are answering. */
-function Current({ item, choice, setChoice, text, setText, busy, onSend, onOpen }: {
+function Current({ item, choice, setChoice, text, setText, busy, error, onSend, onOpen }: {
   item: Waiting;
   choice: string | null;
   setChoice: (id: string) => void;
   text: string;
   setText: (value: string) => void;
   busy: boolean;
+  /** The last send for this item failed. What was typed is still in `text`
+   * and `choice` - nothing here re-sends on its own (#60). */
+  error: string | null;
   onSend: () => void;
   onOpen: () => void;
 }) {
@@ -202,6 +214,7 @@ function Current({ item, choice, setChoice, text, setText, busy, onSend, onOpen 
               choice={choice}
               onChoose={setChoice}
             />
+            {error && <p id="queue-error" role="alert">{error}</p>}
             <div id="queue-send">
               <input
                 id="queue-text"

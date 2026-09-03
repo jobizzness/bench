@@ -1,6 +1,6 @@
 # Bench — where it stands
 
-Last updated 2026-09-02. 1558 tests passing, 8 skipped (2 end-to-end
+Last updated 2026-09-03. 1572 tests passing, 8 skipped (2 end-to-end
 suites run separately against the real CLI, and a Firestore rules suite
 run separately against the emulator), 4 failing and unrelated to anything
 on this page — pre-existing, tracked as
@@ -103,6 +103,21 @@ arrived and marks it stale. This matters because the relay genuinely drops
 reads: the daemon log names connect timeouts, resets and DNS failures against
 `firestore.googleapis.com`, several an hour from this machine
 ([#62](https://github.com/jobizzness/bench/issues/62)).
+
+**A failed send says so.** The write-side counterpart to #62: `Queue.tsx` and
+`PhoneUnblock.tsx` posted an answer inside `try { ... } finally { setBusy(false) }`
+with no `catch`, so a POST that rejected — or came back with a bad status —
+just un-disabled the button and said nothing. The developer had no way to
+tell the answer from one that had actually gone, and nothing to retry: the
+option and the typed text were never touched on failure, so they were still
+there, but the screen gave no reason to look at them again. Both now show
+"Didn't send" beside the option and text they left alone, and clear it on
+the next attempt that lands — nothing here retries on its own.
+`useReportFrame.ts` had the same shape one layer in: `void loadArtifact(...)
+.then(...)` with no `.catch()` left a failed report load as an empty
+bordered box forever, plus an unhandled rejection. It now says the load
+failed instead
+([#60](https://github.com/jobizzness/bench/issues/60)).
 
 **Reply artifacts.** A chat answer with any structure comes back as a
 rendered page, not prose. Verified: a specialist wrote a 3127-byte

@@ -162,6 +162,46 @@ describe("landing on a phone", () => {
     expect(ui.$("#unblock")).toBeNull();
   });
 
+  it("says a send failed and keeps the choice, rather than nothing at all", async () => {
+    setNarrow(true);
+    ui = await bootCockpit({
+      rows: [waitingRow({ id: "a", label: "alpha", project: "/var/www/bench" })],
+      decision: plain("Ship it?"),
+      answerFails: "reject",
+    });
+
+    await waitFor(() => ui.$("#unblock-options .option"), "the decision");
+    await ui.click(ui.$("#unblock-options .option"));
+    await ui.click(ui.$("#unblock-answer"));
+
+    await waitFor(() => ui.$("#unblock-error"), "the send error");
+    expect(ui.$("#unblock-error")!.textContent).toContain("Didn't send");
+    // Still on the same one, not moved to the next, choice kept.
+    expect(pane()).toBe("unblock");
+    expect(ui.$("#unblock-options .option")!.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("clears the error and moves on once the connection is back", async () => {
+    setNarrow(true);
+    const fixtures: Parameters<typeof bootCockpit>[0] = {
+      rows: [waitingRow({ id: "a", label: "alpha", project: "/var/www/bench" })],
+      decision: plain("Ship it?"),
+      answerFails: "reject",
+    };
+    ui = await bootCockpit(fixtures);
+
+    await waitFor(() => ui.$("#unblock-options .option"), "the decision");
+    await ui.click(ui.$("#unblock-options .option"));
+    await ui.click(ui.$("#unblock-answer"));
+    await waitFor(() => ui.$("#unblock-error"), "the send error");
+
+    fixtures.answerFails = undefined;
+    await ui.click(ui.$("#unblock-answer"));
+
+    await waitFor(() => ui.$("#empty"), "the empty screen");
+    expect(pane()).toBe("empty");
+  });
+
   it("browsing the roster on purpose keeps it in front, even with something waiting", async () => {
     setNarrow(true);
     ui = await bootCockpit({
