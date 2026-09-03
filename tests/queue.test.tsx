@@ -152,6 +152,63 @@ describe("the queue", () => {
 
     expect(ui.$("#queue-current")!.textContent).toContain("teledoctor · payouts");
   });
+
+  it("says a send failed and keeps the choice and text, rather than nothing at all", async () => {
+    ui = await bootCockpit({
+      rows: [waitingRow({ id: "a", label: "ui-designer", project: "/var/www/bench" })],
+      decision: plain("The composer"),
+      answerFails: "reject",
+    });
+    await ui.click(ui.$("#open-queue"));
+    await waitFor(() => ui.$("#queue-current"), "the queue");
+
+    await ui.click(ui.$$(".option")[0]);
+    await ui.click(ui.$("#queue-answer"));
+
+    expect(ui.$("#queue-error")).not.toBeNull();
+    expect(ui.$("#queue-error")!.textContent).toContain("Didn't send");
+    // Still waiting, not sent, and the pick is still there to retry with.
+    expect(items()).toHaveLength(1);
+    expect(ui.$$(".option")[0].getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("says the same when the daemon answers with a status rather than dying", async () => {
+    ui = await bootCockpit({
+      rows: [waitingRow({ id: "a", label: "ui-designer", project: "/var/www/bench" })],
+      decision: plain("The composer"),
+      answerFails: 502,
+    });
+    await ui.click(ui.$("#open-queue"));
+    await waitFor(() => ui.$("#queue-current"), "the queue");
+
+    await ui.type(ui.$("#queue-text"), "ship it");
+    await ui.click(ui.$("#queue-answer"));
+
+    expect(ui.$("#queue-error")).not.toBeNull();
+    expect(ui.$<HTMLInputElement>("#queue-text")!.value).toBe("ship it");
+  });
+
+  it("clears the error and sends once the connection is back", async () => {
+    const fixtures: Parameters<typeof bootCockpit>[0] = {
+      rows: [waitingRow({ id: "a", label: "ui-designer", project: "/var/www/bench" })],
+      decision: plain("The composer"),
+      answerFails: "reject",
+    };
+    ui = await bootCockpit(fixtures);
+    await ui.click(ui.$("#open-queue"));
+    await waitFor(() => ui.$("#queue-current"), "the queue");
+
+    await ui.click(ui.$$(".option")[0]);
+    await ui.click(ui.$("#queue-answer"));
+    expect(ui.$("#queue-error")).not.toBeNull();
+
+    fixtures.answerFails = undefined;
+    await ui.click(ui.$("#queue-answer"));
+
+    expect(ui.$("#queue-error")).toBeNull();
+    expect(answers()).toHaveLength(2);
+    expect(items()).toHaveLength(0);
+  });
 });
 
 describe("read it, press one key", () => {

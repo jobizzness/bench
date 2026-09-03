@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionRegistry } from "../src/daemon/registry.js";
 import { SessionStore } from "../src/daemon/store.js";
+import { waitFor } from "./helpers/wait-for.js";
 
 async function bench(label = "auth") {
   const home = await mkdtemp(join(tmpdir(), "bench-home-"));
@@ -42,7 +43,10 @@ describe("renaming a specialist", () => {
     registry.rename("s1", "Safari cookies");
     // The registry writes without being awaited, so the next daemon is the
     // thing that has to see it.
-    await new Promise((r) => setTimeout(r, 20));
+    await waitFor(
+      async () => ((await new SessionStore(home).all())[0]?.label === "Safari cookies" ? true : null),
+      "the rename to land on disk",
+    );
 
     const next = new SessionRegistry({
       home, port: 7420, token: "t", pluginDir: "/p", hookCommand: "h", projectsRoot: "/",

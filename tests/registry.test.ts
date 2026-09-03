@@ -356,7 +356,10 @@ describe("reviving a specialist after a restart", () => {
     expect((await store.all()).find((r) => r.id === id)?.resumable).toBeUndefined();
 
     registry.send(id, "off you go");
-    await new Promise((r) => setTimeout(r, 600));
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.resumable === true ? true : null),
+      "resumable to be written to disk",
+    );
 
     expect((await store.all()).find((r) => r.id === id)?.resumable).toBe(true);
   });
@@ -383,7 +386,10 @@ describe("reviving a specialist after a restart", () => {
       label: "auth", worktree, model: "opus", port: 3101, resume: false,
     });
     // The real thing dies on its own; waiting for that is the point.
-    await new Promise((r) => setTimeout(r, 400));
+    await waitFor(
+      () => (registryWithFake.list().find((r) => r.id === id)?.status === "crashed" ? true : null),
+      "the process to die",
+    );
 
     const row = registryWithFake.list().find((r) => r.id === id)!;
     expect(row.status).toBe("crashed");
@@ -411,12 +417,18 @@ describe("reviving a specialist after a restart", () => {
     (registry as any).attach(id, {
       label: "auth", worktree, model: "opus", port: 3101, resume: false,
     });
-    await new Promise((r) => setTimeout(r, 400));
+    await waitFor(
+      () => (registry.list().find((r) => r.id === id)?.status === "crashed" ? true : null),
+      "the collision to crash it",
+    );
 
     const row = registry.list().find((r) => r.id === id)!;
     expect(row.status).toBe("crashed");
     expect((registry as any).entries.get(id).resumable).toBe(true);
-    expect((await store.all()).find((r) => r.id === id)?.resumable).toBe(true);
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.resumable === true ? true : null),
+      "resumable to be written to disk",
+    );
   });
 
   it("resumes one that has, so it remembers what it was doing", async () => {
@@ -640,16 +652,11 @@ function fakeOpenRouter(perGeneration: number) {
 }
 
 describe("what an OpenRouter turn really cost", () => {
-  /** `waitFor` takes a synchronous read, and a promise is always truthy - so
-   * an async predicate handed to it returns on the first tick and asserts
-   * against an empty ledger. This waits on the file instead. */
   async function billedTurns(home: string, count = 1) {
-    for (let tries = 0; tries < 300; tries++) {
+    return waitFor(async () => {
       const all = await new Ledger(home).all();
-      if (all.length >= count) return all;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    throw new Error(`timed out waiting for ${count} billed turn(s)`);
+      return all.length >= count ? all : null;
+    }, `${count} billed turn(s)`);
   }
 
   async function proxied(model: string, cli: string) {
@@ -1036,7 +1043,7 @@ describe("a specialist whose process has gone", () => {
     expect(entry.session).not.toBeNull();
 
     registry.stop(id);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await waitFor(() => (entry.session === null ? true : null), "the session to be released after stop");
 
     expect(entry.session).toBeNull();
     expect(entry.alive).toBe(false);
@@ -1495,10 +1502,12 @@ describe("a tab another specialist spins up", () => {
     const { home, project, registry } = await setupForCreate();
     const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
 
-    // The store write inside create() is awaited, but give it the tick anyway
-    // for anything the registry fires off without waiting on.
-    await new Promise((r) => setTimeout(r, 50));
-    const record = (await new SessionStore(home).all()).find((r) => r.id === id)!;
+    // The store write inside create() is awaited, but wait on the record
+    // itself anyway for anything the registry fires off without waiting on.
+    const record = await waitFor(
+      async () => (await new SessionStore(home).all()).find((r) => r.id === id) ?? null,
+      "the store write inside create() to land",
+    );
     expect(record.createdBy).toBe("sess-parent");
   });
 
@@ -1564,10 +1573,13 @@ describe("a tab another specialist spins up", () => {
    */
   describe("across a daemon restart", () => {
     it("still has the brief, and still says it is waiting on you", async () => {
-      const { project, registry, config } = await setupForCreate();
+      const { home, project, registry, config } = await setupForCreate();
       const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
       registry.send(id, "build the thing", "sess-parent");
-      await new Promise((r) => setTimeout(r, 50));
+      await waitFor(
+        async () => ((await new SessionStore(home).all()).find((r) => r.id === id)?.pendingDispatch ?? null),
+        "the held prompt to land on disk",
+      );
 
       const row = rowOf(await afterRestart(config), id);
       expect(row.status).toBe("awaiting_dispatch");
@@ -1576,10 +1588,13 @@ describe("a tab another specialist spins up", () => {
     });
 
     it("delivers exactly the text that was held, not a summary of it", async () => {
-      const { project, registry, config } = await setupForCreate();
+      const { home, project, registry, config } = await setupForCreate();
       const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
       registry.send(id, "line one\n\nline two", "sess-parent");
-      await new Promise((r) => setTimeout(r, 50));
+      await waitFor(
+        async () => ((await new SessionStore(home).all()).find((r) => r.id === id)?.pendingDispatch ?? null),
+        "the held prompt to land on disk",
+      );
 
       const next = await afterRestart(config);
       const deliver = vi.spyOn(next as any, "deliver").mockImplementation(() => {});
@@ -1589,12 +1604,19 @@ describe("a tab another specialist spins up", () => {
     });
 
     it("keeps a decline declined, rather than resurrecting the brief", async () => {
-      const { project, registry, config } = await setupForCreate();
+      const { home, project, registry, config } = await setupForCreate();
+      const store = new SessionStore(home);
       const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
       registry.send(id, "build the thing", "sess-parent");
-      await new Promise((r) => setTimeout(r, 50));
+      await waitFor(
+        async () => ((await store.all()).find((r) => r.id === id)?.pendingDispatch ?? null),
+        "the held prompt to land on disk",
+      );
       registry.decline(id);
-      await new Promise((r) => setTimeout(r, 50));
+      await waitFor(
+        async () => ((await store.all()).find((r) => r.id === id)?.pendingDispatch === null ? true : null),
+        "the decline to land on disk",
+      );
 
       const row = rowOf(await afterRestart(config), id);
       expect(row.status).toBe("awaiting_decision");
@@ -1603,8 +1625,9 @@ describe("a tab another specialist spins up", () => {
 
     it("leaves a tab that was never given work reading as ready", async () => {
       const { project, registry, config } = await setupForCreate();
+      // create() awaits its own store write, so the record is already on disk
+      // by the time it resolves - nothing to wait on here.
       const id = await registry.create({ project, label: "child", model: "opus", createdBy: "sess-parent" });
-      await new Promise((r) => setTimeout(r, 50));
 
       const row = rowOf(await afterRestart(config), id);
       expect(row.status).toBe("awaiting_decision");

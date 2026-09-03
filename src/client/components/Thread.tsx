@@ -3,6 +3,7 @@ import type { ThreadEntry as Entry } from "../../shared/types.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
 import { ThreadEntry } from "./ThreadEntry.js";
 import { useRefs } from "./useRefs.js";
+import { useThreadWindow } from "./useThreadWindow.js";
 
 function Empty({ heading, body }: { heading: string; body: string }) {
   return <p id="empty"><b>{heading}</b>{body}</p>;
@@ -48,6 +49,7 @@ export function Thread({
   // Resolved once for the whole thread: the same number turns up in several
   // messages, and the answer is the same in all of them.
   const refs = useRefs(sessionId, entries);
+  const { visible, hiddenCount, expand } = useThreadWindow(host, sessionId, entries);
 
   return (
     <div id="thread" ref={host}>
@@ -64,7 +66,14 @@ export function Thread({
               {unreachable && (
                 <p id="thread-stale">Lost the connection. This is the last of it that reached you.</p>
               )}
-              {entries.map((entry) => (
+              {/* The conversation is never truncated on disk, only unrendered
+                  until asked for - see useThreadWindow.ts (#68). */}
+              {hiddenCount > 0 && (
+                <button id="thread-load-older" type="button" onClick={expand}>
+                  Show {hiddenCount} earlier
+                </button>
+              )}
+              {visible.map((entry) => (
                 <ThreadEntry key={entry.seq} entry={entry} sessionId={sessionId} refs={refs} onOpen={onOpen} />
               ))}
             </>
