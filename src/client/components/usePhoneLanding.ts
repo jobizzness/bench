@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { RosterRow } from "../../shared/types.js";
-import { isWaiting } from "../waiting.js";
+import { wantsAttention } from "../waiting.js";
 import { useNarrowViewport } from "./useNarrowViewport.js";
 
 export type PhonePane = "roster" | "stage" | "unblock" | "empty";
@@ -20,9 +20,10 @@ export interface PhoneLanding {
    * and marks the roster seen, so the landing effect does not steer you
    * straight back to whatever is still waiting. */
   browseRoster: () => void;
-  /** How many are waiting, including whichever one is in front of you -
-   * already discounting whatever you answered this session but the roster
-   * has not caught up to yet (see `justAnswered` below). */
+  /** How many want the developer, including whichever one is in front of you
+   * and counting a tab held on a hand-off - already discounting whatever you
+   * answered this session but the roster has not caught up to yet (see
+   * `justAnswered` below). */
   waitingCount: number;
   /** Call once `row`'s answer has posted. Moves on to whatever else is
    * waiting, or lets the empty screen take over if that was the last one. */
@@ -31,7 +32,9 @@ export interface PhoneLanding {
 
 /** A row's report, not just the row - answering it and then getting a new
  * report on the same specialist is a different decision, and should not
- * still read as the one already answered. */
+ * still read as the one already answered. A tab held on a hand-off has no
+ * report, so its key is stable; nothing calls `advance` for one (it is
+ * dispatched, not answered), so that never has to tell two apart. */
 function waitingKey(row: RosterRow): string {
   return `${row.id}:${row.latestReportSeq}`;
 }
@@ -62,7 +65,12 @@ export function usePhoneLanding(
   // for the one render it took.
   const [justAnswered, setJustAnswered] = useState<ReadonlySet<string>>(new Set());
 
-  const waiting = rows.filter((row) => isWaiting(row) && !justAnswered.has(waitingKey(row)));
+  // `wantsAttention`, not `isWaiting`: a tab another specialist opened and
+  // handed a prompt to is held on the developer exactly as hard as an
+  // unanswered decision is, but it has no report, so `isWaiting` is false for
+  // it. Filtering on that was why a phone with a sub-agent waiting to be
+  // dispatched showed the "nothing waiting" screen (#75).
+  const waiting = rows.filter((row) => wantsAttention(row) && !justAnswered.has(waitingKey(row)));
 
   // Land on whatever is waiting the moment there is nothing else in front of
   // you and you have not asked to browse. Re-checked on every roster push
@@ -95,6 +103,13 @@ export function usePhoneLanding(
     rawSelect(next?.id ?? null);
   }, [waiting, rawSelect]);
 
+  // The unblock screen is for a row that is actually holding the developer.
+  // Landing on one and then having it stop - dispatched, declined, answered
+  // from the laptop, crashed - used to leave `pane` on "unblock" anyway, and
+  // that screen draws nothing but its own header once there is no decision
+  // behind it. The ordinary stage is what it should fall back to.
+  const selectedWants = waiting.some((candidate) => candidate.id === selectedId);
+
   // Above the breakpoint this is exactly what selectedId ? "stage" : "roster"
   // always was - #unblock and #empty are phone screens, and pane never
   // claims to be either one where there is no phone to show them on.
@@ -102,7 +117,7 @@ export function usePhoneLanding(
     ? (selectedId === null ? "roster" : "stage")
     : selectedId === null
       ? (seenRoster ? "roster" : (waiting.length > 0 ? "unblock" : "empty"))
-      : (seenRoster ? "stage" : "unblock");
+      : (seenRoster || !selectedWants ? "stage" : "unblock");
 
   return { pane, select, browseRoster, waitingCount: waiting.length, advance };
 }

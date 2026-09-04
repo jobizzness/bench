@@ -3874,5 +3874,43 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
     cursor: pointer;
   }
   #empty-roster:hover { border-color: var(--wants-dim); color: var(--wants); }
+
+  /* ── Dispatching a hand-off from a phone (#75) ─────────────────────────
+     The sheet itself already fits - it is `min(540px, 92vw)`. What did not
+     was everything inside it, which was sized for a pointer: this dialog
+     exists to be answered with one of two taps, and a tap wants 44px. */
+  .sheet form { padding: 20px 18px 16px; }
+  .sheet form .actions button { min-height: 44px; padding: 12px 16px; }
+
+  /* Decline and Dispatch given half the width each, rather than two small
+     buttons crowded against the right edge where a thumb reaching for one
+     lands on the other. They are opposite answers to the same question;
+     side by side is what says so. */
+  #dispatch-modal .actions { justify-content: stretch; }
+  #dispatch-modal .actions button { flex: 1; }
+
+  /* Never had any styling of its own - on a desktop it draws as the
+     browser's own button, which is small but clickable. On a phone that is
+     a 20px control in the middle of a dialog, so it is given the shape of
+     the field it actually is. */
+  #dispatch-model {
+    min-height: 44px;
+    width: 100%;
+    margin-bottom: 18px;
+    text-align: left;
+    background: var(--bg);
+    border: 1px solid var(--line-firm);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font: 400 14px/1.4 var(--sans);
+    cursor: pointer;
+  }
+
+  /* Taller than the desktop's 240px, in proportion to the screen. The
+     prompt is the thing this dialog is asking to be read before it is let
+     go, and on a phone nothing else in the sheet is competing for the
+     room. */
+  #dispatch-prompt { max-height: 40vh; }
 }
 
