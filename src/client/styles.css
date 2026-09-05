@@ -3101,11 +3101,19 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 }
 
 /* The row in the air. Lifted rather than ghosted: it is the one being moved,
-   so it should be the one you can see. */
+   so it should be the one you can see. A drag is a pointer held down on the
+   grip, which is inside this row - :active tracks the ancestor chain of
+   whatever was pressed, not just the pressed element, so the press-feedback
+   rule near the top of this file (`:is(..., .row, ...):active { transform:
+   scale(0.97) }`, see #79) stays matched for the whole gesture, not just an
+   instant. Its specificity beats a bare `[data-held="true"]` selector, so
+   this has to say !important rather than just listing `transform: none` -
+   a shrinking row read as receding instead of lifting. */
 .row[data-held="true"] {
   background: var(--raised);
   box-shadow: 0 5px 16px rgb(0 0 0 / 0.3);
   z-index: 2;
+  transform: none !important;
 }
 .row[data-held="true"] .grip { opacity: 0.9; cursor: grabbing; }
 /* Mid-drag nothing in the list is text you are trying to select. */
