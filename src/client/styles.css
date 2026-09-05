@@ -1781,6 +1781,18 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
    button that grew with it would become a slab. */
 #composer-form { display: flex; align-items: flex-end; gap: 10px; }
 
+/* The way back out of the composer's focus mode, which is a phone idea:
+   below the breakpoint this bar collapses to nothing and reveals on focus
+   (see the phone section). Above it there is no focus mode to leave, and
+   without this rule the wrapper was an ordinary visible div and its button
+   fell back to the user-agent stylesheet - a grey, square, permanently
+   visible "Done" above every desktop composer (#97).
+
+   Hidden here rather than rendered conditionally in `Composer.tsx`: the
+   reveal is a `max-height` transition, and a bar that only mounts on focus
+   has nothing to transition from. */
+.composer-focus-bar { display: none; }
+
 /* Invisible in the box tree above the phone width - `display: contents`
    drops the wrapper itself out of layout, so its children (the attach
    button, the hidden file input, the textarea) sit exactly where they did
@@ -4239,6 +4251,10 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
      composer actually has focus, so it never competes for room the rest
      of the time. */
   .composer-focus-bar {
+    /* Turned back on: the base rule hides this above the breakpoint, where
+       there is no focus mode to leave (#97). `flex` rather than `block` so
+       `#composer-done`'s `margin-left: auto` still pushes it to the end. */
+    display: flex;
     max-height: 0;
     opacity: 0;
     overflow: hidden;
