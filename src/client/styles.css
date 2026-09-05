@@ -691,15 +691,19 @@ button, input, textarea, select { font: inherit; color: inherit; }
   cursor: pointer;
   border-bottom: 1px solid var(--line);
   transition: background 120ms var(--ease), transform var(--duration-press) var(--ease-exit);
-  /* A specialist arriving, not the roster being redrawn - see #79. The
-     roster is pushed whole several times a second (useRoster.ts), but every
-     row is keyed on its own id (RosterGroup.tsx, SubRows.tsx), so an
-     unchanged row keeps the same DOM node across every one of those pushes
-     and this never runs again for it - only a row actually new to the list
-     mounts, and a mount is the one moment a plain `animation:` property is
-     guaranteed to play. Dragging (useRowOrder.ts) moves the same keyed node
-     rather than remounting it, so reordering does not replay this either. */
-  animation: arrive var(--duration-enter) var(--ease-enter);
+  /* No arrival animation here, deliberately - see #82.
+     #79 put `animation: arrive` on this rule, reasoning that a keyed row
+     keeps its DOM node across a roster push so the animation could only ever
+     play on a real mount. That is true and it is not enough: a plain
+     `animation:` property also plays every time an element goes from not
+     rendered to rendered, and below the breakpoint the panes are swapped
+     with `display: none` (see `#app[data-pane]` at the foot of this file).
+     So every trip from the stage back to the roster replayed this on every
+     row at once, and coming back from the unblock screen - which hides the
+     whole of `#app` - replayed it on the rows, the thread entries and the
+     report cards together. It read as flashing, which is what it was.
+     Marking genuinely-new content needs to be done in the components, not
+     inferred from mounting; #82 is that. */
 }
 @media (hover: hover) {
   .row:hover { background: var(--hover); }
@@ -729,7 +733,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
    roster push in between. */
 .row[data-waiting="true"]::before {
   background: var(--wants);
-  animation: mark-waiting var(--duration-enter) var(--ease-enter);
 }
 .row[data-status="crashed"]::before,
 .row[data-status="provisioning_failed"]::before { background: var(--broken); }
@@ -740,13 +743,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* A narrow swing: wider and two working rows look like different states
    whenever the screen is caught mid-cycle. */
 @keyframes breathe { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
-/* Landing rather than snapping into place - see --ease-enter. */
-@keyframes arrive { from { opacity: 0; transform: translateY(6px); } }
-/* The rail growing in from nothing, rather than just changing colour. */
-@keyframes mark-waiting { from { transform: scaleY(0.25); opacity: 0.4; } }
 @media (prefers-reduced-motion: reduce) {
-  .row { animation: none; }
-  /* Covers breathe and mark-waiting both - one rail, one switch. */
+  /* `breathe` is the only thing left on the rail - see #82 for why the
+     arrival and crossing animations that used to be here are not. */
   .row::before { animation: none !important; }
 }
 
@@ -1117,13 +1116,13 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
    messages stranded in the opposite one. This is a work surface, not a
    messaging app: who said what is carried by the label and the bubble's own
    treatment, not by which side it sits on. */
-/* A message actually arriving, not the thread re-rendering under it - see
-   #79. Each one is keyed on its own `seq` (Thread.tsx), so an entry already
-   on screen keeps its DOM node and never mounts again; only one new to the
-   conversation does, which is the one moment this plays. */
+/* No arrival animation here either - see the note on `.row` above, and #82.
+   Keying on `seq` does stop a roster push from replaying it, but nothing
+   stops the whole of `#app` being un-hidden when the phone leaves the
+   unblock screen, and that replayed this on every entry in the window at
+   once. */
 .entry {
   margin: 0 0 26px;
-  animation: arrive var(--duration-enter) var(--ease-enter);
 }
 
 .entry .who {
@@ -1180,7 +1179,7 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
-  animation: arrive var(--duration-enter) var(--ease-enter);
+  /* No arrival animation - see `.row` and #82. */
   transition: border-color 140ms var(--ease), transform var(--duration-press) var(--ease-exit);
 }
 @media (hover: hover) {
