@@ -13,3 +13,17 @@ export function tap(ms = 12): void {
     navigator.vibrate(ms);
   }
 }
+
+/**
+ * A failure, not a success (#95). `tap()` already fires the instant a send is
+ * initiated - the acknowledgement of the gesture, not a promise about the
+ * network - so a send that comes back bad needs a second, different buzz or
+ * it feels identical to one that went through. A double pulse rather than one
+ * longer buzz: length alone is hard to tell apart from `tap()`'s own duration
+ * by feel, a *shape* is not.
+ */
+export function tapFailed(): void {
+  if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+    navigator.vibrate([12, 60, 12]);
+  }
+}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
-import { DISMISS_DISTANCE, findScrollableAncestor, isOutsideDialog, pastDismissThreshold } from "./sheetGesture.js";
+import { tap } from "../haptics.js";
+import { crossedDismissThreshold, findScrollableAncestor, isOutsideDialog, pastDismissThreshold } from "./sheetGesture.js";
 import { useNarrowViewport } from "./useNarrowViewport.js";
 
 /**
@@ -38,6 +39,12 @@ import { useNarrowViewport } from "./useNarrowViewport.js";
  *     `preventDefault`, no transform - and the browser scrolls the content.
  *     That is the whole ask: a drag that begins while the sheet is scrolled
  *     must scroll the content, not fight it for the same gesture.
+ *
+ * The drag also buzzes once, the instant its distance reaches
+ * `DISMISS_DISTANCE` (#95, `crossedDismissThreshold`) - felt before the
+ * finger lifts, which is what makes letting go here read as releasing
+ * something rather than just stopping a touch. Crossing back under the line
+ * re-arms it, so pulling back and past again buzzes again.
  *
  * Released past `DISMISS_DISTANCE` or `DISMISS_VELOCITY`, the sheet finishes
  * leaving - so the exit reads as one continuous motion, not a jump-cut -
@@ -92,6 +99,10 @@ export function useSheetDismissGestures(
     let startTime = 0;
     let lastY = 0;
     let lastTime = 0;
+    // The distance as of the previous move, so `crossedDismissThreshold` can
+    // tell "just arrived" apart from "already past" - reset per touch, since
+    // a new drag starts the boundary fresh.
+    let lastDistance = 0;
 
     const onTouchStart = (event: TouchEvent) => {
       if (!dialog.open || event.touches.length !== 1) return;
@@ -102,6 +113,7 @@ export function useSheetDismissGestures(
       startX = touch.clientX;
       startY = lastY = touch.clientY;
       startTime = lastTime = event.timeStamp;
+      lastDistance = 0;
       phase = "pending";
     };
 
@@ -127,7 +139,12 @@ export function useSheetDismissGestures(
       event.preventDefault(); // stop the page/dialog rubber-banding under the drag
       lastY = touch.clientY;
       lastTime = event.timeStamp;
-      dialog.style.transform = `translateY(${Math.max(0, dy)}px)`;
+      const distance = Math.max(0, dy);
+      // At the crossing, not on release (#95) - a buzz here is what makes
+      // letting go feel like it will actually dismiss, before it does.
+      if (crossedDismissThreshold(lastDistance, distance)) tap();
+      lastDistance = distance;
+      dialog.style.transform = `translateY(${distance}px)`;
     };
 
     const springBack = () => {

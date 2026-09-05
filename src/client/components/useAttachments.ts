@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { tap } from "../haptics.js";
 import type { Attachment } from "../../shared/types.js";
 
 const MAX_IMAGE_COUNT = 8;
@@ -118,6 +119,9 @@ export function useAttachments() {
       }
 
       setAttachments(newAttachments);
+      // A small confirmation on a control whose result (a thumbnail) lands
+      // off to one side, not under the thumb that pressed it (#95).
+      tap();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load image");
     }

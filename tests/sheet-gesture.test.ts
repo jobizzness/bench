@@ -2,7 +2,10 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect } from "vitest";
-import { isOutsideDialog, pastDismissThreshold, findScrollableAncestor, DISMISS_DISTANCE, DISMISS_VELOCITY } from "../src/client/components/sheetGesture.js";
+import {
+  crossedDismissThreshold, isOutsideDialog, pastDismissThreshold, findScrollableAncestor,
+  DISMISS_DISTANCE, DISMISS_VELOCITY,
+} from "../src/client/components/sheetGesture.js";
 
 /**
  * The scrim-tap and swipe-threshold arithmetic behind #91's dismiss
@@ -40,6 +43,31 @@ describe("pastDismissThreshold", () => {
 
   it("dismisses on velocity alone, a flick that never travelled far", () => {
     expect(pastDismissThreshold(20, DISMISS_VELOCITY)).toBe(true);
+  });
+});
+
+describe("crossedDismissThreshold", () => {
+  it("is false while still short of the line", () => {
+    expect(crossedDismissThreshold(0, DISMISS_DISTANCE - 1)).toBe(false);
+  });
+
+  it("is true the instant a move reaches the line", () => {
+    expect(crossedDismissThreshold(DISMISS_DISTANCE - 1, DISMISS_DISTANCE)).toBe(true);
+  });
+
+  it("is false again on the very next move past it - a felt buzz, not a held one", () => {
+    expect(crossedDismissThreshold(DISMISS_DISTANCE, DISMISS_DISTANCE + 20)).toBe(false);
+  });
+
+  it("is false for a move that jumps straight past the line with nothing recorded before it started at 0", () => {
+    // A drag's first move always starts from distance 0 (touchstart resets
+    // it), so this is what the very first onTouchMove of a fast drag sees -
+    // still a crossing, since 0 is short of the line.
+    expect(crossedDismissThreshold(0, DISMISS_DISTANCE + 40)).toBe(true);
+  });
+
+  it("re-arms after pulling back under the line, so crossing again buzzes again", () => {
+    expect(crossedDismissThreshold(DISMISS_DISTANCE - 5, DISMISS_DISTANCE)).toBe(true);
   });
 });
 
