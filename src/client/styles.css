@@ -560,11 +560,10 @@ button, input, textarea, select { font: inherit; color: inherit; }
    there is nothing this button would go back to. */
 #stage-back { display: none; }
 
-/* The phone's own two screens - what opens when something is waiting, and
-   what is shown when nothing is. Hidden by default the same way #stage-back
-   is: above the breakpoint the roster and the stage are already both on
-   screen, so neither of these has a reason to exist yet. */
-#unblock, #empty, #phone-loading { display: none; }
+/* The phone's own screen for something tapped that wants you. Hidden by
+   default the same way #stage-back is: above the breakpoint the roster and
+   the stage are already both on screen, so it has no reason to exist yet. */
+#unblock, #empty { display: none; }
 /* With no specialist open there is no project, and so nothing to list. */
 #open-github:disabled { opacity: 0.35; cursor: default; }
 /* Broadcast's is the moment its own write is in flight. */
@@ -3986,17 +3985,15 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
       env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 
-  /* ── The front door: something waiting, or nothing does ───────────────
-     Below this width the roster is no longer where the app opens - see
-     #app[data-pane] below. A specialist wanting you is the entire reason
-     the phone is out of a pocket, so this is the one screen on the whole
-     phone build that is allowed to be bold: the title is the loudest text
+  /* ── Something waiting, tapped rather than landed on ───────────────────
+     The phone opens on the roster the same as above the breakpoint (#83) -
+     this is what a waiting row opens onto once you tap it, not what the app
+     opens onto on its own. Still the one screen on the whole phone build
+     that is allowed to be bold once it is up: the title is the loudest text
      anywhere in this file, the report is the first thing under it, and
      everything else - the project name, the way back to the roster - is
      furniture in the same quiet register the roster row now uses. */
-  #app[data-pane="unblock"],
-  #app[data-pane="empty"],
-  #app[data-pane="loading"] { display: none; }
+  #app[data-pane="unblock"] { display: none; }
 
   #unblock {
     display: flex;
@@ -4208,19 +4205,6 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   @media (hover: hover) {
     #empty-roster:hover { border-color: var(--wants-dim); color: var(--wants); }
   }
-
-  /* Before the roster has settled at all - the same box as #empty, since it
-     is what either screen replaces once it knows which one it is (#80). */
-  #phone-loading {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: var(--visual-viewport-height, 100dvh);
-    gap: 10px;
-    padding: 24px;
-  }
-  #phone-loading .mark-logo { opacity: 0.35; margin-bottom: 6px; }
 
   /* ── Dispatching a hand-off from a phone (#75) ─────────────────────────
      The sheet itself already fits - it is `min(540px, 92vw)`. What did not

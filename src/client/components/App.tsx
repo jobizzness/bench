@@ -22,8 +22,6 @@ import { ServerSetup } from "./ServerSetup.js";
 import { SignIn } from "./SignIn.js";
 import { useFirebaseUser } from "./useFirebaseUser.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
-import { PhoneEmpty } from "./PhoneEmpty.js";
-import { PhoneLoading } from "./PhoneLoading.js";
 import { PhoneUnblock } from "./PhoneUnblock.js";
 import { Queue } from "./Queue.js";
 import { Progress } from "./Progress.js";
@@ -67,12 +65,12 @@ export function App() {
   const row = rows.find((r) => r.id === selectedId) ?? null;
 
   // Below the breakpoint, which of the phone's screens is in front of the
-  // developer - a roster, an open specialist, something waiting, or nothing
-  // waiting. Ignored above it: every rule that reads `effectivePane` lives
-  // inside the mobile media query. `select` is reassigned to the wrapped
-  // version once here, rather than at every call site below, so the rest of
-  // this file reads exactly as it did before this hook existed.
-  const landing = usePhoneLanding(rows, selectedId, rawSelect, live);
+  // developer - the roster, an open specialist, or something waiting.
+  // Ignored above it: every rule that reads `effectivePane` lives inside the
+  // mobile media query. `select` is reassigned to the wrapped version once
+  // here, rather than at every call site below, so the rest of this file
+  // reads exactly as it did before this hook existed.
+  const landing = usePhoneLanding(rows, selectedId, rawSelect);
   const select = landing.select;
 
   const { entries, reload, threadUnreachable, loading: threadLoading } = useThread(selectedId, threadSignature(row));
@@ -448,8 +446,6 @@ export function App() {
           onBrowseRoster={landing.browseRoster}
         />
       )}
-      {effectivePane === "empty" && <PhoneEmpty onBrowseRoster={landing.browseRoster} />}
-      {effectivePane === "loading" && <PhoneLoading />}
 
       <ArtifactDialog
         open={artifact}

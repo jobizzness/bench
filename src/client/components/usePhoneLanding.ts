@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { RosterRow } from "../../shared/types.js";
 import { wantsAttention } from "../waiting.js";
 import { useNarrowViewport } from "./useNarrowViewport.js";
 
-export type PhonePane = "roster" | "stage" | "unblock" | "empty" | "loading";
+export type PhonePane = "roster" | "stage" | "unblock";
 
 export interface PhoneLanding {
   /** Which of the phone's screens is in front of the developer. Read by
@@ -11,14 +11,15 @@ export interface PhoneLanding {
    * above the breakpoint, where every rule that acts on it lives inside
    * `@media (max-width: 720px)`. */
   pane: PhonePane;
-  /** Wraps `select`: marks that the developer has taken the wheel, so the
-   * landing effect below stops steering. Every user-initiated navigation
-   * should go through this rather than the raw selector. */
+  /** The row selector, unchanged - kept on `PhoneLanding` rather than handed
+   * back raw so every caller reaches for one name regardless of width (see
+   * `App.tsx`). Nothing below the breakpoint needs to know it was tapped
+   * rather than steered here any more (#83). */
   select: (id: string | null) => void;
-  /** The escape hatch on the unblock and empty screens. Deselects (the
-   * empty screen already has nothing selected, so this is a no-op there)
-   * and marks the roster seen, so the landing effect does not steer you
-   * straight back to whatever is still waiting. */
+  /** Deselects. What the unblock screen's "Roster" button calls - since
+   * nothing is auto-selected on this phone any more, deselecting already
+   * lands back on the roster (see `pane` below) without anything else to
+   * arrange first. */
   browseRoster: () => void;
   /** How many want the developer, including whichever one is in front of you
    * and counting a tab held on a hand-off - already discounting whatever you
@@ -26,7 +27,7 @@ export interface PhoneLanding {
    * `justAnswered` below). */
   waitingCount: number;
   /** Call once `row`'s answer has posted. Moves on to whatever else is
-   * waiting, or lets the empty screen take over if that was the last one. */
+   * waiting, or leaves the roster in front of you if that was the last one. */
   advance: (row: RosterRow) => void;
 }
 
@@ -42,30 +43,31 @@ function waitingKey(row: RosterRow): string {
 /**
  * Where the phone opens, and what moves it on from there.
  *
- * A phone is the unblocking device: below the breakpoint the front door is
- * whatever is waiting, not a roster you would then have to navigate out of
- * (see #57). This is the one place that decides which of the phone's four
- * screens - roster, an open specialist, something waiting, or nothing
- * waiting - is in front of the developer, and it is a decision this hook
- * keeps rather than derives fresh every render: once the developer has
- * looked at the roster on purpose, landing on it again (rather than being
- * pulled back into the queue) is the only thing that keeps a phone build
- * from feeling like it is steering.
+ * It opens on the roster, selecting nothing - the same front door as above
+ * the breakpoint. #57 had this hook put whatever was waiting in front of the
+ * developer instead, reasoning that a roster you would then have to navigate
+ * out of was the wrong door for an unblocking device. That read fine in
+ * review and wrong from a phone: landing straight onto a report with no
+ * sense of what else exists is being dropped somewhere, not arriving
+ * somewhere - and it was worse than that in practice, because the roster is
+ * the one thing the app has data for first, so the cold-open sequence was
+ * the empty screen's lie, then a flash to whatever the first push turned
+ * out to hold (#80, #83).
+ *
+ * What #57 got right and this keeps: something waiting is not a screen you
+ * go find. `.row[data-waiting="true"]` already carries a tinted background
+ * and a rail wide and warm enough to spot from across the room (see
+ * styles.css and #79's crossing animation) - tapping it is what opens the
+ * unblock screen, and answering one still moves straight to the next
+ * without a detour back through the roster in between (`advance`, below).
+ * Only the one-time steering on arrival is gone.
  */
 export function usePhoneLanding(
   rows: RosterRow[],
   selectedId: string | null,
   rawSelect: (id: string | null) => void,
-  /** From `useRoster`: `null` until the socket has settled either way. A
-   * roster still connecting is not the same fact as one that has actually
-   * settled on nobody waiting, and rendering "Nothing needs you." for the
-   * first was the worst single flash on a cold phone open (#80) - it said
-   * so before anything had arrived to say it, and then flipped the instant
-   * the real roster landed. */
-  live: boolean | null,
 ): PhoneLanding {
   const narrow = useNarrowViewport();
-  const [seenRoster, setSeenRoster] = useState(false);
   // Optimistic, the same reason Queue.tsx keeps its own `sent` set: the
   // roster is pushed by the daemon and does not catch up to an answer
   // instantly, and sitting on a decision you just sent would be wrong even
@@ -76,33 +78,11 @@ export function usePhoneLanding(
   // handed a prompt to is held on the developer exactly as hard as an
   // unanswered decision is, but it has no report, so `isWaiting` is false for
   // it. Filtering on that was why a phone with a sub-agent waiting to be
-  // dispatched showed the "nothing waiting" screen (#75).
+  // dispatched showed the "nothing waiting" screen (#75) - it is now a row
+  // on the roster like any other, rather than something navigated to.
   const waiting = rows.filter((row) => wantsAttention(row) && !justAnswered.has(waitingKey(row)));
 
-  // Land on whatever is waiting the moment there is nothing else in front of
-  // you and you have not asked to browse. Re-checked on every roster push
-  // rather than only on mount: the first thing waiting on a cold roster
-  // often has not arrived yet when this hook first runs. Gated on `narrow`:
-  // this is the one piece of the phone build that is not just CSS, so it is
-  // the one piece that has to gate itself - above the breakpoint, opening
-  // the app is not supposed to change who is selected at all.
-  useEffect(() => {
-    if (!narrow || selectedId !== null || seenRoster || waiting.length === 0) return;
-    rawSelect(waiting[0].id);
-    // Deliberately keyed on `rows` rather than `waiting`: the filtered array
-    // is a new reference every render, which would run this on every roster
-    // push regardless of whether anything it looks at changed.
-  }, [narrow, rows, selectedId, seenRoster, rawSelect]);
-
-  const select = useCallback((id: string | null) => {
-    setSeenRoster(true);
-    rawSelect(id);
-  }, [rawSelect]);
-
-  const browseRoster = useCallback(() => {
-    setSeenRoster(true);
-    rawSelect(null);
-  }, [rawSelect]);
+  const browseRoster = useCallback(() => rawSelect(null), [rawSelect]);
 
   const advance = useCallback((row: RosterRow) => {
     setJustAnswered((current) => new Set(current).add(waitingKey(row)));
@@ -118,15 +98,13 @@ export function usePhoneLanding(
   const selectedWants = waiting.some((candidate) => candidate.id === selectedId);
 
   // Above the breakpoint this is exactly what selectedId ? "stage" : "roster"
-  // always was - #unblock and #empty are phone screens, and pane never
-  // claims to be either one where there is no phone to show them on.
-  const pane: PhonePane = !narrow
-    ? (selectedId === null ? "roster" : "stage")
-    : selectedId === null
-      ? (seenRoster
-        ? "roster"
-        : (waiting.length > 0 ? "unblock" : (live === null ? "loading" : "empty")))
-      : (seenRoster || !selectedWants ? "stage" : "unblock");
+  // always was - #unblock is a phone screen, and pane never claims to be it
+  // where there is no phone to show it on. Below it, nothing selected is
+  // always the roster (#83) - the one exception used to be the auto-landing
+  // this hook did on its own, which is gone.
+  const pane: PhonePane = selectedId === null
+    ? "roster"
+    : (narrow && selectedWants ? "unblock" : "stage");
 
-  return { pane, select, browseRoster, waitingCount: waiting.length, advance };
+  return { pane, select: rawSelect, browseRoster, waitingCount: waiting.length, advance };
 }
