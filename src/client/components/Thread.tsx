@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { ThreadEntry as Entry } from "../../shared/types.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
+import { PendingEntry, type PendingMessage } from "./PendingEntry.js";
 import { ThreadEntry } from "./ThreadEntry.js";
 import { ThreadSkeleton } from "./ThreadSkeleton.js";
 import { useRefs } from "./useRefs.js";
@@ -12,9 +13,11 @@ function Empty({ heading, body }: { heading: string; body: string }) {
 
 /**
  * Frames have no height until they load, so one scroll at render time lands
- * somewhere in the middle. Re-pin as each settles.
+ * somewhere in the middle. Re-pin as each settles. `pending` is a second
+ * dependency rather than folded into `entries`: a just-sent message has to
+ * pull the thread down to meet it exactly the same way a landed one does.
  */
-function usePinToBottom(host: React.RefObject<HTMLDivElement | null>, entries: Entry[]) {
+function usePinToBottom(host: React.RefObject<HTMLDivElement | null>, entries: Entry[], pending: PendingMessage[]) {
   useEffect(() => {
     const node = host.current;
     if (!node) return;
@@ -30,11 +33,11 @@ function usePinToBottom(host: React.RefObject<HTMLDivElement | null>, entries: E
       cancelAnimationFrame(raf);
       for (const frame of frames) frame.removeEventListener("load", jump);
     };
-  }, [host, entries]);
+  }, [host, entries, pending]);
 }
 
 export function Thread({
-  entries, sessionId, hasRows, onOpen, unreachable = false, loading = false,
+  entries, sessionId, hasRows, onOpen, unreachable = false, loading = false, pending = [],
 }: {
   entries: Entry[];
   sessionId: string | null;
@@ -49,9 +52,13 @@ export function Thread({
    * said about a specialist mid-conversation the instant a phone selected
    * it (#80). */
   loading?: boolean;
+  /** Sent from this page, not yet confirmed by a reload - see `App.tsx`'s
+   * `submit()` (#86). Drawn after the windowed `entries`, always - a queue
+   * this short is never itself worth paging. */
+  pending?: PendingMessage[];
 }) {
   const host = useRef<HTMLDivElement>(null);
-  usePinToBottom(host, entries);
+  usePinToBottom(host, entries, pending);
   // Resolved once for the whole thread: the same number turns up in several
   // messages, and the answer is the same in all of them.
   const refs = useRefs(sessionId, entries);
@@ -65,7 +72,7 @@ export function Thread({
           : <Empty heading="No specialists yet." body="Start one with New and it will appear on the left." />)
         : loading
           ? <ThreadSkeleton />
-          : entries.length === 0
+          : (entries.length === 0 && pending.length === 0)
             ? (unreachable
               ? <Empty heading="Can't reach this machine." body="The conversation is on it; this device could not fetch it. Still trying." />
               : <Empty heading="Working." body="Nothing to read yet — the first report will land here." />)
@@ -83,6 +90,9 @@ export function Thread({
                 )}
                 {visible.map((entry) => (
                   <ThreadEntry key={entry.seq} entry={entry} sessionId={sessionId} refs={refs} onOpen={onOpen} />
+                ))}
+                {pending.map((message) => (
+                  <PendingEntry key={message.id} message={message} refs={refs} />
                 ))}
               </>
             )}

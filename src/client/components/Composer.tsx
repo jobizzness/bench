@@ -4,6 +4,7 @@ import { ComposerHint } from "./ComposerHint.js";
 import { UsagePopover } from "./UsagePopover.js";
 import { CreditPopover } from "./CreditPopover.js";
 import { SpendPopover } from "./SpendPopover.js";
+import { SendMark } from "./SendMark.js";
 import { useAutoGrow } from "./useAutoGrow.js";
 import type { Attachment } from "../../shared/types.js";
 
@@ -23,6 +24,7 @@ export function Composer({
   text, setText, onSubmit, disabled, placeholder, hint, optionCount, send, inputRef, error,
   model, answeredBy, onChangeModel, project,
   attachments = [], addFiles = async () => {}, removeAttachment = () => {}, attachmentError = null,
+  sendState = "idle",
 }: {
   text: string;
   setText: (value: string) => void;
@@ -34,6 +36,11 @@ export function Composer({
   send: { label: string; blocked: boolean } | null;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   error: string | null;
+  /** What the phone's send button shows, below `disabled`'s own meaning of
+   * "nothing to send" - idle, a POST in flight for this specialist (sent
+   * optimistically, so this is feedback rather than a gate - see
+   * `App.tsx`'s `submit()`, #86), or the beat after one comes back bad. */
+  sendState?: "idle" | "sending" | "failed";
   /** What the selected specialist runs on. Absent when none is selected, and
    * on a row from a daemon that predates the field. */
   model?: string;
@@ -84,6 +91,20 @@ export function Composer({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
+        {/* Below the breakpoint only (styles.css) - the way back out of
+            focus mode that does not require finding somewhere else on
+            screen to tap, once the thread behind this has shrunk away.
+            Blurs whatever actually has focus, since that could be the
+            attach button or the send button rather than the textarea. */}
+        <div className="composer-focus-bar">
+          <button
+            type="button"
+            id="composer-done"
+            onClick={() => (document.activeElement as HTMLElement | null)?.blur()}
+          >
+            Done
+          </button>
+        </div>
         {attachments.length > 0 && (
           <div className="composer-attachments">
             {attachments.map((att, index) => (
@@ -172,13 +193,19 @@ export function Composer({
             // text is composing. So below the breakpoint the button is not
             // optional, and CSS hides it again above one (#61). Same
             // `onSubmit` as Enter, never a second way to send.
+            //
+            // An icon rather than the word, sized for a thumb rather than
+            // read: `sendState` is feedback, not a gate, so a message sent
+            // while the last one is still in flight is never refused for it
+            // (#86) - only emptiness disables this.
             <button
               id="composer-send"
               className="phone-only"
               type="submit"
               disabled={disabled || (text.trim() === "" && attachments.length === 0)}
+              data-state={sendState}
             >
-              Send
+              <SendMark />
             </button>
           )}
         </div>

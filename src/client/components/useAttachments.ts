@@ -133,6 +133,23 @@ export function useAttachments() {
     setAttachments([]);
   };
 
+  /** Puts a set of already-processed attachments back, no re-reading or
+   * re-scaling involved - but only into a box nobody has since attached
+   * something new to. For one caller: a send that cleared these
+   * optimistically and then failed - nothing typed or attached is lost
+   * (#86), the same precedent #60 set for a failed decision answer, unless
+   * the developer has already moved on to a new draft, in which case
+   * putting a stale one back over it would be worse than the failure.
+   * Reads the live count through the updater rather than whatever
+   * `attachments` closed over at call time, since this runs from inside a
+   * `catch` after an await - the same reason `App.tsx`'s `submit` does not
+   * just re-check `attachments.length` directly. Not for new files, which
+   * still want `addFiles`. */
+  const restoreIfEmpty = (images: Attachment[]) => {
+    setError(null);
+    setAttachments((current) => (current.length === 0 ? images : current));
+  };
+
   return {
     attachments,
     error,
@@ -140,5 +157,6 @@ export function useAttachments() {
     addFiles,
     removeAttachment,
     clearAttachments,
+    restoreIfEmpty,
   };
 }
