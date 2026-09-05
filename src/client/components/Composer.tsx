@@ -116,67 +116,83 @@ export function Composer({
           </div>
         )}
 
-        <div style={{ display: "flex", alignItems: "flex-end", gap: "10px" }}>
-          <button
-            type="button"
-            className="composer-attach-btn"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={disabled}
-            title="Attach images"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              role="img"
-              aria-label="Attach images"
+        {/* Three peer boxes above the phone breakpoint - attach, text, send,
+            each with its own border - reads as one continuous field there
+            instead (styles.css): a native composer is one input with its
+            actions on it, not three controls side by side. Unchanged above
+            720px; the class exists for the media query to hook, nothing
+            here needs it otherwise. */}
+        <div className="composer-row" style={{ display: "flex", alignItems: "flex-end", gap: "10px" }}>
+          {/* Attach and the text box, as one field below the phone breakpoint
+              (styles.css) - `display: contents` there is what makes this
+              invisible in the box tree above it, so the attach button, the
+              hidden file input and the textarea sit exactly where they
+              always did: direct children of `.composer-row`'s own flex row.
+              Send stays outside it, its own attached action - see the
+              warning at the top of #95 for why that one is not touched
+              here. */}
+          <div className="composer-field">
+            <button
+              type="button"
+              className="composer-attach-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={disabled}
+              title="Attach images"
             >
-              <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-              <circle cx="9" cy="9" r="2" />
-              <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
-            </svg>
-          </button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            style={{ display: "none" }}
-            multiple
-            accept="image/png,image/jpeg,image/gif,image/webp"
-            disabled={disabled}
-            onChange={(event) => {
-              if (event.target.files) {
-                void addFiles(event.target.files);
-                event.target.value = "";
-              }
-            }}
-          />
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                role="img"
+                aria-label="Attach images"
+              >
+                <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                <circle cx="9" cy="9" r="2" />
+                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+              </svg>
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              multiple
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              disabled={disabled}
+              onChange={(event) => {
+                if (event.target.files) {
+                  void addFiles(event.target.files);
+                  event.target.value = "";
+                }
+              }}
+            />
 
-          <textarea
-            id="composer-text"
-            rows={1}
-            autoComplete="off"
-            ref={inputRef}
-            disabled={disabled}
-            placeholder={placeholder}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onPaste={handlePaste}
-            onKeyDown={(event) => {
-              // Enter still sends — that is the whole rhythm of the cockpit.
-              // Shift+Enter is the newline, and a textarea no longer submits the
-              // form by itself, so sending happens here or not at all.
-              if (event.key !== "Enter" || event.shiftKey) return;
-              // Mid-composition Enter belongs to the IME, not to us.
-              if (event.nativeEvent.isComposing) return;
-              event.preventDefault();
-              onSubmit();
-            }}
-          />
+            <textarea
+              id="composer-text"
+              rows={1}
+              autoComplete="off"
+              ref={inputRef}
+              disabled={disabled}
+              placeholder={placeholder}
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onPaste={handlePaste}
+              onKeyDown={(event) => {
+                // Enter still sends — that is the whole rhythm of the cockpit.
+                // Shift+Enter is the newline, and a textarea no longer submits the
+                // form by itself, so sending happens here or not at all.
+                if (event.key !== "Enter" || event.shiftKey) return;
+                // Mid-composition Enter belongs to the IME, not to us.
+                if (event.nativeEvent.isComposing) return;
+                event.preventDefault();
+                onSubmit();
+              }}
+            />
+          </div>
           {send ? (
             <button
               id="composer-send"

@@ -1781,6 +1781,14 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
    button that grew with it would become a slab. */
 #composer-form { display: flex; align-items: flex-end; gap: 10px; }
 
+/* Invisible in the box tree above the phone width - `display: contents`
+   drops the wrapper itself out of layout, so its children (the attach
+   button, the hidden file input, the textarea) sit exactly where they did
+   before this wrapper existed: direct children of `.composer-row`'s own
+   flex row, spaced by that row's own `gap`. Only below 720px does it become
+   a real box (see the phone section) - the one thing it exists for. */
+.composer-field { display: contents; }
+
 /* The button says what pressing it does. With nothing overridden it reads
    "Go with all 6 assumptions" - the whole point is that this is one key. */
 #composer-send {
@@ -4071,7 +4079,12 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   .row[data-nested="true"] .label { font-size: 15px; }
   .row[data-nested="true"] .meta { font-size: 12px; }
   #composer {
-    padding: 12px 16px 16px;
+    /* Tightened again on top of the #47 pass that got this to 12/16/16 -
+       one field instead of three boxes (below) and two fewer controls in
+       the foot (below) both free width, but height is a straight padding
+       cut: this is composing on a phone, not a desktop footer's worth of
+       chrome (#95). */
+    padding: 10px 14px 12px;
     /* A flex item's default minimum height is its content's, not 0 - so
        without this, a long decision under a soft keyboard that has already
        squeezed #thread down to nothing keeps pushing past the bottom of
@@ -4126,6 +4139,78 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   @media (prefers-reduced-motion: reduce) {
     #composer-send.phone-only[data-state="sending"] .send-mark { animation: none; opacity: 0.7; }
   }
+
+  /* ── Composer: one field, not three (#95) ───────────────────────────
+     The attach button and the text box each carried their own border and
+     radius above - three peer-weight boxes in a row (attach, text, send)
+     where every native messaging composer is one continuous field with its
+     actions on it. `.composer-field` (Composer.tsx) is `display: contents`
+     above this width - see the base rule - so this is additive the same
+     way every rule in this file is: nothing above 720px changes. Send is
+     deliberately left outside this field, its own attached action - its
+     motion, transitions and states are the developer's own work (see the
+     warning at the top of #95), so only where this row puts it moves, never
+     how it looks doing it. */
+  .composer-field {
+    display: flex;
+    align-items: flex-end;
+    flex: 1;
+    min-width: 0;
+    gap: 2px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: var(--bg);
+    padding: 2px 2px 2px 4px;
+    transition: border-color 120ms var(--ease);
+  }
+  .composer-field:focus-within { border-color: var(--wants-dim); }
+  /* Borderless inside the field - the field itself carries the one border
+     now, and a second one on the button inside it would be the same three
+     boxes again, just nested instead of side by side. */
+  .composer-field .composer-attach-btn {
+    border-color: transparent;
+    background: none;
+    width: 36px;
+    height: 36px;
+  }
+  .composer-field #composer-text {
+    border: 0;
+    background: none;
+    padding: 9px 6px 9px 2px;
+  }
+  .composer-field #composer-text:focus { border: 0; }
+
+  /* ── Composer foot: one thing at a time, not four (#95) ─────────────
+     The hint, the model, the spend ledger and the usage/credit meter shared
+     one line at every width. Below this one the hint alone was squeezed
+     into three lines by the model name and two unlabelled icon buttons all
+     fighting it for the same row - a row composed for a wide footer, not
+     this one.
+
+     Spend and usage/credit drop rather than shrink, the same call Meta.tsx's
+     own phone branch already made about spend in the header ("a fact worth
+     checking, not one worth costing the room a phone does not have") and
+     the same reasoning #64 gave for dropping the token estimate below this
+     width instead of squeezing it in: both are glanced at occasionally, not
+     read at the moment of typing, and neither is worth the width a phone
+     does not have to give them.
+
+     The model stays, beside the hint exactly as before: Meta.tsx dropped it
+     from the phone header on the understanding that "the composer says the
+     model on every screen where you could act on it" - below this width the
+     composer is the *only* place left saying it, so dropping it here would
+     mean losing it altogether rather than moving it.
+
+     The hint keeps the row's shape it always had rather than being forced
+     onto one of its own - an idle hint is empty text next to the model
+     button today, and a row that always gave the hint the full width would
+     add a line under it even then. Freed of the two icons alone, the one
+     hint that is actually long ("Working — …") wraps to two lines beside
+     the model instead of three - composed for the width this row has,
+     rather than the desktop-footer's worth of controls it used to share
+     it with. */
+  #composer-foot { margin-top: 6px; }
+  .usage { display: none; }
 
   /* ── Composer focus mode (#86) ─────────────────────────────────────────
      Typing takes the screen; nothing else about this width changes. Driven

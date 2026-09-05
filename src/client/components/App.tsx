@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { endpoint, isRemote, postJson } from "../api.js";
 import { isProxied } from "../../shared/models.js";
+import { tap, tapFailed } from "../haptics.js";
 import { useAttachments } from "./useAttachments.js";
 import { shouldAskForServer } from "../endpoint.js";
 import { answersFor } from "../../shared/decisions.js";
@@ -265,10 +266,15 @@ export function App() {
     if (decision && !intake) {
       if (!choice && said === "" && attachments.length === 0) return;
       setSendState("sending");
+      // The same physical action the decision sheet already acknowledges
+      // (DecisionSheet.tsx's own `send`) - fired now, at the tap, not after
+      // the round trip, which is exactly the gap #95 closes.
+      tap();
       const res = await postJson(`/api/sessions/${row.id}/answer`, { optionId: choice, text: said, images: attachments });
       if (!res.ok) {
         setError((await res.json()).error ?? "could not send");
         failSend();
+        tapFailed();
         return;
       }
       dismiss();
@@ -297,6 +303,10 @@ export function App() {
       { id, sessionId: row.id, text: sentText, images: sentImages, at: new Date().toISOString() },
     ]);
     setSendState("sending");
+    // Acknowledges the tap itself, same as the decision sheet's answer
+    // already does (#95) - sending a message from the composer used to be
+    // the one decisive action in this app that stayed silent.
+    tap();
 
     const giveUp = (message: string) => {
       // Restore what was typed rather than swallow it (#60's precedent) -
@@ -312,6 +322,8 @@ export function App() {
       restoreAttachmentsIfEmpty(sentImages);
       setError(message);
       failSend();
+      // A failure must not feel like the send it is not - see haptics.ts.
+      tapFailed();
     };
 
     let res: Response;

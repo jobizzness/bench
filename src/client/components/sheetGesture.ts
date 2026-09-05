@@ -32,6 +32,23 @@ export function pastDismissThreshold(distance: number, velocity: number): boolea
   return distance >= DISMISS_DISTANCE || velocity >= DISMISS_VELOCITY;
 }
 
+/**
+ * True only the instant a drag's distance reaches `DISMISS_DISTANCE` - not on
+ * every touchmove after, and not only at release the way `pastDismissThreshold`
+ * is checked. A gesture felt as physical needs the buzz at the crossing
+ * itself, before the finger lifts (#95): this is what lets the hook tell "just
+ * arrived" apart from "already past" without keeping the arithmetic itself in
+ * the DOM-wired hook, the same split `pastDismissThreshold` already made.
+ *
+ * Velocity plays no part here, unlike `pastDismissThreshold` - it is only
+ * known at release, and "as you cross it" is about a boundary the drag can
+ * see mid-flight, not the flick check that only applies once the finger is
+ * already gone.
+ */
+export function crossedDismissThreshold(previousDistance: number, distance: number): boolean {
+  return previousDistance < DISMISS_DISTANCE && distance >= DISMISS_DISTANCE;
+}
+
 /** The nearest ancestor of `start` (inclusive), no further out than `root`
  * (inclusive), that actually has something to scroll. A sheet dialog gets
  * `overflow: auto` from the browser by default (`styles.css`'s own note on
