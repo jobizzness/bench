@@ -180,6 +180,31 @@ The daemon mirrors the roster while any viewer's heartbeat is fresh, and mirrors
 `mirror/{sessionId}` only for sessions some viewer has open. When the last
 heartbeat goes stale, the daemon deletes the mirror.
 
+**A cockpit never heartbeats the machine it is already talking to.** Presence
+is how a viewer asks a daemon to start paying for it, so asking that of a
+daemon already answering this page directly buys a mirror of a roster the page
+had over its own socket before the mirror was written. It is not a small
+waste: a signed-in cockpit left open on the developer's own desk is
+indistinguishable, from the daemon's side, from a phone watching all day, and
+it holds the daemon in the watched loop for as long as it is open. The client
+asks its own daemon which machine it is (`GET /api/remote`, direct — never
+`authFetch`, which would relay that very question to the machine it is trying
+to tell apart) and drops it from the set it heartbeats and listens to.
+"Directly" rather than "locally": a hosted cockpit pointed at a daemon over
+the LAN reaches it with plain HTTP too, so that daemon is just as wrong to
+relay to. Whatever the endpoint names is what gets excluded.
+
+Two smaller versions of the same mistake, both fixed alongside it. The
+heartbeat's effect depended on the mirrored rosters it had received, which
+change every couple of seconds during a live turn, so it re-ran and beat again
+each time — a heartbeat every 2s where this section budgets one every 60.
+And `stopWatching` existed from the start with no caller, so hiding or closing
+a tab left the daemon mirroring into an empty room for the full three-minute
+window rather than the five seconds it takes the next poll to notice. It is
+now called on `visibilitychange` and `pagehide`; the staleness window remains
+the backstop for the phone that is killed outright, which is what it was
+always for.
+
 ### The daemon polls, and broadcast is what makes that affordable
 
 The daemon cannot hold a listener. Firestore's real-time channel is gRPC and
@@ -392,8 +417,33 @@ around midnight Pacific. There is no overage: on Spark there is no billing
 account to charge, so once a daily quota is spent, operations fail until the
 reset.
 
-Writes are the binding constraint. Reads are 2.5× more plentiful and the mirror
-is small; deletes track actions one for one.
+Writes are the binding constraint **among the operations an action costs**.
+Reads are 2.5× more plentiful and the mirror is small, so this section
+originally left them alone; deletes track actions one for one.
+
+That was wrong about reads, and it is worth being precise about how, because
+the error is not in the arithmetic below but in what the arithmetic counts. It
+counts the reads an *action* costs. The reads that dominate are the ones the
+*polling* costs, and those happen whether or not there is anything to read.
+Measured against the real cadences, one machine with a fresh viewer spends:
+
+| | per day | share |
+|---|---|---|
+| `commands` listing, on every 2s tick | 43,176 | 71% |
+| `presence/state`, on every 5s poll | 17,280 | 29% |
+| **total** | **60,456** | **121% of the 50,000 ceiling** |
+
+The `commands` listing is the surprise. Firestore charges a minimum of one
+document read per query "even if the query returns no results", and that
+collection is empty essentially always — so the largest single line in the
+budget is the cost of repeatedly confirming there is nothing to do.
+
+Two things follow. `WriteBudget` has no counterpart on the read side, so
+nothing bounds this by construction; it holds only as long as the arithmetic
+above does. And since only a *watched* machine pays any of it, who counts as a
+watcher is a budget question rather than only a correctness one — which is
+what makes "a cockpit never heartbeats the machine it is already talking to",
+above, a rule worth stating rather than an optimisation.
 
 An action costs 2 writes. A mirror update costs 1. A watched live turn is
 therefore dominated by mirror updates, so the daemon **coalesces them: at most

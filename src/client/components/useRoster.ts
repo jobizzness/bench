@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getAuth } from "firebase/auth";
 import type { Firestore } from "firebase/firestore";
 import type { RosterRow } from "../../shared/types.js";
@@ -8,7 +8,8 @@ import { firebaseApp, firestore } from "../firebase-app.js";
 import {
   watchMachines, watchMachineRoster, machineIsAsleep, type RemoteMachine, type MachineRoster,
 } from "../remote-roster.js";
-import { heartbeat, deviceId, HEARTBEAT_MS } from "../remote-presence.js";
+import { heartbeat, stopWatching, deviceId, HEARTBEAT_MS } from "../remote-presence.js";
+import { useLocalMachineId } from "./useLocalMachineId.js";
 
 export interface Roster {
   rows: RosterRow[];
@@ -110,16 +111,39 @@ function useRemoteRoster(watching: string | null): {
 } {
   const uid = getAuth(firebaseApp()).currentUser?.uid ?? null;
   const db: Firestore | null = uid === null ? null : firestore();
-  const [machines, setMachines] = useState<RemoteMachine[]>([]);
+  const [allMachines, setAllMachines] = useState<RemoteMachine[]>([]);
   const [byMachine, setByMachine] = useState<Map<string, MachineRoster>>(new Map());
 
   useEffect(() => {
-    if (db === null || uid === null) { setMachines([]); return; }
-    return watchMachines(db, uid, setMachines);
+    if (db === null || uid === null) { setAllMachines([]); return; }
+    return watchMachines(db, uid, setAllMachines);
   }, [db, uid]);
 
+  // Re-asked whenever the account's machines change, which is what catches
+  // this machine registering itself after the cockpit already mounted - see
+  // `useLocalMachineId`.
+  const local = useLocalMachineId(allMachines.map((m) => m.id).sort().join(","));
+
+  /**
+   * Every machine on the account except the one that served this page.
+   *
+   * That machine is already answering over the local socket, so mirroring it
+   * through Firestore buys nothing and costs a great deal: a heartbeat to
+   * its own presence document is what tells its daemon a viewer has arrived,
+   * and the daemon answers by running its full watched loop - a presence
+   * poll every five seconds, a command list every two, and the mirror. A
+   * signed-in cockpit left open on the developer's own desk therefore spent
+   * 60,456 reads a day publishing a roster it already had. The rows looked
+   * right the whole time, because the merge below dedupes by session id, so
+   * nothing surfaced it.
+   */
+  const machines = useMemo(
+    () => (local.id === null ? allMachines : allMachines.filter((m) => m.id !== local.id)),
+    [allMachines, local.id],
+  );
+
   useEffect(() => {
-    if (db === null || uid === null || machines.length === 0) return;
+    if (db === null || uid === null || !local.settled || machines.length === 0) return;
     const unsubscribers = machines.map((machine) =>
       watchMachineRoster(db, uid, machine.id, (roster) => {
         setByMachine((prev) => {
@@ -129,27 +153,73 @@ function useRemoteRoster(watching: string | null): {
         });
       }));
     return () => { for (const unsubscribe of unsubscribers) unsubscribe(); };
-  }, [db, uid, machines]);
+  }, [db, uid, local.settled, machines]);
 
-  // Presence: one heartbeat per known machine, on a plain interval, only
+  /**
+   * What a beat needs to know, held in a ref rather than read from the
+   * closure. The effect below must re-run only when the *set of machines*
+   * changes, and `watching` and `byMachine` change far more often than that
+   * - `byMachine` is a fresh Map on every mirror update. Depending on them
+   * restarted the interval and beat again each time, so a watched live turn
+   * heartbeated every two seconds instead of every sixty: ~1,800 writes an
+   * hour where the design budgets 60.
+   */
+  const beatState = useRef({ watching, byMachine, machines });
+  beatState.current = { watching, byMachine, machines };
+
+  /** Only the identity of the machines matters here, not the objects - a
+   * fresh but value-identical array from a `lastSeen` touch must not
+   * restart the interval. */
+  const machineKey = machines.map((m) => m.id).join(",");
+
+  // Presence: one heartbeat per remote machine, on a plain interval, only
   // while this tab is visible - see "Presence gates the mirror" in the
   // design. Announcing this page is the one thing it does unconditionally;
   // which session it is watching rides along, but only to the one machine
   // that session is actually on, so the right daemon mirrors its detail.
   useEffect(() => {
-    if (db === null || uid === null || machines.length === 0) return;
+    if (db === null || uid === null || !local.settled || machineKey === "") return;
     const id = deviceId();
+
     const beat = () => {
       if (document.visibilityState !== "visible") return;
-      const owner = watching === null ? null : machineOwning(byMachine, watching);
-      for (const machine of machines) {
-        void heartbeat(db, uid, machine.id, id, machine.id === owner ? watching : null);
+      const { watching: open, byMachine: rosters, machines: known } = beatState.current;
+      const owner = open === null ? null : machineOwning(rosters, open);
+      for (const machine of known) {
+        void heartbeat(db, uid, machine.id, id, machine.id === owner ? open : null);
       }
     };
+
+    /**
+     * The way out, which nothing used to take. `stopWatching` has always
+     * been here for it; with no caller, a phone going into a pocket and a
+     * tab being closed both left the daemon mirroring into an empty room
+     * for the full three-minute stale window. Withdrawing the entry
+     * outright means the next poll - five seconds, not three minutes -
+     * finds nobody and stands the mirror down.
+     */
+    const leave = () => {
+      for (const machine of beatState.current.machines) void stopWatching(db, uid, machine.id, id);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") beat();
+      else leave();
+    };
+
     beat();
     const timer = setInterval(beat, HEARTBEAT_MS);
-    return () => clearInterval(timer);
-  }, [db, uid, machines, watching, byMachine]);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    // `pagehide` rather than `beforeunload`: it is the one that fires when a
+    // page goes into the back/forward cache, which is where a phone's tab
+    // usually goes rather than being torn down.
+    window.addEventListener("pagehide", leave);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", leave);
+    };
+  }, [db, uid, local.settled, machineKey]);
 
   const rows = useMemo(() => {
     const now = Date.now();

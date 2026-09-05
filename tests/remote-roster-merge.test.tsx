@@ -61,7 +61,17 @@ function Probe({ watching = null }: { watching?: string | null }) {
   return null;
 }
 
+/**
+ * `useRoster` asks its own daemon which machine it is before it subscribes
+ * to anything, so it can leave that machine to the local socket rather than
+ * relaying to it - see `useLocalMachineId.ts`. Answering "remote is off
+ * here" excludes nothing, which is the shape every test in this file was
+ * written against. `remote-self-machine.test.tsx` covers the exclusion
+ * itself.
+ */
 function mount(watching: string | null = null): void {
+  (globalThis as any).fetch = vi.fn(async () =>
+    new Response(JSON.stringify({ machineId: null }), { status: 200 }));
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);

@@ -42,8 +42,19 @@ function describe(error: unknown): string {
  * - Broadcast, unwatched for five minutes: every `idlePollMs` (60s).
  *
  * It costs reads the design assumed would be free; it does not cost writes,
- * which is what the budget actually binds on. Flagged in this ticket's
- * report for the developer to weigh.
+ * which is what the budget actually binds on. Measured since: a watched
+ * machine spends 60,456 reads a day, 71% of it the `commands` listing on the
+ * tick below, which bills a read per tick to confirm an empty collection is
+ * still empty. See "What it costs" in the design for the full table.
+ *
+ * What made that bite was not the cadence but who was making the machine
+ * watched: a signed-in cockpit on the machine's own desk used to heartbeat
+ * its own daemon, so a laptop with nobody looking at it from anywhere paid
+ * the watched rate all day. That is fixed on the client (`useLocalMachineId`),
+ * which is the right place for it - this side cannot tell one viewer from
+ * another, and should not try. The read path stays unbudgeted: with only
+ * genuine viewers waking it, the idle cadence is what a machine costs when
+ * nobody is watching, and that is 1,440 reads a day.
  */
 export interface RemoteBridgeOptions {
   client: FirestoreClient;
