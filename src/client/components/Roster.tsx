@@ -4,6 +4,7 @@ import { useBenchState } from "./context.js";
 import { recall, remember } from "../remembered.js";
 import { useHiddenProjects } from "../hidden.js";
 import { RosterGroup } from "./RosterGroup.js";
+import { RosterSkeleton } from "./RosterSkeleton.js";
 
 /** Folded projects, by path. Named once so the reader and the writer cannot
  * drift apart. */
@@ -14,7 +15,7 @@ const FOLDED = "folded-projects";
  * list gives no way to tell which specialist belongs to which codebase.
  */
 export function Roster() {
-  const { rows, selectedId } = useBenchState();
+  const { rows, selectedId, live } = useBenchState();
   // Kept out of this list by whoever is reading it. Not archived: see
   // hidden.ts - the specialists in there are still working.
   const hidden = useHiddenProjects();
@@ -38,6 +39,15 @@ export function Roster() {
     if (!groups.has(row.project)) groups.set(row.project, []);
     groups.get(row.project)!.push(row);
   }
+
+  // Nothing here yet is two different facts: the socket is live and has
+  // genuinely said nobody is running (draw nothing further - #57 already
+  // covers that with its own screen further up the tree), or it has not
+  // settled either way and this is a cold open with no answer yet. Only the
+  // second one gets the skeleton - the first already has an honest "empty"
+  // to show, and the offline case (`live === false`) has its own banner;
+  // a skeleton on top of that would promise a roster that is not coming.
+  if (rows.length === 0 && live !== false) return <RosterSkeleton />;
 
   return (
     <>

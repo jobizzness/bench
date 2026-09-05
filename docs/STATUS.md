@@ -203,26 +203,31 @@ reach no specialist.
   URL already carries, so the phone's own back gesture works without new
   state. Decision options stack to 44px targets; the keyboard hints hide.
 
-  *The phone, redesigned* ([#57](https://github.com/jobizzness/bench/issues/57)):
-  #47 made the layout fit a phone; this makes the phone open on whatever is
-  waiting rather than on a roster you would then have to navigate out of.
-  `usePhoneLanding.ts` remembers whether the developer has looked at the
-  roster on purpose — until they have, opening the app with something
-  waiting lands on it directly, the report rendered inline (the iframe reads
-  its own content height on load and resizes to it, so it scrolls as one
-  column with the decision's options rather than in a little window of its
-  own) and answerable without a detour through the roster. Answering one
-  moves straight to the next; nothing waiting is a designed screen rather
-  than a blank list. An intake is handed over to the ordinary stage instead
-  of forced into the single column, since it wants the whole page (`Queue.tsx`
-  already made the same call). The one piece of this that is not just CSS —
-  moving `selectedId` on its own — is gated on a real `matchMedia` check
-  rather than the stylesheet's breakpoint, so opening the app above 720px
-  never touches who is selected; missing that gate first broke
-  `tests/queue.test.tsx` by auto-selecting a specialist under a desktop-width
-  test. The roster row composition from the same ticket — one right edge
-  instead of three, the drag grip gone below the breakpoint, bigger type —
-  landed alongside it.
+  *The phone, redesigned* ([#57](https://github.com/jobizzness/bench/issues/57),
+  reversed by [#83](https://github.com/jobizzness/bench/issues/83)): #47 made
+  the layout fit a phone; #57 made it open on whatever was waiting instead of
+  on a roster you would then have to navigate out of. That read fine in
+  review and wrong from a real phone — opening straight onto a report with no
+  sense of what else exists reads as being dropped somewhere, not arriving
+  somewhere — so #83 put the roster back as the front door, on a phone the
+  same as everywhere else. Something waiting is still unmissable there:
+  `.row[data-waiting="true"]` carries a tinted background and a rail (louder
+  still since #79's crossing animation), so it is *shown*, not navigated to.
+  Tapping a waiting row still opens the unblock screen — the report rendered
+  inline (the iframe reads its own content height on load and resizes to it,
+  so it scrolls as one column with the decision's options rather than in a
+  little window of its own) and answerable without leaving it — and
+  answering one still moves straight to the next waiting decision rather
+  than detouring back through the roster; both of those are the part of #57
+  that was right and #83 keeps. An intake is handed over to the ordinary
+  stage instead of forced into the single column, since it wants the whole
+  page (`Queue.tsx` already made the same call). The one piece of this that
+  is not just CSS — `usePhoneLanding.ts` reading `selectedId` and steering
+  `pane` off of it — is gated on a real `matchMedia` check rather than the
+  stylesheet's breakpoint, so opening the app above 720px never touches who
+  is selected. The roster row composition from the #57 ticket — one right
+  edge instead of three, the drag grip gone below the breakpoint, bigger
+  type — is unaffected and stays.
 
   **What has never happened: a phone has never driven a specialist.** Every
   part of the transport is proven against a fake Firestore, and the identity

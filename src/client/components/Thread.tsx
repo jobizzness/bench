@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { ThreadEntry as Entry } from "../../shared/types.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
 import { ThreadEntry } from "./ThreadEntry.js";
+import { ThreadSkeleton } from "./ThreadSkeleton.js";
 import { useRefs } from "./useRefs.js";
 import { useThreadWindow } from "./useThreadWindow.js";
 
@@ -33,7 +34,7 @@ function usePinToBottom(host: React.RefObject<HTMLDivElement | null>, entries: E
 }
 
 export function Thread({
-  entries, sessionId, hasRows, onOpen, unreachable = false,
+  entries, sessionId, hasRows, onOpen, unreachable = false, loading = false,
 }: {
   entries: Entry[];
   sessionId: string | null;
@@ -43,6 +44,11 @@ export function Thread({
    * off what did not arrive as a specialist that has said nothing (#62) - on
    * a relayed session that read fails several times an hour. */
   unreachable?: boolean;
+  /** This specialist's first read is still in flight - see `useThread.ts`.
+   * Shows the skeleton instead of "Nothing to read yet", which used to be
+   * said about a specialist mid-conversation the instant a phone selected
+   * it (#80). */
+  loading?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   usePinToBottom(host, entries);
@@ -57,27 +63,29 @@ export function Thread({
         ? (hasRows
           ? <Empty heading="Nothing selected." body="Pick a specialist on the left to read what it has for you." />
           : <Empty heading="No specialists yet." body="Start one with New and it will appear on the left." />)
-        : entries.length === 0
-          ? (unreachable
-            ? <Empty heading="Can't reach this machine." body="The conversation is on it; this device could not fetch it. Still trying." />
-            : <Empty heading="Working." body="Nothing to read yet — the first report will land here." />)
-          : (
-            <>
-              {unreachable && (
-                <p id="thread-stale">Lost the connection. This is the last of it that reached you.</p>
-              )}
-              {/* The conversation is never truncated on disk, only unrendered
-                  until asked for - see useThreadWindow.ts (#68). */}
-              {hiddenCount > 0 && (
-                <button id="thread-load-older" type="button" onClick={expand}>
-                  Show {hiddenCount} earlier
-                </button>
-              )}
-              {visible.map((entry) => (
-                <ThreadEntry key={entry.seq} entry={entry} sessionId={sessionId} refs={refs} onOpen={onOpen} />
-              ))}
-            </>
-          )}
+        : loading
+          ? <ThreadSkeleton />
+          : entries.length === 0
+            ? (unreachable
+              ? <Empty heading="Can't reach this machine." body="The conversation is on it; this device could not fetch it. Still trying." />
+              : <Empty heading="Working." body="Nothing to read yet — the first report will land here." />)
+            : (
+              <>
+                {unreachable && (
+                  <p id="thread-stale">Lost the connection. This is the last of it that reached you.</p>
+                )}
+                {/* The conversation is never truncated on disk, only unrendered
+                    until asked for - see useThreadWindow.ts (#68). */}
+                {hiddenCount > 0 && (
+                  <button id="thread-load-older" type="button" onClick={expand}>
+                    Show {hiddenCount} earlier
+                  </button>
+                )}
+                {visible.map((entry) => (
+                  <ThreadEntry key={entry.seq} entry={entry} sessionId={sessionId} refs={refs} onOpen={onOpen} />
+                ))}
+              </>
+            )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { loadArtifact, type ArtifactContent } from "../api.js";
+import { Skeleton } from "./Skeleton.js";
 
 export interface ArtifactRef {
   /** "report" or "answer" - what the card calls it. */
@@ -43,6 +44,12 @@ export function ArtifactCard({
         <span className="title">{artifact.title}</span>
         <span className="cue">open</span>
       </button>
+      {/* A reply's preview reserves the frame's own space while it fetches -
+          without this, the card was just the button until content arrived,
+          and the thread shifted every entry below it down once it landed
+          (#80). Not shown for a report card: those never fetch a preview at
+          all (`preview` is false), so there is nothing here to wait for. */}
+      {preview && !content && <Skeleton className="frame-skeleton" />}
       {/* Untrusted generated HTML. The sandbox withholds everything except a
           same-origin document, so no script in a report can run; the daemon
           sends a matching Content-Security-Policy with the page itself. */}

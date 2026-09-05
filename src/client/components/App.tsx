@@ -22,7 +22,6 @@ import { ServerSetup } from "./ServerSetup.js";
 import { SignIn } from "./SignIn.js";
 import { useFirebaseUser } from "./useFirebaseUser.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
-import { PhoneEmpty } from "./PhoneEmpty.js";
 import { PhoneUnblock } from "./PhoneUnblock.js";
 import { Queue } from "./Queue.js";
 import { Progress } from "./Progress.js";
@@ -66,15 +65,15 @@ export function App() {
   const row = rows.find((r) => r.id === selectedId) ?? null;
 
   // Below the breakpoint, which of the phone's screens is in front of the
-  // developer - a roster, an open specialist, something waiting, or nothing
-  // waiting. Ignored above it: every rule that reads `effectivePane` lives
-  // inside the mobile media query. `select` is reassigned to the wrapped
-  // version once here, rather than at every call site below, so the rest of
-  // this file reads exactly as it did before this hook existed.
+  // developer - the roster, an open specialist, or something waiting.
+  // Ignored above it: every rule that reads `effectivePane` lives inside the
+  // mobile media query. `select` is reassigned to the wrapped version once
+  // here, rather than at every call site below, so the rest of this file
+  // reads exactly as it did before this hook existed.
   const landing = usePhoneLanding(rows, selectedId, rawSelect);
   const select = landing.select;
 
-  const { entries, reload, threadUnreachable } = useThread(selectedId, threadSignature(row));
+  const { entries, reload, threadUnreachable, loading: threadLoading } = useThread(selectedId, threadSignature(row));
   const decisionState = useDecision(row);
   const { decision, answers, setAnswers, choice, setChoice, focus, setFocus, dismiss } = decisionState;
 
@@ -120,7 +119,7 @@ export function App() {
   // be able to tell them apart - and say which of them has started wanting you.
   useDocumentTitle(rows, selectedId);
 
-  const state = useMemo(() => ({ rows, selectedId }), [rows, selectedId]);
+  const state = useMemo(() => ({ rows, selectedId, live }), [rows, selectedId, live]);
   const actions = useMemo(() => ({ select, closeSpecialist }), [select, closeSpecialist]);
 
   // Fetched only while the drawer is up: it is something you reach for, not a
@@ -269,9 +268,11 @@ export function App() {
   // is for. That question used to be asked before it existed.
   const placeholder = decision && !intake
     ? "Or type an answer"
-    // Not while the thread simply failed to arrive: asking what a specialist
-    // is for, mid-conversation, is the same lie the empty thread told (#62).
-    : row && entries.length === 0 && !threadUnreachable
+    // Not while the thread simply failed to arrive, or has not loaded yet:
+    // asking what a specialist is for, mid-conversation, is the same lie the
+    // empty thread told (#62, and the loading case #80 - the read this reads
+    // off of is the one the skeleton in `Thread.tsx` is standing in for).
+    : row && entries.length === 0 && !threadUnreachable && !threadLoading
       ? "What should this specialist do?"
       : "Message this specialist";
 
@@ -381,6 +382,7 @@ export function App() {
             hasRows={rows.length > 0}
             onOpen={setArtifact}
             unreachable={threadUnreachable}
+            loading={threadLoading}
           />
           <Working steps={steps} />
 
@@ -438,12 +440,12 @@ export function App() {
         <PhoneUnblock
           row={row}
           decision={decision}
+          decisionSettled={decisionState.settled}
           waitingCount={landing.waitingCount}
           onAnswered={() => { landing.advance(row); dismiss(); }}
           onBrowseRoster={landing.browseRoster}
         />
       )}
-      {effectivePane === "empty" && <PhoneEmpty onBrowseRoster={landing.browseRoster} />}
 
       <ArtifactDialog
         open={artifact}

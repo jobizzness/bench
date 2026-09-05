@@ -37,6 +37,13 @@ export function useThread(id: string | null, signature: string): {
   /** The last read did not land. What is on screen is the last copy that
    * did, or nothing if there has not been one yet. */
   threadUnreachable: boolean;
+  /** This id's first read of the current signature is still in flight - no
+   * good copy to show yet, and not yet known to have failed either. Gates
+   * `Thread.tsx`'s skeleton, so switching to a specialist whose thread has
+   * not loaded shows that instead of claiming there is nothing to read
+   * (#80). Never true once there is a good copy to fall back on - a reload
+   * after answering does not put the thread back into this state. */
+  loading: boolean;
 } {
   // Keyed by the specialist the entries actually came from, so a failed read
   // can keep the last good copy without the risk that goes with it: switching
@@ -62,6 +69,13 @@ export function useThread(id: string | null, signature: string): {
     let cancelled = false;
     if (!id) { setLoaded({ id: null, entries: NOTHING }); setUnreachable(false); return; }
 
+    // A fresh attempt for this id (or this id's new report) does not inherit
+    // the previous one's outcome - left uncleared, a thread that just failed
+    // once would read as unreachable for the next specialist too, for the
+    // length of its own fetch (the same "decided before it knew" shape as
+    // the rest of #80).
+    setUnreachable(false);
+
     void (async () => {
       const next = await fetchThread(id);
       if (cancelled) return;
@@ -76,5 +90,12 @@ export function useThread(id: string | null, signature: string): {
     // signature is the "something happened" trigger, not a value we read.
   }, [id, signature]);
 
-  return { entries, reload, threadUnreachable: unreachable };
+  // Nothing to show yet, and not for lack of trying - a fetch for this exact
+  // id is on its way and has not answered either way. Once `entries` holds a
+  // good copy (`loaded.id === id`), this is false even mid-reload: there is
+  // something to keep showing, so the skeleton is not the honest thing to
+  // draw over it.
+  const loading = id !== null && loaded.id !== id && !unreachable;
+
+  return { entries, reload, threadUnreachable: unreachable, loading };
 }

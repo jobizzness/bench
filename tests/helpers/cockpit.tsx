@@ -23,6 +23,10 @@ export interface Fixtures {
   rows: RosterRow[];
   entries?: ThreadEntry[];
   decision?: Decision | null;
+  /** Make the report fetch behind a decision never land, so a test can see
+   * what the phone's unblock screen draws while it is still on its way
+   * (#80's skeleton), rather than the decision already in hand. */
+  decisionHangs?: boolean;
   projects?: Array<{ name: string; path: string }>;
   /** null is a specialist that has written no checklist at all. */
   plan?: PlanStep[] | null;
@@ -31,6 +35,10 @@ export interface Fixtures {
   /** Make the thread read fail: "reject" for a dead link, a status number for
    * a daemon that answered badly. Both used to render as an empty thread. */
   threadFails?: "reject" | number;
+  /** Make the thread read never land at all - a fetch that hangs rather than
+   * rejecting or answering, so a test can see what the page draws while it
+   * is genuinely still waiting (#80's skeleton, as opposed to #62's failure). */
+  threadHangs?: boolean;
   /** Make POST .../answer fail: "reject" for a dead link, a status number for
    * a daemon that answered badly. Both used to un-disable the button and say
    * nothing at all (#60). */
@@ -270,6 +278,9 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       return { ok: true, status: 200, json: async () => ({ ok: true, ...created }) };
     }
     if (url.includes("/thread")) {
+      // Never settles either way - what the page draws while still waiting
+      // on a real answer, told apart from #62's "answered, but badly".
+      if (fixtures.threadHangs) return new Promise<never>(() => {});
       // A read that never lands, which on a relayed session is what several
       // reads an hour actually do. "reject" is a dead link; a number is a
       // daemon that answered with a status.
@@ -280,6 +291,7 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       return { ok: true, status: 200, json: async () => ({ entries: fixtures.entries ?? [] }) };
     }
     if (url.includes("/report/")) {
+      if (fixtures.decisionHangs) return new Promise<never>(() => {});
       return {
         ok: fixtures.decision != null,
         status: fixtures.decision != null ? 200 : 404,

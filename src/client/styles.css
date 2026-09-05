@@ -409,6 +409,42 @@ button, input, textarea, select { font: inherit; color: inherit; }
   color: var(--faint);
 }
 
+/* ── Skeletons: the shape of what is coming (#80) ──────────────────────
+   A cold load used to draw either nothing (a blank roster, an empty box
+   where a report was about to land) or a state that had already decided
+   there was nothing to show ("Nothing to read yet" about a specialist
+   mid-conversation). `.skeleton` is the one shape that replaces both: sized
+   by whoever needs it (Skeleton.tsx) rather than four hand-rolled shimmers.
+
+   The loop reuses --duration-scene and --ease from the motion ticket (#79)
+   instead of inventing a fourth duration - stretched by four because a
+   shimmer repeats until something arrives and a scene change does not, but
+   the vocabulary is the same one. */
+.skeleton {
+  display: inline-block;
+  width: 6em;
+  height: 1em;
+  border-radius: 4px;
+  pointer-events: none;
+  background: linear-gradient(100deg, var(--hover) 30%, var(--line-firm) 50%, var(--hover) 70%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer calc(var(--duration-scene) * 4) var(--ease) infinite;
+}
+@keyframes skeleton-shimmer {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* A static placeholder, not a moving one - the shape still says what is
+     coming, just without the sweep (#80's own acceptance criteria). */
+  .skeleton { animation: none; background-position: 50% 0; }
+}
+
+/* The report frame's shape, wherever it is shown - sized like the box it
+   will fill (`#unblock-frame`, `.card iframe`) so nothing grows once the
+   real one lands. */
+.frame-skeleton { display: block; width: 100%; height: 52vh; }
+
 #app {
   /* Above the figure, which is fixed at z-index 0 behind the whole window. */
   position: relative;
@@ -524,10 +560,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
    there is nothing this button would go back to. */
 #stage-back { display: none; }
 
-/* The phone's own two screens - what opens when something is waiting, and
-   what is shown when nothing is. Hidden by default the same way #stage-back
-   is: above the breakpoint the roster and the stage are already both on
-   screen, so neither of these has a reason to exist yet. */
+/* The phone's own screen for something tapped that wants you. Hidden by
+   default the same way #stage-back is: above the breakpoint the roster and
+   the stage are already both on screen, so it has no reason to exist yet. */
 #unblock, #empty { display: none; }
 /* With no specialist open there is no project, and so nothing to list. */
 #open-github:disabled { opacity: 0.35; cursor: default; }
@@ -709,6 +744,19 @@ button, input, textarea, select { font: inherit; color: inherit; }
   .row:hover { background: var(--hover); }
 }
 .row[aria-selected="true"] { background: var(--raised); }
+
+/* A roster row's shape with nothing behind it yet - not selectable, not a
+   rail (there is no status to colour it with), just the box the real row
+   will occupy (#80). */
+.row.skeleton-row {
+  cursor: default;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+}
+.row.skeleton-row::before { display: none; }
 
 /* A pill inset from the row's edges, not a full-bleed bar: flush rails on
    adjacent rows merge into one ragged stripe down the roster. */
@@ -1143,6 +1191,14 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   padding: 13px 16px;
   font-size: 14px;
 }
+
+/* A reply's shape before it has one - the same corner as `.bubble` above,
+   a few lines tall rather than sized to text nobody has read yet (#80). */
+.bubble-skeleton {
+  display: block;
+  height: 4.6em;
+  border: 1px solid var(--line);
+}
 .entry.user .bubble {
   background: transparent;
   border-color: var(--line-firm);
@@ -1230,6 +1286,11 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 
 .card iframe {
   display: block; width: 100%; height: 52vh; border: 0;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+/* The same box, before there is a document to put in it (#80). */
+.card .frame-skeleton {
   border-top: 1px solid var(--line);
   background: var(--bg);
 }
@@ -3924,16 +3985,15 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
       env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 
-  /* ── The front door: something waiting, or nothing does ───────────────
-     Below this width the roster is no longer where the app opens - see
-     #app[data-pane] below. A specialist wanting you is the entire reason
-     the phone is out of a pocket, so this is the one screen on the whole
-     phone build that is allowed to be bold: the title is the loudest text
+  /* ── Something waiting, tapped rather than landed on ───────────────────
+     The phone opens on the roster the same as above the breakpoint (#83) -
+     this is what a waiting row opens onto once you tap it, not what the app
+     opens onto on its own. Still the one screen on the whole phone build
+     that is allowed to be bold once it is up: the title is the loudest text
      anywhere in this file, the report is the first thing under it, and
      everything else - the project name, the way back to the roster - is
      furniture in the same quiet register the roster row now uses. */
-  #app[data-pane="unblock"],
-  #app[data-pane="empty"] { display: none; }
+  #app[data-pane="unblock"] { display: none; }
 
   #unblock {
     display: flex;
@@ -4016,6 +4076,7 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
      keyhole. */
   #unblock-report {
     flex: none;
+    position: relative;
     margin: 0 18px 18px;
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -4027,6 +4088,35 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
     width: 100%;
     border: 0;
     height: 52vh;
+  }
+  /* Loaded off-screen underneath the skeleton, not in the space the
+     developer can see: the height set on `load` (useReportFrame.ts) happens
+     while this is true, so the frame is only ever revealed already sized -
+     it does not resize in front of anyone (#80). */
+  #unblock-frame.frame-loading {
+    position: absolute;
+    top: 0; left: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  #unblock-report .frame-skeleton { border-radius: inherit; }
+
+  /* The unblock screen's own shape while its title, summary and options are
+     still on the way - sized like the real ones (#unblock-title,
+     #unblock-summary) so nothing moves once they land. */
+  .unblock-title-skeleton {
+    display: block;
+    margin: 10px 18px 6px;
+  }
+  .unblock-summary-skeleton {
+    display: block;
+    margin: 0 18px 18px;
+  }
+  .unblock-options-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0 18px 14px;
   }
 
   /* The report failing to load used to draw as this same bordered box,
