@@ -6,6 +6,7 @@ import { projectName } from "../format.js";
 import { DecisionOptions } from "./DecisionOptions.js";
 import { UnblockSkeleton } from "./UnblockSkeleton.js";
 import { useReportFrame } from "./useReportFrame.js";
+import { useSheetDismissGestures } from "./useSheetDismissGestures.js";
 
 /**
  * A waiting specialist's decision, in a sheet over the roster - the report
@@ -29,6 +30,19 @@ import { useReportFrame } from "./useReportFrame.js";
  * because nothing else already holds it. An intake is never handed to this
  * component at all: it wants the whole page, and gets the ordinary stage
  * instead (see `App.tsx`'s `decisionSheetOpen`).
+ *
+ * Dismissible three ways (#91): the `Roster` button below, a tap on the
+ * dimmed roster behind it, and a downward drag - all three call this same
+ * `onClose`, so `selectedId` and the URL never have two different ideas
+ * about whether this is open. The tap and the drag are `useSheetDismissGestures`,
+ * built shareable across every `.sheet` rather than specific to this one
+ * (#81's own reasoning for the CSS) - wired in here only, for now. The other
+ * `.sheet` dialogs (intake, dispatch, settings, new-session) all rise from
+ * the same bottom edge below 720px but were left without the gesture: none
+ * of them were asked for by #91, and dispatch and settings in particular
+ * have their own inline forms with their own scroll areas that deserve the
+ * same deliberate look this one got rather than an untested assumption that
+ * the hook behaves identically there. Follow-up, not silent scope.
  */
 export function DecisionSheet({ open, row, decision, decisionSettled = true, waitingCount, onAnswered, onClose }: {
   open: boolean;
@@ -74,6 +88,8 @@ export function DecisionSheet({ open, row, decision, decisionSettled = true, wai
     if (open) { if (!dialog.open) dialog.showModal?.(); }
     else if (dialog.open) dialog.close?.();
   }, [open]);
+
+  useSheetDismissGestures(ref, onClose);
 
   // A fresh decision starts with nothing chosen - without this, answering
   // one and landing on the next would carry the previous pick with it.
@@ -134,6 +150,10 @@ export function DecisionSheet({ open, row, decision, decisionSettled = true, wai
           by anything that is not scoped to a visible container. */}
       {open && row && (
         <>
+          {/* The only hint the drag-to-dismiss gesture exists at all
+              (#91) - every native sheet has one, and without it there is
+              nothing on screen to suggest the sheet can be pulled. */}
+          <div className="sheet-grabber" aria-hidden="true" />
           <header id="unblock-head">
             <span className="eyebrow">{projectName(row.project)} · {row.label}</span>
             {waitingCount > 1 && <span id="unblock-count">1 of {waitingCount}</span>}

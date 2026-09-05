@@ -2118,6 +2118,13 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 }
 .sheet::backdrop { background: var(--scrim); }
 
+/* Present in the markup above the breakpoint too (`DecisionSheet` renders it
+   unconditionally) but not a bottom-sheet trait there - a centred dialog is
+   not a thing you swipe away, and "above 720px nothing changes" (#91) means
+   this stray bar must not appear at all until the media query below turns it
+   back on. */
+.sheet-grabber { display: none; }
+
 /* Below the breakpoint every `.sheet` rises from the bottom edge instead of
    sitting centred - the one mechanism #90 (a decision over the roster) and
    #81 (sheets in general) both asked for, built once here rather than
@@ -2142,6 +2149,24 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   @keyframes sheet-rise { from { transform: translateY(100%); } }
   @media (prefers-reduced-motion: reduce) {
     .sheet { animation: none; }
+  }
+
+  /* The one visible hint that a `.sheet` can be dragged down (#91) - hidden
+     above this breakpoint along with the rest of the bottom-sheet treatment,
+     since a centred dialog there is not a thing you swipe away. Only sheets
+     that render one (`DecisionSheet`, for now - see its own note on why the
+     others do not yet) show it; the rule lives here rather than per-dialog
+     because it belongs to the shared `.sheet` mechanism, not to any one of
+     them. */
+  .sheet-grabber {
+    display: block;
+    flex: none;
+    align-self: center;
+    width: 36px;
+    height: 4px;
+    margin: 8px 0 2px;
+    border-radius: 2px;
+    background: var(--line-firm);
   }
 }
 
