@@ -8,6 +8,13 @@ export interface ReportFrame {
    * is what tells a report that has not arrived yet apart from one that is
    * never coming (#60). */
   failed: boolean;
+  /** False while the report is still being fetched, and while the iframe
+   * that will hold it has been given a `src`/`srcDoc` but has not fired its
+   * own `load` yet - the two waits `PhoneUnblock.tsx` needs a skeleton over,
+   * because nothing outside this hook needs to tell them apart. Never flips
+   * back to false for the same report once it fires - only a fresh
+   * `sessionId`/`seq` resets it (#80). */
+  frameLoaded: boolean;
   frameRef: RefObject<HTMLIFrameElement | null>;
   /** Wire to the iframe's `onLoad`. */
   onFrameLoad: () => void;
@@ -40,11 +47,13 @@ export interface ReportFrame {
 export function useReportFrame(sessionId: string, seq: number): ReportFrame {
   const [content, setContent] = useState<ArtifactContent | null>(null);
   const [failed, setFailed] = useState(false);
+  const [frameLoaded, setFrameLoaded] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     setContent(null);
     setFailed(false);
+    setFrameLoaded(false);
     let live = true;
     loadArtifact(sessionId, seq, "report.html")
       .then((result) => { if (live) setContent(result); })
@@ -54,15 +63,21 @@ export function useReportFrame(sessionId: string, seq: number): ReportFrame {
 
   const onFrameLoad = () => {
     const frame = frameRef.current;
-    if (!frame) return;
-    try {
-      const height = frame.contentDocument?.documentElement.scrollHeight;
-      if (height) frame.style.height = `${height}px`;
-    } catch {
-      // Cross-origin: leave the CSS height in place and let the frame
-      // scroll on its own rather than as part of the page.
+    if (frame) {
+      try {
+        const height = frame.contentDocument?.documentElement.scrollHeight;
+        if (height) frame.style.height = `${height}px`;
+      } catch {
+        // Cross-origin: leave the CSS height in place and let the frame
+        // scroll on its own rather than as part of the page.
+      }
     }
+    // Set after the resize above, not before it: the caller keeps the frame
+    // out of layout (see `.frame-loading` in styles.css) until this flips,
+    // so the resize itself never happens somewhere the developer can see it
+    // (#80) - it is done by the time the frame is revealed.
+    setFrameLoaded(true);
   };
 
-  return { content, failed, frameRef, onFrameLoad };
+  return { content, failed, frameLoaded, frameRef, onFrameLoad };
 }

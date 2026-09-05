@@ -4,6 +4,7 @@ import { postJson } from "../api.js";
 import { answersFor } from "../../shared/decisions.js";
 import { projectName } from "../format.js";
 import { DecisionOptions } from "./DecisionOptions.js";
+import { UnblockSkeleton } from "./UnblockSkeleton.js";
 import { useReportFrame } from "./useReportFrame.js";
 
 /**
@@ -18,10 +19,16 @@ import { useReportFrame } from "./useReportFrame.js";
  * component at all: it wants the whole page, and gets the ordinary stage
  * instead (see `App.tsx`'s `effectivePane`).
  */
-export function PhoneUnblock({ row, decision, waitingCount, onAnswered, onBrowseRoster }: {
+export function PhoneUnblock({ row, decision, decisionSettled = true, waitingCount, onAnswered, onBrowseRoster }: {
   row: RosterRow;
   /** null while the report is still loading. */
   decision: Decision | null;
+  /** Whether the fetch behind `decision` has answered yet - see
+   * `useDecision.ts`. Defaults to true so a caller that already has its
+   * decision in hand (tests, mainly) does not have to say so. False draws
+   * `UnblockSkeleton` instead of the bare header this screen used to show
+   * for the length of that fetch (#80). */
+  decisionSettled?: boolean;
   /** Including this one, so "1 of 2" reads as "here, and one more after." */
   waitingCount: number;
   /** The answer posted; the caller decides what comes next. */
@@ -41,7 +48,8 @@ export function PhoneUnblock({ row, decision, waitingCount, onAnswered, onBrowse
   // (usePhoneLanding.ts), and that guarantees latestReportSeq is not null;
   // the fallback here only matters for the type, never for what actually
   // renders.
-  const { content, failed: reportFailed, frameRef, onFrameLoad } = useReportFrame(row.id, row.latestReportSeq ?? 0);
+  const { content, failed: reportFailed, frameLoaded, frameRef, onFrameLoad } =
+    useReportFrame(row.id, row.latestReportSeq ?? 0);
 
   const send = async () => {
     if (busy || (!choice && text.trim() === "")) return;
@@ -70,21 +78,28 @@ export function PhoneUnblock({ row, decision, waitingCount, onAnswered, onBrowse
         <button type="button" id="unblock-roster" onClick={onBrowseRoster}>Roster</button>
       </header>
 
-      {decision && (
+      {!decisionSettled ? <UnblockSkeleton /> : decision && (
         <>
           <strong id="unblock-title">{decision.title}</strong>
           <p id="unblock-summary">{decision.summary}</p>
 
           <div id="unblock-report">
+            {/* Reserves the report's space until it is known - the fetch
+                that finds it, and then the frame's own load, which is the
+                thing that used to resize visibly out from under a report
+                already on screen (#80). */}
+            {!reportFailed && !frameLoaded && <div className="skeleton frame-skeleton" aria-hidden="true" />}
             {content?.kind === "url" && (
               <iframe
-                id="unblock-frame" ref={frameRef} onLoad={onFrameLoad}
+                id="unblock-frame" className={frameLoaded ? undefined : "frame-loading"}
+                ref={frameRef} onLoad={onFrameLoad}
                 sandbox="allow-same-origin" title="Report" src={content.url}
               />
             )}
             {content?.kind === "html" && (
               <iframe
-                id="unblock-frame" ref={frameRef} onLoad={onFrameLoad}
+                id="unblock-frame" className={frameLoaded ? undefined : "frame-loading"}
+                ref={frameRef} onLoad={onFrameLoad}
                 sandbox="allow-same-origin" title="Report" srcDoc={content.html}
               />
             )}

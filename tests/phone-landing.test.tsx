@@ -99,13 +99,43 @@ describe("landing on a phone", () => {
     expect(ui.$("#unblock-answer")).not.toBeNull();
   });
 
+  it("holds the decision's shape while its report is still loading, not a bare header", async () => {
+    setNarrow(true);
+    ui = await bootCockpit({
+      rows: [waitingRow({ id: "a", label: "alpha", project: "/var/www/bench" })],
+      decisionHangs: true,
+    });
+
+    await waitFor(() => ui.$("#unblock"), "the unblock screen");
+    // The header is real either way - what changes is everything under it.
+    expect(ui.$("#unblock-head .eyebrow")).not.toBeNull();
+    expect(ui.$("#unblock-title")).toBeNull();
+    expect(ui.$(".unblock-title-skeleton")).not.toBeNull();
+    expect(ui.$(".unblock-options-skeleton")).not.toBeNull();
+  });
+
   it("nothing waiting opens on the empty screen, not a blank roster", async () => {
     setNarrow(true);
     ui = await bootCockpit({ rows: [row({ status: "working", latestReportSeq: null })] });
+    await ui.connect();
 
     await waitFor(() => ui.$("#empty"), "the empty screen");
     expect(pane()).toBe("empty");
     expect(ui.$("#empty-title")!.textContent).toBe("Nothing needs you.");
+  });
+
+  it("shows the loading shape before the roster has ever settled, not the empty screen", async () => {
+    // No `ui.connect()`: the socket has not so much as opened, so `live` is
+    // still null - the exact state that used to render PhoneEmpty's "Nothing
+    // needs you." before anything had arrived to say so (#80).
+    setNarrow(true);
+    ui = await bootCockpit({ rows: [] });
+
+    expect(pane()).toBe("loading");
+    expect(ui.$("#phone-loading")).not.toBeNull();
+    // `#empty-title` rather than `#empty`: the thread has an element of that
+    // id too, and it is on the page whenever the stage is - see #77.
+    expect(ui.$("#empty-title")).toBeNull();
   });
 
   it("answering moves to the next one without the roster in between", async () => {
@@ -141,6 +171,7 @@ describe("landing on a phone", () => {
       rows: [waitingRow({ id: "a", label: "alpha", project: "/var/www/bench" })],
       decision: plain("Ship it?"),
     });
+    await ui.connect();
 
     await waitFor(() => ui.$("#unblock-options .option"), "the decision");
     await ui.click(ui.$("#unblock-options .option"));
@@ -196,6 +227,7 @@ describe("landing on a phone", () => {
     await waitFor(() => ui.$("#unblock-error"), "the send error");
 
     fixtures.answerFails = undefined;
+    await ui.connect();
     await ui.click(ui.$("#unblock-answer"));
 
     await waitFor(() => ui.$("#empty"), "the empty screen");

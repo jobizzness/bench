@@ -3,7 +3,7 @@ import type { RosterRow } from "../../shared/types.js";
 import { wantsAttention } from "../waiting.js";
 import { useNarrowViewport } from "./useNarrowViewport.js";
 
-export type PhonePane = "roster" | "stage" | "unblock" | "empty";
+export type PhonePane = "roster" | "stage" | "unblock" | "empty" | "loading";
 
 export interface PhoneLanding {
   /** Which of the phone's screens is in front of the developer. Read by
@@ -56,6 +56,13 @@ export function usePhoneLanding(
   rows: RosterRow[],
   selectedId: string | null,
   rawSelect: (id: string | null) => void,
+  /** From `useRoster`: `null` until the socket has settled either way. A
+   * roster still connecting is not the same fact as one that has actually
+   * settled on nobody waiting, and rendering "Nothing needs you." for the
+   * first was the worst single flash on a cold phone open (#80) - it said
+   * so before anything had arrived to say it, and then flipped the instant
+   * the real roster landed. */
+  live: boolean | null,
 ): PhoneLanding {
   const narrow = useNarrowViewport();
   const [seenRoster, setSeenRoster] = useState(false);
@@ -116,7 +123,9 @@ export function usePhoneLanding(
   const pane: PhonePane = !narrow
     ? (selectedId === null ? "roster" : "stage")
     : selectedId === null
-      ? (seenRoster ? "roster" : (waiting.length > 0 ? "unblock" : "empty"))
+      ? (seenRoster
+        ? "roster"
+        : (waiting.length > 0 ? "unblock" : (live === null ? "loading" : "empty")))
       : (seenRoster || !selectedWants ? "stage" : "unblock");
 
   return { pane, select, browseRoster, waitingCount: waiting.length, advance };

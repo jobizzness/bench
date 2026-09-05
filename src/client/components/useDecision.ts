@@ -6,6 +6,14 @@ import { isWaiting } from "../waiting.js";
 
 export interface DecisionState {
   decision: Decision | null;
+  /** Whether the report behind the current key has been fetched at least
+   * once - false while there is a key and its fetch has not answered
+   * either way yet. `decision === null` used to mean both "still fetching"
+   * and "fetched, and there genuinely isn't one" - `PhoneUnblock.tsx` needs
+   * the two told apart so it can hold the decision's shape for the first
+   * one instead of drawing its bare header (#80). True with no key at all:
+   * there is nothing pending, which is settled by definition. */
+  settled: boolean;
   answers: Answers;
   setAnswers: (next: Answers) => void;
   /** The chosen option on a plain decision; an intake keeps its own answers. */
@@ -27,6 +35,7 @@ export interface DecisionState {
  */
 export function useDecision(row: RosterRow | null): DecisionState {
   const [decision, setDecision] = useState<Decision | null>(null);
+  const [settled, setSettled] = useState(true);
   const [answers, setAnswers] = useState<Answers>({});
   const [choice, setChoice] = useState<string | null>(null);
   const [focus, setFocus] = useState(0);
@@ -36,8 +45,9 @@ export function useDecision(row: RosterRow | null): DecisionState {
   const key = row && isWaiting(row) ? `${id}:${seq}` : null;
 
   useEffect(() => {
-    if (key === null) { setDecision(null); return; }
+    if (key === null) { setDecision(null); setSettled(true); return; }
 
+    setSettled(false);
     let cancelled = false;
     void (async () => {
       const res = await authFetch(`/api/sessions/${id}/report/${seq}`);
@@ -47,6 +57,7 @@ export function useDecision(row: RosterRow | null): DecisionState {
       setAnswers(seedAnswers(next));
       setChoice(null);
       setFocus(0);
+      setSettled(true);
     })();
 
     return () => { cancelled = true; };
@@ -58,5 +69,5 @@ export function useDecision(row: RosterRow | null): DecisionState {
     setChoice(null);
   }, []);
 
-  return { decision, answers, setAnswers, choice, setChoice, focus, setFocus, dismiss };
+  return { decision, settled, answers, setAnswers, choice, setChoice, focus, setFocus, dismiss };
 }
