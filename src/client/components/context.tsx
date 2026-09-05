@@ -10,6 +10,12 @@ export interface BenchState {
    * banner already says so; a skeleton there would promise a roster that is
    * not coming). See `useRoster.ts`'s own comment on `live`. */
   live: boolean | null;
+  /** Rows answered from the phone's decision sheet that the roster has not
+   * caught up to yet - `usePhoneLanding`'s own optimism, handed down so
+   * `Row.tsx` can paint the same thing rather than showing the stale "wants
+   * you" rail until the next poll (#93). Empty outside the phone flow, since
+   * nothing else ever calls `markAnswered`. */
+  justAnswered: ReadonlySet<string>;
 }
 
 export interface BenchActions {
@@ -19,7 +25,7 @@ export interface BenchActions {
   closeSpecialist: (row: RosterRow) => void;
 }
 
-const StateContext = createContext<BenchState>({ rows: [], selectedId: null, live: null });
+const StateContext = createContext<BenchState>({ rows: [], selectedId: null, live: null, justAnswered: new Set() });
 const ActionsContext = createContext<BenchActions>({ select: () => {}, closeSpecialist: () => {} });
 
 /**

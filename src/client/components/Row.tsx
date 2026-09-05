@@ -1,7 +1,7 @@
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import type { RosterRow } from "../../shared/types.js";
-import { useBenchActions } from "./context.js";
-import { wantsAttention } from "../waiting.js";
+import { useBenchActions, useBenchState } from "./context.js";
+import { primaryWaiting, waitingKey, wantsAttention } from "../waiting.js";
 import { Meta } from "./Meta.js";
 import { GripMark } from "./GripMark.js";
 
@@ -28,6 +28,20 @@ export function Row({ row, selected, held = false, onTake, onNudge, nested = fal
   children?: ReactNode;
 }) {
   const { select, closeSpecialist } = useBenchActions();
+  const { rows, justAnswered } = useBenchState();
+
+  // Answered from the phone's decision sheet, but the roster has not caught
+  // up yet - see `usePhoneLanding.ts`'s own note on `justAnswered`. Reading
+  // the exact report key rather than just `row.id` is what lets a genuinely
+  // new report on the same specialist start wanting attention again straight
+  // away instead of reading as already settled (#93).
+  const settled = justAnswered.has(waitingKey(row));
+  const waiting = wantsAttention(row) && !settled;
+  // Optimistic only while the real status has not moved yet - a crash or any
+  // other real outcome that lands before the roster confirms "working" takes
+  // over immediately, rather than this insisting the row is still settling.
+  const settling = settled && row.status === "awaiting_decision";
+  const waitingPrimary = waiting && primaryWaiting(rows) === row.id;
 
   return (
     // The list item wraps the row and, where there are any, its own nested
@@ -45,7 +59,13 @@ export function Row({ row, selected, held = false, onTake, onNudge, nested = fal
         // roster was colouring it green while its own group count said nothing
         // was waiting. A tab held on another specialist's message wants you
         // too, and has no report to be the same kind of waiting as.
-        data-waiting={wantsAttention(row)}
+        data-waiting={waiting}
+        // See the `settled`/`settling` comment above (#93): true for a beat
+        // right after answering, while the real status is still catching up.
+        data-settling={settling}
+        // Exactly one waiting row at a time, so the rail's motion reads as a
+        // signal rather than a disco - see `primaryWaiting` in waiting.ts.
+        data-waiting-primary={waitingPrimary}
         data-held={held}
         data-nested={nested}
         aria-selected={selected}

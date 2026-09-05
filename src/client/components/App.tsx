@@ -146,7 +146,10 @@ export function App() {
   // be able to tell them apart - and say which of them has started wanting you.
   useDocumentTitle(rows, selectedId);
 
-  const state = useMemo(() => ({ rows, selectedId, live }), [rows, selectedId, live]);
+  const state = useMemo(
+    () => ({ rows, selectedId, live, justAnswered: landing.justAnswered }),
+    [rows, selectedId, live, landing.justAnswered],
+  );
   const actions = useMemo(() => ({ select, closeSpecialist }), [select, closeSpecialist]);
 
   // Fetched only while the drawer is up: it is something you reach for, not a
@@ -408,7 +411,12 @@ export function App() {
               <button id="new-session" type="button" onClick={() => setCreating(true)}>New</button>
             </div>
           </header>
-          <ul id="roster-list"><Roster /></ul>
+          {/* `data-settled` plays a one-shot settle (#93) the instant
+              `advance` finds nothing left waiting - never on mount, since
+              `justCleared` only ever flips true from inside that crossing.
+              See usePhoneLanding.ts and the `#roster-list[data-settled]`
+              rule in styles.css. */}
+          <ul id="roster-list" data-settled={landing.justCleared}><Roster /></ul>
 
           {/* A remote machine that is running but has not mirrored anything
               for this viewer yet - idling can take up to a minute to notice
@@ -532,6 +540,7 @@ export function App() {
         decision={decision}
         decisionSettled={decisionState.settled}
         waitingCount={landing.waitingCount}
+        onAnswering={() => { if (row) landing.markAnswered(row); }}
         onAnswered={() => { if (row) landing.advance(row); dismiss(); }}
         onClose={landing.browseRoster}
       />

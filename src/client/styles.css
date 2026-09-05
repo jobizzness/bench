@@ -586,6 +586,30 @@ button, input, textarea, select { font: inherit; color: inherit; }
   overflow-y: auto;
 }
 
+/* The bench clearing - answering the last waiting decision and landing back
+   here with nothing left wanting you (#93). Below 720px only: `advance` in
+   usePhoneLanding.ts only ever sets `data-settled`, and only ever does so
+   from the phone's decision sheet - "above 720px nothing changes" holds
+   here without this needing its own guard, but the rule lives inside the
+   media query anyway so the two agree even if that ever stops being true.
+   One quiet settle, not a celebration: a small dip and recover in opacity
+   and position, transform/opacity only, and finite rather than `infinite` -
+   it plays once on the crossing and holds still, the same discipline as
+   `pulse-wants` above. `data-settled` clears itself on a timer a beat after
+   this finishes (see the hook), so returning to the roster later never
+   finds the attribute still on and never replays it. */
+@media (max-width: 720px) {
+  #roster-list[data-settled="true"] { animation: roster-settle 900ms var(--ease); }
+  @keyframes roster-settle {
+    0% { opacity: 1; transform: translateY(0); }
+    40% { opacity: 0.85; transform: translateY(3px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #roster-list[data-settled="true"] { animation: none; }
+  }
+}
+
 /* The settings row. Quiet, and the same height whatever the roster is doing
    above it, so it is somewhere the eye can go back to. */
 #roster-foot {
@@ -773,12 +797,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
   background: var(--busy);
   animation: breathe 2.4s ease-in-out infinite;
 }
-/* The rail alone said this before - now the moment a row crosses into
-   wanting you is marked by motion too, the same way its arrival is: the
-   attribute only actually changes on the DOM the instant `wantsAttention`
-   flips from false to true (React does not touch it while it stays the
-   same), so this plays once on the crossing and stays silent through every
-   roster push in between. */
 .row[data-waiting="true"]::before {
   background: var(--wants);
 }
@@ -792,9 +810,55 @@ button, input, textarea, select { font: inherit; color: inherit; }
    whenever the screen is caught mid-cycle. */
 @keyframes breathe { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  /* `breathe` is the only thing left on the rail - see #82 for why the
-     arrival and crossing animations that used to be here are not. */
+  /* `breathe` is the only thing left on the rail above 720px - see #82 for
+     why the arrival and crossing animations that used to be here are not.
+     Below it, the phone-only rules further down turn themselves off too. */
   .row::before { animation: none !important; }
+}
+
+/* Below 720px only (#93) - "above 720px nothing changes" is a criterion of
+   its own, and the roster is drawn side by side with the stage up there
+   rather than pane-swapped, so none of the replay risk below ever applied
+   to it in the first place; there was simply no reason to touch it.
+   `transition`, not `animation:` on the rail's own background - it is what
+   lets `data-waiting`/`data-settling` flipping read as one colour settling
+   into another rather than a snap, and unlike an `animation:` it never
+   replays just because a pane un-hides (#82's own distinction). */
+@media (max-width: 720px) {
+  .row::before { transition: background 200ms var(--ease); }
+
+  /* Answered from the phone's decision sheet a moment ago, and still
+     showing its old status while the roster catches up - painted as
+     working right away rather than left on the "wants you" colour until
+     the next poll lands. Falls away on its own the instant real data
+     disagrees: this only matches while `row.status` is still the stale
+     `awaiting_decision` it had when it was answered - see `settling` in
+     Row.tsx. */
+  .row[data-settling="true"]::before {
+    background: var(--busy);
+    animation: breathe 2.4s ease-in-out infinite;
+  }
+
+  /* Whoever wants you gets the warm rail; only one of them - see
+     `primaryWaiting` in waiting.ts - also gets to move. A `mark-waiting`
+     crossing animation used to be described here (#79); it replayed every
+     time a pane un-hid and was removed in #82 without anything taking its
+     place. This is that place: `data-waiting-primary` only actually goes
+     true on the DOM the instant a row becomes the one waiting row that
+     gets to be alive, so the pulse plays on that crossing and nothing
+     else - never on a pane swap, and never on the five other rows that are
+     also waiting right alongside it. */
+  .row[data-waiting="true"][data-waiting-primary="true"]::before {
+    animation: pulse-wants 1.6s ease-in-out infinite;
+  }
+
+  /* Faster and swinging further than `breathe` - the row asking for you
+     reads as more awake than the one already under way, not less. */
+  @keyframes pulse-wants { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .row::before { animation: none !important; transition: none !important; }
+  }
 }
 
 .row .label {
@@ -3363,6 +3427,31 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 
 #progress[data-live="true"] .step[data-state="doing"] .mark {
   animation: breathe 2.4s ease-in-out infinite;
+}
+
+/* Below 720px only (#93) - see the note on `.row` above for why this whole
+   ticket stays there. A step reaching `done` used to be a silent style
+   swap: colour and the strike-through both changed the instant a poll
+   happened to land, which made the checklist the one part of a working turn
+   with no continuous feedback at all.
+   `text-decoration-line` itself cannot be transitioned - a browser only
+   ever draws it or does not, there is no partial state to interpolate - so
+   the line is drawn at every state here and only its colour moves, from
+   transparent to `--line-firm`. That reads as the strike drawing itself in,
+   is paint-only (no layout), and is exactly as correct on a step that wraps
+   to more than one line as the native line always was - a transform-based
+   redraw keyed to one line's width would not be. */
+@media (max-width: 720px) {
+  .step { transition: color 200ms var(--ease); }
+  .step .mark { transition: color 200ms var(--ease), opacity 200ms var(--ease); }
+  .step .what {
+    text-decoration: line-through;
+    text-decoration-color: transparent;
+    transition: text-decoration-color 260ms var(--ease);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .step, .step .mark, .step .what { transition: none !important; }
+  }
 }
 
 /* ── The trail, folded ──────────────────────────────────────────────── */
