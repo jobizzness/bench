@@ -10,6 +10,7 @@ import type { ArtifactRef } from "./ArtifactCard.js";
 import { ArtifactDialog } from "./ArtifactDialog.js";
 import { Composer } from "./Composer.js";
 import { DecisionPanel, isIntake } from "./DecisionPanel.js";
+import { DecisionSheet } from "./DecisionSheet.js";
 import { DispatchModal } from "./DispatchModal.js";
 import { Gear } from "./Gear.js";
 import { GithubDrawer } from "./GithubDrawer.js";
@@ -23,7 +24,6 @@ import { SignIn } from "./SignIn.js";
 import { useFirebaseUser } from "./useFirebaseUser.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
 import type { PendingMessage } from "./PendingEntry.js";
-import { PhoneUnblock } from "./PhoneUnblock.js";
 import { Queue } from "./Queue.js";
 import { Progress } from "./Progress.js";
 import { Roster } from "./Roster.js";
@@ -65,12 +65,12 @@ export function App() {
   const { rows, live, wakingMachines, degradedMachines, activeMachineName } = useRoster(selectedId);
   const row = rows.find((r) => r.id === selectedId) ?? null;
 
-  // Below the breakpoint, which of the phone's screens is in front of the
-  // developer - the roster, an open specialist, or something waiting.
-  // Ignored above it: every rule that reads `effectivePane` lives inside the
-  // mobile media query. `select` is reassigned to the wrapped version once
-  // here, rather than at every call site below, so the rest of this file
-  // reads exactly as it did before this hook existed.
+  // Below the breakpoint, which of the phone's two panes is in front of the
+  // developer - a decision sheet floats over either one rather than being a
+  // third (#90). Ignored above it: every rule that reads `effectivePane`
+  // lives inside the mobile media query. `select` is reassigned to the
+  // wrapped version once here, rather than at every call site below, so the
+  // rest of this file reads exactly as it did before this hook existed.
   const landing = usePhoneLanding(rows, selectedId, rawSelect);
   const select = landing.select;
 
@@ -198,19 +198,26 @@ export function App() {
   const bar = decision && intake ? sendBar(decision, answers) : null;
 
   // An intake wants the whole page - its brief rewrites itself as you
-  // answer, which does not fit the unblock screen's single column - so it
+  // answer, which does not fit the decision sheet's single column - so it
   // is handed to the ordinary stage instead, the same way Queue.tsx already
   // hands one over rather than answering it in place. usePhoneLanding
-  // decides everything else about where you land without knowing what kind
-  // of decision it found; these are the overrides on top of it.
+  // decides everything else about whether a sheet is eligible without
+  // knowing what kind of decision it found; these are the overrides on top
+  // of it.
   //
   // A tab held on a hand-off is the other one. It wants the developer as
-  // much as an unanswered decision does, so the phone now lands on it (#75) -
-  // but it has no report and no decision, and the unblock screen is built
+  // much as an unanswered decision does, so the phone lands on it too (#75) -
+  // but it has no report and no decision, and the decision sheet is built
   // out of both. What it needs is the dispatch modal, and that opens over
   // the ordinary stage.
   const heldForDispatch = row?.status === "awaiting_dispatch";
-  const effectivePane = landing.pane === "unblock" && (intake || heldForDispatch)
+  const decisionSheetOpen = landing.sheetEligible && !intake && !heldForDispatch;
+  // `landing.pane` reads "roster" for both "nothing selected" and "a waiting
+  // row is selected, its sheet floating over the roster" - the second only
+  // holds while the sheet is actually the thing showing. An intake or a
+  // hand-off has already turned that sheet off above; the stage is what is
+  // left to show for either, the same way it always was.
+  const effectivePane = landing.pane === "roster" && selectedId !== null && (intake || heldForDispatch)
     ? "stage"
     : landing.pane;
 
@@ -323,12 +330,12 @@ export function App() {
   }
 
   useDecisionKeys({
-    // With the sheet closed, 1-9 would be changing answers nobody can see.
-    // The keys belong to whatever is actually in front of you - and on the
-    // phone's unblock screen that is PhoneUnblock's own choice/text state,
+    // With the intake sheet closed, 1-9 would be changing answers nobody can
+    // see. The keys belong to whatever is actually in front of you - and
+    // while the decision sheet is open that is its own choice/text state,
     // not this one, even though the stage underneath is still holding the
-    // same decision (see effectivePane below).
-    decision: (intake && !sheetOpen) || effectivePane === "unblock" ? null : decision,
+    // same decision.
+    decision: (intake && !sheetOpen) || decisionSheetOpen ? null : decision,
     answers,
     focus,
     setFocus,
@@ -375,10 +382,10 @@ export function App() {
       />
 
       {/* Which pane is full-width below the breakpoint. Above it every rule
-          that reads this ignores the value entirely, so `#roster` and
-          `#stage` stay exactly what they always were - the two extra values
-          only ever mean anything inside `@media (max-width: 720px)`, where
-          `#unblock` and `#empty` live too (see `usePhoneLanding.ts`). */}
+          that reads this ignores the value entirely; below it, "roster" and
+          "stage" are the only two values it ever takes (see
+          `usePhoneLanding.ts`) - a decision sheet floats over whichever one
+          is showing rather than being a third (#90). */}
       <main id="app" data-pane={effectivePane}>
         <aside id="roster">
           <header>
@@ -472,12 +479,13 @@ export function App() {
             {decision && intake && bar && (
               <IntakeCard decision={decision} send={bar} onOpen={() => setSheetOpen(true)} />
             )}
-            {/* Not shown while the unblock screen owns this same decision -
-                CSS already hides all of #app there, but rendering a second,
-                fully wired copy of the options underneath is the kind of
-                thing that only looks harmless until something reaches it -
-                a focus ring, a keyboard shortcut, a test. */}
-            {decision && !intake && effectivePane !== "unblock" && (
+            {/* Not shown while the decision sheet owns this same decision -
+                it sits over this same stage now rather than hiding it (#90),
+                but rendering a second, fully wired copy of the options
+                underneath is the kind of thing that only looks harmless
+                until something reaches it - a focus ring, a keyboard
+                shortcut, a test. */}
+            {decision && !intake && !decisionSheetOpen && (
               <DecisionPanel
                 decision={decision}
                 answers={answers}
@@ -513,20 +521,20 @@ export function App() {
         </section>
       </main>
 
-      {/* Siblings of #app, not children of it: the rule that hides #app
-          below the breakpoint when one of these is showing
-          (`#app[data-pane="unblock"] { display: none }`) would hide its own
-          descendants too if these lived inside it. */}
-      {effectivePane === "unblock" && row && (
-        <PhoneUnblock
-          row={row}
-          decision={decision}
-          decisionSettled={decisionState.settled}
-          waitingCount={landing.waitingCount}
-          onAnswered={() => { landing.advance(row); dismiss(); }}
-          onBrowseRoster={landing.browseRoster}
-        />
-      )}
+      {/* Always mounted, open or not - a dismissed decision keeps its choice
+          and typed text for the session, which a component that unmounted
+          on close could not do (#90, see DecisionSheet.tsx's own comment).
+          A sibling of #app, not a child of it: it floats over the roster or
+          the stage, whichever is showing, rather than hiding either. */}
+      <DecisionSheet
+        open={decisionSheetOpen}
+        row={row}
+        decision={decision}
+        decisionSettled={decisionState.settled}
+        waitingCount={landing.waitingCount}
+        onAnswered={() => { if (row) landing.advance(row); dismiss(); }}
+        onClose={landing.browseRoster}
+      />
 
       <ArtifactDialog
         open={artifact}

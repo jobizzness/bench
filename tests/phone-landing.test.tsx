@@ -12,9 +12,15 @@ import { waitFor } from "./helpers/wait-for.js";
  * breakpoint (#83) - something waiting is shown there, not navigated to on
  * arrival. jsdom has no real viewport, so `useNarrowViewport` is fed a fake
  * `matchMedia` here rather than a resize. What these hold in place: nothing
- * is ever selected on open, tapping a waiting row still opens the unblock
- * screen, and answering one still advances straight to the next without a
- * detour back through the roster.
+ * is ever selected on open, tapping a waiting row opens its decision as a
+ * sheet *over* the roster rather than replacing the screen with it (#90),
+ * and answering one still advances straight to the next without a detour
+ * back through the roster.
+ *
+ * `#unblock` is a `<dialog>` now, always mounted - `bootCockpit`'s
+ * `polyfillDialogs()` gives jsdom `showModal`/`close`, so `hasAttribute
+ * ("open")` is what tells a test the sheet is actually showing, the same
+ * way the dispatch modal tests below already read `#dispatch-modal`.
  */
 
 function setNarrow(narrow: boolean): void {
@@ -56,6 +62,7 @@ const waitingRow = (over: Parameters<typeof row>[0] = {}) =>
   row({ latestReportSeq: 1, answeredReportSeq: null, status: "awaiting_decision", ...over });
 
 const pane = () => ui.$("#app")?.getAttribute("data-pane");
+const sheetOpen = () => ui.$("#unblock")?.hasAttribute("open") ?? false;
 
 let ui: Cockpit;
 afterEach(() => {
@@ -73,7 +80,7 @@ describe("landing on a phone", () => {
     });
 
     expect(pane()).toBe("roster");
-    expect(ui.$("#unblock")).toBeNull();
+    expect(sheetOpen()).toBe(false);
   });
 
   it("opens on the roster, whatever is waiting - nothing is selected on its own", async () => {
@@ -84,7 +91,7 @@ describe("landing on a phone", () => {
     });
 
     expect(pane()).toBe("roster");
-    expect(ui.$("#unblock")).toBeNull();
+    expect(sheetOpen()).toBe(false);
     // Shown, not navigated to: the row itself already carries the tinted
     // rail and background `styles.css` gives `data-waiting="true"`.
     expect(ui.$('.row[data-waiting="true"]')).not.toBeNull();
@@ -99,10 +106,10 @@ describe("landing on a phone", () => {
     ui = await bootCockpit({ rows: [] });
 
     expect(pane()).toBe("roster");
-    expect(ui.$("#unblock")).toBeNull();
+    expect(sheetOpen()).toBe(false);
   });
 
-  it("tapping a waiting row opens the unblock screen", async () => {
+  it("tapping a waiting row opens its decision as a sheet, with the roster still mounted behind it", async () => {
     setNarrow(true);
     ui = await bootCockpit({
       rows: [waitingRow({ id: "a", label: "alpha", project: "/var/www/bench" })],
@@ -111,9 +118,13 @@ describe("landing on a phone", () => {
 
     await ui.open("alpha");
 
-    await waitFor(() => ui.$("#unblock"), "the unblock screen");
-    expect(pane()).toBe("unblock");
+    await waitFor(() => (sheetOpen() ? ui.$("#unblock") : null), "the decision sheet");
     expect(ui.$("#unblock-title")!.textContent).toBe("Ship it?");
+    // The roster is not navigated away from to show this - #90's whole
+    // point - so the pane underneath is still "roster" and its rows are
+    // still in the document, not torn down.
+    expect(pane()).toBe("roster");
+    expect(ui.$(".row")).not.toBeNull();
   });
 
   it("the report and the options are both there, unanswered", async () => {
@@ -137,7 +148,7 @@ describe("landing on a phone", () => {
     });
     await ui.open("alpha");
 
-    await waitFor(() => ui.$("#unblock"), "the unblock screen");
+    await waitFor(() => (sheetOpen() ? ui.$("#unblock") : null), "the decision sheet");
     // The header is real either way - what changes is everything under it.
     expect(ui.$("#unblock-head .eyebrow")).not.toBeNull();
     expect(ui.$("#unblock-title")).toBeNull();
@@ -154,7 +165,7 @@ describe("landing on a phone", () => {
     expect(ui.$('.row[data-waiting="true"]')).toBeNull();
   });
 
-  it("answering moves to the next one without the roster in between", async () => {
+  it("answering moves to the next one, re-populating the same sheet rather than closing and reopening", async () => {
     setNarrow(true);
     ui = await bootCockpit({
       rows: [
@@ -167,6 +178,7 @@ describe("landing on a phone", () => {
 
     await waitFor(() => ui.$("#unblock-options .option"), "the first decision");
     expect(ui.$("#unblock-head .eyebrow")!.textContent).toContain("bench · alpha");
+    expect(sheetOpen()).toBe(true);
 
     await ui.click(ui.$("#unblock-options .option"));
     await ui.click(ui.$("#unblock-answer"));
@@ -175,14 +187,17 @@ describe("landing on a phone", () => {
       () => ui.$("#unblock-head .eyebrow")?.textContent?.includes("teledoctor · beta") ? ui.$("#unblock") : null,
       "the next one",
     );
-    expect(pane()).toBe("unblock");
+    // Never closed in between - the same dialog stayed open and swapped
+    // what it shows, which is what "re-populating" means here.
+    expect(sheetOpen()).toBe(true);
+    expect(pane()).toBe("roster");
 
     const answers = ui.sent.filter((s) => s.url.includes("/answer"));
     expect(answers).toHaveLength(1);
     expect(answers[0].url).toContain("/api/sessions/a/answer");
   });
 
-  it("answering the last one leaves the roster in front, not a still-open unblock screen", async () => {
+  it("answering the last one closes the sheet and leaves the roster in front", async () => {
     setNarrow(true);
     ui = await bootCockpit({
       rows: [waitingRow({ id: "a", label: "alpha", project: "/var/www/bench" })],
@@ -195,8 +210,32 @@ describe("landing on a phone", () => {
     await ui.click(ui.$("#unblock-options .option"));
     await ui.click(ui.$("#unblock-answer"));
 
-    await waitFor(() => (pane() === "roster" ? ui.$("#app") : null), "the roster");
-    expect(ui.$("#unblock")).toBeNull();
+    await waitFor(() => (!sheetOpen() ? ui.$("#app") : null), "the sheet to close");
+    expect(pane()).toBe("roster");
+  });
+
+  it("dismissing keeps the choice and typed text for the same decision, in the same session", async () => {
+    setNarrow(true);
+    ui = await bootCockpit({
+      rows: [waitingRow({ id: "a", label: "alpha", project: "/var/www/bench" })],
+      decision: plain("Ship it?"),
+    });
+    await ui.open("alpha");
+
+    await waitFor(() => ui.$("#unblock-options .option"), "the decision");
+    await ui.click(ui.$("#unblock-options .option"));
+    await ui.type(ui.$("#unblock-text"), "a note besides");
+
+    // Dismiss without answering - nothing sent.
+    await ui.click(ui.$("#unblock-roster"));
+    expect(sheetOpen()).toBe(false);
+    expect(ui.sent.filter((s) => s.url.includes("/answer"))).toHaveLength(0);
+
+    // Reopen the same row's decision in the same session.
+    await ui.open("alpha");
+    await waitFor(() => (sheetOpen() ? ui.$("#unblock-options .option") : null), "the reopened decision");
+    expect(ui.$("#unblock-options .option")!.getAttribute("aria-pressed")).toBe("true");
+    expect(ui.$<HTMLInputElement>("#unblock-text")!.value).toBe("a note besides");
   });
 
   it("an intake is handed to the ordinary stage rather than answered inline", async () => {
@@ -209,7 +248,7 @@ describe("landing on a phone", () => {
 
     await waitFor(() => ui.$("#intake"), "the intake sheet");
     expect(pane()).toBe("stage");
-    expect(ui.$("#unblock")).toBeNull();
+    expect(sheetOpen()).toBe(false);
   });
 
   it("says a send failed and keeps the choice, rather than nothing at all", async () => {
@@ -228,7 +267,7 @@ describe("landing on a phone", () => {
     await waitFor(() => ui.$("#unblock-error"), "the send error");
     expect(ui.$("#unblock-error")!.textContent).toContain("Didn't send");
     // Still on the same one, not moved to the next, choice kept.
-    expect(pane()).toBe("unblock");
+    expect(sheetOpen()).toBe(true);
     expect(ui.$("#unblock-options .option")!.getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -250,11 +289,11 @@ describe("landing on a phone", () => {
     fixtures.answerFails = undefined;
     await ui.click(ui.$("#unblock-answer"));
 
-    await waitFor(() => (pane() === "roster" ? ui.$("#app") : null), "the roster");
-    expect(ui.$("#unblock")).toBeNull();
+    await waitFor(() => (!sheetOpen() ? ui.$("#app") : null), "the sheet to close");
+    expect(pane()).toBe("roster");
   });
 
-  it("browsing the roster on purpose keeps it in front, even with something waiting", async () => {
+  it("browsing the roster on purpose closes the sheet, even with something waiting", async () => {
     setNarrow(true);
     ui = await bootCockpit({
       rows: [waitingRow({ id: "a", label: "alpha", project: "/var/www/bench" })],
@@ -266,7 +305,7 @@ describe("landing on a phone", () => {
     await ui.click(ui.$("#unblock-roster"));
 
     expect(pane()).toBe("roster");
-    expect(ui.$("#unblock")).toBeNull();
+    expect(sheetOpen()).toBe(false);
   });
 });
 
@@ -294,7 +333,7 @@ describe("a hand-off waiting on a phone", () => {
     expect(ui.$('.row[data-waiting="true"]')).not.toBeNull();
   });
 
-  it("tapping it goes to the stage and opens the dispatch modal, not the unblock screen it has no report for", async () => {
+  it("tapping it goes to the stage and opens the dispatch modal, not the decision sheet it has no report for", async () => {
     setNarrow(true);
     ui = await bootCockpit({ rows: [held()] });
     await ui.open("payouts");
@@ -302,7 +341,7 @@ describe("a hand-off waiting on a phone", () => {
     await waitFor(() => (ui.$("#dispatch-modal")?.hasAttribute("open") ? ui.$("#dispatch-modal") : null),
       "the dispatch modal");
     expect(pane()).toBe("stage");
-    expect(ui.$("#unblock")).toBeNull();
+    expect(sheetOpen()).toBe(false);
   });
 
   it("counts alongside a decision, rather than being invisible next to one", async () => {
@@ -320,7 +359,7 @@ describe("a hand-off waiting on a phone", () => {
     expect(ui.$("#unblock-count")!.textContent).toBe("1 of 2");
   });
 
-  it("once dispatched, leaves the stage rather than a blank unblock screen", async () => {
+  it("once dispatched, leaves the stage rather than a blank sheet", async () => {
     setNarrow(true);
     ui = await bootCockpit({ rows: [held()] });
     await ui.open("payouts");
@@ -329,12 +368,10 @@ describe("a hand-off waiting on a phone", () => {
       "the dispatch modal");
 
     // What the roster looks like a moment after Dispatch: the tab is running,
-    // and nothing is holding the developer any more. Without the fallback in
-    // `usePhoneLanding`, `pane` stayed on "unblock" - a screen that draws its
-    // own header and nothing else once there is no decision behind it.
+    // and nothing is holding the developer any more.
     await ui.roster([held({ status: "working", pendingPrompt: null })]);
 
     await waitFor(() => (pane() === "stage" ? ui.$("#app") : null), "the stage");
-    expect(ui.$("#unblock")).toBeNull();
+    expect(sheetOpen()).toBe(false);
   });
 });

@@ -9,7 +9,7 @@ export interface DecisionState {
   /** Whether the report behind the current key has been fetched at least
    * once - false while there is a key and its fetch has not answered
    * either way yet. `decision === null` used to mean both "still fetching"
-   * and "fetched, and there genuinely isn't one" - `PhoneUnblock.tsx` needs
+   * and "fetched, and there genuinely isn't one" - `DecisionSheet.tsx` needs
    * the two told apart so it can hold the decision's shape for the first
    * one instead of drawing its bare header (#80). True with no key at all:
    * there is nothing pending, which is settled by definition. */
