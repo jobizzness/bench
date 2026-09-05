@@ -1105,8 +1105,12 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 .stage-usage[data-tone="full"] .stage-usage-fill { background: var(--broken); }
 
 /* min-height:0 is required: a flex child inside a grid item otherwise
-   grows to fit its content and pushes the composer out of the viewport. */
-#thread { flex: 1; min-height: 0; overflow-y: auto; padding: 28px 32px 32px; }
+   grows to fit its content and pushes the composer out of the viewport.
+   position:relative makes #thread the offsetParent for its entries, so
+   useThreadScroll.ts can read an entry's offsetTop as "distance from the
+   top of this thread" without scrollTop folded in - and is what lets
+   #thread-new-below below stay put over the content while it scrolls. */
+#thread { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding: 28px 32px 32px; }
 
 #empty {
   max-width: 30ch;
@@ -1156,6 +1160,27 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
     color: var(--wants);
     border-color: var(--wants-dim);
   }
+}
+
+/* A message landed below while the reader was scrolled up (#92). Floats
+   over the thread rather than in its flow - #thread's own
+   position:relative (above) is what anchors this to the viewport the
+   reader is actually looking at instead of to wherever it falls in the
+   scrolled content. */
+#thread-new-below {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--wants-dim);
+  background: var(--wants);
+  color: var(--on-accent);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 /* Entries run the full width of the thread. Three separate measure caps -

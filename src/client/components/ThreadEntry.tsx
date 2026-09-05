@@ -25,7 +25,11 @@ export function ThreadEntry({
         : null;
 
   return (
-    <div className={`entry ${entry.kind}`}>
+    // data-seq is read by useThreadScroll.ts to find this entry again after
+    // the window has slid, so it can measure how far it moved rather than
+    // guessing from a total height delta that would also include whatever
+    // landed off-screen at the bottom.
+    <div className={`entry ${entry.kind}`} data-seq={entry.seq}>
       {who && (
         <div className="who">
           {who}
