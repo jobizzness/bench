@@ -25,3 +25,36 @@ export function isWaiting(row: RosterRow): boolean {
 export function wantsAttention(row: RosterRow): boolean {
   return isWaiting(row) || row.status === "awaiting_dispatch";
 }
+
+/** A row's report, not just the row - answering it and then getting a new
+ * report on the same specialist is a different decision, and should not
+ * still read as the one already answered. A tab held on a hand-off has no
+ * report, so its key is stable. Shared between `usePhoneLanding` (which
+ * decides is a row still counts as waiting) and `Row.tsx` (which decides
+ * whether to keep painting the "wants you" rail on one that was just
+ * answered but the roster has not caught up to yet, #93) - both have to
+ * agree on the same identity or a row could read as answered in one place
+ * and still waiting in the other. */
+export function waitingKey(row: RosterRow): string {
+  return `${row.id}:${row.latestReportSeq}`;
+}
+
+/**
+ * The one waiting row that gets to look alive (#93).
+ *
+ * Six rows blocked on the developer at once are still one fact - "you have
+ * work to do" - not six separate emergencies, and animating all six turns a
+ * signal into a disco. Rather than try to keep several animations in phase
+ * (fragile, and still six things moving at once even if synchronised), only
+ * the first row in roster order that wants attention gets the livelier
+ * treatment; the rest keep the plain, static "wants" rail they always had -
+ * still legible from its colour and from the group's own count, just quiet.
+ *
+ * First in `rows` order rather than first on screen: a project group sorts
+ * or lets the developer drag its own rows, and this does not try to track
+ * that - it only has to name the same one consistently from render to
+ * render, and the order the daemon hands back is stable enough for that.
+ */
+export function primaryWaiting(rows: RosterRow[]): string | null {
+  return rows.find(wantsAttention)?.id ?? null;
+}

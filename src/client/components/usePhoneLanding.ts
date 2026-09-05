@@ -1,7 +1,14 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RosterRow } from "../../shared/types.js";
-import { wantsAttention } from "../waiting.js";
+import { tap } from "../haptics.js";
+import { waitingKey, wantsAttention } from "../waiting.js";
 import { useNarrowViewport } from "./useNarrowViewport.js";
+
+/** How long the bench-clear settle (#93) holds before it lets go - long
+ * enough to read as a deliberate pause, not another 200ms micro-transition.
+ * Kept here rather than as a CSS custom property: nothing else needs this
+ * number, and `tests/themes.test.ts` asserts the exact `:root` token list. */
+const SETTLE_MS = 900;
 
 export type PhonePane = "roster" | "stage";
 
@@ -39,15 +46,23 @@ export interface PhoneLanding {
   /** Call once `row`'s answer has posted. Moves on to whatever else is
    * waiting, or leaves the roster in front of you if that was the last one. */
   advance: (row: RosterRow) => void;
-}
-
-/** A row's report, not just the row - answering it and then getting a new
- * report on the same specialist is a different decision, and should not
- * still read as the one already answered. A tab held on a hand-off has no
- * report, so its key is stable; nothing calls `advance` for one (it is
- * dispatched, not answered), so that never has to tell two apart. */
-function waitingKey(row: RosterRow): string {
-  return `${row.id}:${row.latestReportSeq}`;
+  /** Marks `row` answered without moving the selection - what `DecisionSheet`
+   * calls the instant its POST succeeds, before its own exit motion plays, so
+   * the row underneath starts settling into its working look at the tap
+   * rather than waiting for `advance` to also change what is selected (#93).
+   * `advance` calls this itself, so a caller that does not need the two
+   * split apart can still just call `advance` alone. */
+  markAnswered: (row: RosterRow) => void;
+  /** Reads `waitingKey`-shaped identity, not just `row.id`: a specialist
+   * that answered and then got a genuinely new report must not still read as
+   * settled. Exposed so `Row.tsx` can paint the same optimism this hook
+   * already uses to decide what still counts as waiting (#93). */
+  justAnswered: ReadonlySet<string>;
+  /** True for one deliberate beat after `advance` finds nothing left to move
+   * on to - the bench clearing (#93). Never true because of a fresh page
+   * load or a re-render; only the crossing inside `advance` itself sets it,
+   * and it clears itself again on a timer. */
+  justCleared: boolean;
 }
 
 /**
@@ -87,6 +102,11 @@ export function usePhoneLanding(
   // instantly, and sitting on a decision you just sent would be wrong even
   // for the one render it took.
   const [justAnswered, setJustAnswered] = useState<ReadonlySet<string>>(new Set());
+  // The bench-clear settle (#93) - true for one deliberate beat, set only by
+  // the crossing inside `advance` below and never by render or mount.
+  const [justCleared, setJustCleared] = useState(false);
+  const clearedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (clearedTimer.current) clearTimeout(clearedTimer.current); }, []);
 
   // `wantsAttention`, not `isWaiting`: a tab another specialist opened and
   // handed a prompt to is held on the developer exactly as hard as an
@@ -96,13 +116,31 @@ export function usePhoneLanding(
   // on the roster like any other, rather than something navigated to.
   const waiting = rows.filter((row) => wantsAttention(row) && !justAnswered.has(waitingKey(row)));
 
-  const browseRoster = useCallback(() => rawSelect(null), [rawSelect]);
+  const browseRoster = useCallback(() => {
+    tap();
+    rawSelect(null);
+  }, [rawSelect]);
+
+  const markAnswered = useCallback((row: RosterRow) => {
+    setJustAnswered((current) => new Set(current).add(waitingKey(row)));
+  }, []);
 
   const advance = useCallback((row: RosterRow) => {
-    setJustAnswered((current) => new Set(current).add(waitingKey(row)));
+    markAnswered(row);
     const next = waiting.find((candidate) => candidate.id !== row.id) ?? null;
+    if (next === null) {
+      // The last one - the bench clears. One deliberate beat, then quiet
+      // again; a flag left set would replay as soon as the next `advance`
+      // call happened to find nothing too, which is exactly right, but
+      // leaving it set *between* crossings would also make it true the next
+      // time this component merely re-rendered, which is not a crossing at
+      // all (#93's own rule: state-tracked, not inferred from render).
+      setJustCleared(true);
+      if (clearedTimer.current) clearTimeout(clearedTimer.current);
+      clearedTimer.current = setTimeout(() => setJustCleared(false), SETTLE_MS);
+    }
     rawSelect(next?.id ?? null);
-  }, [waiting, rawSelect]);
+  }, [waiting, rawSelect, markAnswered]);
 
   // The decision sheet is for a row that is actually holding the developer.
   // Landing on one and then having it stop - dispatched, declined, answered
@@ -130,5 +168,8 @@ export function usePhoneLanding(
     browseRoster,
     waitingCount: waiting.length,
     advance,
+    markAnswered,
+    justAnswered,
+    justCleared,
   };
 }

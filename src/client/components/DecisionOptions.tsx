@@ -1,4 +1,5 @@
 import { answersFor } from "../../shared/decisions.js";
+import { tap } from "../haptics.js";
 import type { Decision } from "../../shared/types.js";
 
 /**
@@ -24,7 +25,7 @@ export function DecisionOptions({
           data-answer={option.id}
           key={option.id}
           aria-pressed={choice === option.id}
-          onClick={() => onChoose(option.id)}
+          onClick={() => { tap(); onChoose(option.id); }}
         >
           <span className="key">{index + 1}</span>
           <span>

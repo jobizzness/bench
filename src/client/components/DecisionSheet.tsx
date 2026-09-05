@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Decision, RosterRow } from "../../shared/types.js";
 import { postJson } from "../api.js";
 import { answersFor } from "../../shared/decisions.js";
+import { tap } from "../haptics.js";
 import { projectName } from "../format.js";
 import { DecisionOptions } from "./DecisionOptions.js";
 import { UnblockSkeleton } from "./UnblockSkeleton.js";
@@ -44,7 +45,9 @@ import { useSheetDismissGestures } from "./useSheetDismissGestures.js";
  * same deliberate look this one got rather than an untested assumption that
  * the hook behaves identically there. Follow-up, not silent scope.
  */
-export function DecisionSheet({ open, row, decision, decisionSettled = true, waitingCount, onAnswered, onClose }: {
+export function DecisionSheet({
+  open, row, decision, decisionSettled = true, waitingCount, onAnswering, onAnswered, onClose,
+}: {
   open: boolean;
   row: RosterRow | null;
   /** null while the report is still loading. */
@@ -57,7 +60,14 @@ export function DecisionSheet({ open, row, decision, decisionSettled = true, wai
   decisionSettled?: boolean;
   /** Including this one, so "1 of 2" reads as "here, and one more after." */
   waitingCount: number;
-  /** The answer posted; the caller decides what comes next. */
+  /** The answer has posted, but `onAnswered` has not fired yet - this sheet
+   * is about to slide away over the row it just unblocked. Marks the row
+   * settled a beat before the selection actually moves on, so the two read
+   * as one motion rather than two (#93). Optional: a caller that does not
+   * care about the connective tissue (tests, mainly) can leave it out. */
+  onAnswering?: () => void;
+  /** The answer posted and this sheet has finished leaving; the caller
+   * decides what comes next. */
   onAnswered: () => void;
   /** Dismiss, or the dialog's own native close (Esc, or the back gesture
    * popping `selectedId` back out of the URL - see `App.tsx`). Always the
@@ -70,6 +80,14 @@ export function DecisionSheet({ open, row, decision, decisionSettled = true, wai
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // True from the moment an answered send starts this dialog's own exit
+  // motion until that motion hands off to `onAnswered` below. `onAnswering`
+  // marks the row answered as soon as the POST succeeds, and that flips
+  // `open` false on the very next render (the row no longer counts as
+  // waiting - see usePhoneLanding.ts) well before the exit has finished
+  // playing. Without this, the plain open-effect below would race that and
+  // slam the dialog shut natively out from under the manual slide (#93).
+  const exitingRef = useRef(false);
 
   // What `open` was as of the last render, read inside the dialog's own
   // `close` event - which fires whenever this closes, including the times
@@ -86,7 +104,21 @@ export function DecisionSheet({ open, row, decision, decisionSettled = true, wai
     const dialog = ref.current;
     if (!dialog) return;
     if (open) { if (!dialog.open) dialog.showModal?.(); }
-    else if (dialog.open) dialog.close?.();
+    else if (dialog.open && !exitingRef.current) dialog.close?.();
+  }, [open]);
+
+  // What actually gates the content below, kept apart from `open` itself so
+  // `settle()`'s manual exit can hold the report and options on screen while
+  // its own transform carries the sheet away - `open` already went false the
+  // instant `onAnswering` marked the row answered (see `exitingRef`'s own
+  // comment), well before there is anything to look at behind an empty
+  // sliding box. Every other way this closes (the gestures, the header
+  // button, Esc) never sets `exitingRef`, so this mirrors `open` exactly for
+  // all of them, unchanged from before this existed.
+  const [contentOpen, setContentOpen] = useState(open);
+  useEffect(() => {
+    if (exitingRef.current) return;
+    setContentOpen(open);
   }, [open]);
 
   useSheetDismissGestures(ref, onClose);
@@ -116,14 +148,54 @@ export function DecisionSheet({ open, row, decision, decisionSettled = true, wai
   const { content, failed: reportFailed, frameLoaded, frameRef, onFrameLoad } =
     useReportFrame(row?.id ?? "", row?.latestReportSeq ?? 0);
 
+  /**
+   * The exit, once the answer has actually posted: the row underneath starts
+   * settling into its working look immediately (`onAnswering`, read by
+   * `Row.tsx` through `usePhoneLanding`'s `justAnswered`), and this sheet
+   * slides away over it rather than vanishing outright - one continuous
+   * movement from the tap to the consequence, instead of the row silently
+   * catching up whenever the next poll happens to land (#93).
+   *
+   * Reuses the transform this dialog is already dragged with, not the CSS
+   * `sheet-rise` it opens with: `animation:` is safe on this dialog only
+   * because `showModal()`/`close()` are the sole things that ever change
+   * whether it renders at all (see the class doc); a second, JS-driven exit
+   * here keeps that true rather than adding a mechanism that could race the
+   * swipe gesture's own inline `transform`/`transition` for the same
+   * property. `prefers-reduced-motion` skips the slide and hands off at
+   * once, checked fresh rather than cached - the same rule the gesture hook
+   * follows.
+   */
+  const settle = () => {
+    onAnswering?.();
+    const dialog = ref.current;
+    if (!dialog || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      onAnswered();
+      return;
+    }
+    exitingRef.current = true;
+    const rect = dialog.getBoundingClientRect();
+    dialog.style.transition = "transform var(--duration-scene) var(--ease-exit)";
+    dialog.style.transform = `translateY(${rect.height}px)`;
+    dialog.addEventListener("transitionend", () => {
+      dialog.style.transition = "";
+      dialog.style.transform = "";
+      exitingRef.current = false;
+      setContentOpen(false);
+      dialog.close?.();
+      onAnswered();
+    }, { once: true });
+  };
+
   const send = async () => {
     if (!row || busy || (!choice && text.trim() === "")) return;
     setBusy(true);
     setError(null);
+    tap();
     try {
       const res = await postJson(`/api/sessions/${row.id}/answer`, { optionId: choice, text: text.trim() });
       if (!res.ok) throw new Error(`answer failed: ${res.status}`);
-      onAnswered();
+      settle();
     } catch {
       // choice and text are untouched above, so the retry this invites does
       // not ask the developer to type the answer again (#60).
@@ -141,14 +213,17 @@ export function DecisionSheet({ open, row, decision, decisionSettled = true, wai
     // `onClose` if this was not already closing on `App.tsx`'s own say-so
     // (see the `openRef` comment above).
     <dialog id="unblock" className="sheet" ref={ref} onClose={() => { if (openRef.current) onClose(); }}>
-      {/* Gated on `open`, not only on `row`: this component stays mounted
-          the whole time (see the class comment) so a dismissed decision
-          keeps its `choice`/`text` in memory, but the dialog's *content*
-          rendering while closed - above 720px it is never eligible at all
-          (#90) - is a second, fully wired copy of the same options sitting
-          in the document underneath the desktop composer's own, reachable
-          by anything that is not scoped to a visible container. */}
-      {open && row && (
+      {/* Gated on `contentOpen`, not only on `row`: this component stays
+          mounted the whole time (see the class comment) so a dismissed
+          decision keeps its `choice`/`text` in memory, but the dialog's
+          *content* rendering while closed - above 720px it is never
+          eligible at all (#90) - is a second, fully wired copy of the same
+          options sitting in the document underneath the desktop composer's
+          own, reachable by anything that is not scoped to a visible
+          container. `contentOpen` rather than `open` itself so `settle()`'s
+          exit motion (#93) can keep this on screen while the sheet slides
+          away over it, instead of leaving an empty box to slide. */}
+      {contentOpen && row && (
         <>
           {/* The only hint the drag-to-dismiss gesture exists at all
               (#91) - every native sheet has one, and without it there is
