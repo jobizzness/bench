@@ -1,39 +1,15 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import type { ThreadEntry as Entry } from "../../shared/types.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
 import { PendingEntry, type PendingMessage } from "./PendingEntry.js";
 import { ThreadEntry } from "./ThreadEntry.js";
 import { ThreadSkeleton } from "./ThreadSkeleton.js";
 import { useRefs } from "./useRefs.js";
+import { useThreadScroll } from "./useThreadScroll.js";
 import { useThreadWindow } from "./useThreadWindow.js";
 
 function Empty({ heading, body }: { heading: string; body: string }) {
   return <p id="empty"><b>{heading}</b>{body}</p>;
-}
-
-/**
- * Frames have no height until they load, so one scroll at render time lands
- * somewhere in the middle. Re-pin as each settles. `pending` is a second
- * dependency rather than folded into `entries`: a just-sent message has to
- * pull the thread down to meet it exactly the same way a landed one does.
- */
-function usePinToBottom(host: React.RefObject<HTMLDivElement | null>, entries: Entry[], pending: PendingMessage[]) {
-  useEffect(() => {
-    const node = host.current;
-    if (!node) return;
-
-    const jump = () => { node.scrollTop = node.scrollHeight; };
-    jump();
-    const raf = requestAnimationFrame(jump);
-
-    const frames = [...node.querySelectorAll("iframe")];
-    for (const frame of frames) frame.addEventListener("load", jump, { once: true });
-
-    return () => {
-      cancelAnimationFrame(raf);
-      for (const frame of frames) frame.removeEventListener("load", jump);
-    };
-  }, [host, entries, pending]);
 }
 
 export function Thread({
@@ -58,11 +34,11 @@ export function Thread({
   pending?: PendingMessage[];
 }) {
   const host = useRef<HTMLDivElement>(null);
-  usePinToBottom(host, entries, pending);
   // Resolved once for the whole thread: the same number turns up in several
   // messages, and the answer is the same in all of them.
   const refs = useRefs(sessionId, entries);
   const { visible, hiddenCount, expand } = useThreadWindow(host, sessionId, entries);
+  const { hasNewBelow, scrollToBottom } = useThreadScroll(host, sessionId, entries, pending, visible, hiddenCount);
 
   return (
     <div id="thread" ref={host}>
@@ -94,6 +70,13 @@ export function Thread({
                 {pending.map((message) => (
                   <PendingEntry key={message.id} message={message} refs={refs} />
                 ))}
+                {/* A message landed while the reader was up-thread (#92) -
+                    said quietly rather than yanking them down to it. */}
+                {hasNewBelow && (
+                  <button id="thread-new-below" type="button" onClick={scrollToBottom}>
+                    New message ↓
+                  </button>
+                )}
               </>
             )}
     </div>
