@@ -17,7 +17,7 @@ const { loadArtifact } = vi.hoisted(() => ({ loadArtifact: vi.fn() }));
 vi.mock("../src/client/api.js", () => ({ loadArtifact }));
 
 const { useReportFrame } = await import("../src/client/components/useReportFrame.js");
-const { PhoneUnblock } = await import("../src/client/components/PhoneUnblock.js");
+const { DecisionSheet } = await import("../src/client/components/DecisionSheet.js");
 
 let root: Root | null = null;
 let host: HTMLElement | null = null;
@@ -74,7 +74,7 @@ const plain: Decision = {
   allowFreeText: true,
 };
 
-describe("PhoneUnblock when the report cannot be loaded", () => {
+describe("DecisionSheet when the report cannot be loaded", () => {
   it("shows an honest message rather than an empty box, and the options still work", async () => {
     loadArtifact.mockRejectedValue(new TypeError("fetch failed"));
     host = document.createElement("div");
@@ -82,12 +82,13 @@ describe("PhoneUnblock when the report cannot be loaded", () => {
     root = createRoot(host);
     await act(async () => {
       root!.render(
-        <PhoneUnblock
+        <DecisionSheet
+          open
           row={row({ id: "a", latestReportSeq: 1 })}
           decision={plain}
           waitingCount={1}
           onAnswered={() => {}}
-          onBrowseRoster={() => {}}
+          onClose={() => {}}
         />,
       );
     });

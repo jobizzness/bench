@@ -10,7 +10,7 @@ export interface ReportFrame {
   failed: boolean;
   /** False while the report is still being fetched, and while the iframe
    * that will hold it has been given a `src`/`srcDoc` but has not fired its
-   * own `load` yet - the two waits `PhoneUnblock.tsx` needs a skeleton over,
+   * own `load` yet - the two waits `DecisionSheet.tsx` needs a skeleton over,
    * because nothing outside this hook needs to tell them apart. Never flips
    * back to false for the same report once it fires - only a fresh
    * `sessionId`/`seq` resets it (#80). */
@@ -28,7 +28,7 @@ export interface ReportFrame {
  * report scrolls, then you hit its edge and the *page* still has to scroll
  * to reach what is under it. Reading the loaded document's own height and
  * setting it on the frame turns that back into one column - the same one
- * the decision's options are in (see `PhoneUnblock.tsx`).
+ * the decision's options are in (see `DecisionSheet.tsx`).
  *
  * Only works where the iframe's document is actually reachable from here,
  * and on a phone that is not a rare exception - it is closer to a coin

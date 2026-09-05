@@ -2118,6 +2118,33 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 }
 .sheet::backdrop { background: var(--scrim); }
 
+/* Below the breakpoint every `.sheet` rises from the bottom edge instead of
+   sitting centred - the one mechanism #90 (a decision over the roster) and
+   #81 (sheets in general) both asked for, built once here rather than
+   twice. A `<dialog>` positions itself with the UA stylesheet's own
+   `position: fixed` and auto margins; overriding just the margin (not
+   `position`) is what turns "centred" into "flush against the bottom edge,
+   full width" without fighting that default. `animation:`, not `transition:`
+   - safe here in a way it was not for #79's rows and thread entries (#82):
+   a dialog is not inside `#app`'s pane-hidden subtree, so nothing un-hides
+   it by accident, and `showModal()`/`.close()` are the only things that ever
+   change whether it is rendered at all - a real mount every time, the one
+   case the note on `.row` says `animation:` is safe for. */
+@media (max-width: 720px) {
+  .sheet {
+    margin: auto 0 0;
+    width: 100%;
+    max-width: none;
+    border-radius: 16px 16px 0 0;
+    border-bottom: 0;
+    animation: sheet-rise var(--duration-scene) var(--ease-enter);
+  }
+  @keyframes sheet-rise { from { transform: translateY(100%); } }
+  @media (prefers-reduced-motion: reduce) {
+    .sheet { animation: none; }
+  }
+}
+
 .sheet form {
   padding: 26px 28px 22px;
   display: flex;
@@ -4092,22 +4119,37 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   }
 
   /* ── Something waiting, tapped rather than landed on ───────────────────
-     The phone opens on the roster the same as above the breakpoint (#83) -
-     this is what a waiting row opens onto once you tap it, not what the app
-     opens onto on its own. Still the one screen on the whole phone build
-     that is allowed to be bold once it is up: the title is the loudest text
-     anywhere in this file, the report is the first thing under it, and
-     everything else - the project name, the way back to the roster - is
-     furniture in the same quiet register the roster row now uses. */
-  #app[data-pane="unblock"] { display: none; }
-
+     A decision sheet over the roster (#90), not a screen that replaces it -
+     the roster stays mounted and visible underneath `.sheet::backdrop`'s
+     scrim, which is the whole point: the roster you were just looking at is
+     still there, dimmed rather than gone. Still the one surface on the
+     whole phone build that is allowed to be bold once it is up: the title
+     is the loudest text anywhere in this file and the report is the first
+     thing under it - unchanged from when this was full-screen, because the
+     argument for a decision needs exactly as much room as it always did
+     (#57). Opens tall rather than peeking and expanding on demand, for the
+     same reason: an expandable sheet would hand you the choice before the
+     case for it on the first tap, which is the failure #57 was written
+     against in the first place. `max-height` leaves a strip of the roster
+     visible above it always, at whatever height the *current* viewport
+     actually is - `--visual-viewport-height` already shrinks when the
+     keyboard opens (`useVisualViewportHeight.ts`), so the sheet shrinks
+     with it instead of the keyboard covering its own answer field. */
   #unblock {
+    /* The shared `.sheet` rule already pins this to the bottom edge with
+       `margin: auto 0 0` - bounding the height here is what leaves the 48px
+       the auto top margin pushes it down by, rather than setting a
+       margin-top of our own that would fight that rule's. */
+    max-height: calc(var(--visual-viewport-height, 100dvh) - 48px);
     display: flex;
     flex-direction: column;
-    height: var(--visual-viewport-height, 100dvh);
+    min-height: 0;
     overflow-y: auto;
+    /* Still full-bleed to the side edges (a notch can be there in
+       landscape) and to the bottom (the home indicator) - just not the top,
+       which is exactly the 48px this never reaches. */
     padding:
-      env(safe-area-inset-top) env(safe-area-inset-right)
+      0 env(safe-area-inset-right)
       env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 

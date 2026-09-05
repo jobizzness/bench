@@ -3,23 +3,33 @@ import type { RosterRow } from "../../shared/types.js";
 import { wantsAttention } from "../waiting.js";
 import { useNarrowViewport } from "./useNarrowViewport.js";
 
-export type PhonePane = "roster" | "stage" | "unblock";
+export type PhonePane = "roster" | "stage";
 
 export interface PhoneLanding {
   /** Which of the phone's screens is in front of the developer. Read by
    * `App.tsx` alongside `selectedId` to decide what to render; ignored
    * above the breakpoint, where every rule that acts on it lives inside
-   * `@media (max-width: 720px)`. */
+   * `@media (max-width: 720px)`. Never "the decision" any more (#90) - a
+   * waiting row tapped on a phone opens `DecisionSheet` *over* whichever of
+   * these two is already showing, rather than being a third one itself. */
   pane: PhonePane;
+  /** Whether tapping the current selection is why a decision sheet should be
+   * open - a row that is both selected and waiting, on a phone. `App.tsx`
+   * ANDs this with its own overrides (an intake wants the whole stage; a
+   * held hand-off wants the dispatch modal) rather than this hook knowing
+   * about either. Named apart from `pane` because the sheet floats over
+   * whichever pane is showing rather than being one (#90) - the roster
+   * underneath is not navigated away from to show it. */
+  sheetEligible: boolean;
   /** The row selector, unchanged - kept on `PhoneLanding` rather than handed
    * back raw so every caller reaches for one name regardless of width (see
    * `App.tsx`). Nothing below the breakpoint needs to know it was tapped
    * rather than steered here any more (#83). */
   select: (id: string | null) => void;
-  /** Deselects. What the unblock screen's "Roster" button calls - since
-   * nothing is auto-selected on this phone any more, deselecting already
-   * lands back on the roster (see `pane` below) without anything else to
-   * arrange first. */
+  /** Deselects. What the decision sheet's dismiss calls - closing it loses
+   * nothing (the sheet keeps its own choice/text alive while dismissed, see
+   * `DecisionSheet.tsx`) and lands back on the plain roster/stage view,
+   * since nothing is auto-selected on this phone any more. */
   browseRoster: () => void;
   /** How many want the developer, including whichever one is in front of you
    * and counting a tab held on a hand-off - already discounting whatever you
@@ -57,10 +67,14 @@ function waitingKey(row: RosterRow): string {
  * What #57 got right and this keeps: something waiting is not a screen you
  * go find. `.row[data-waiting="true"]` already carries a tinted background
  * and a rail wide and warm enough to spot from across the room (see
- * styles.css and #79's crossing animation) - tapping it is what opens the
- * unblock screen, and answering one still moves straight to the next
+ * styles.css and #79's crossing animation) - tapping it is what opens a
+ * decision sheet, and answering one still moves straight to the next
  * without a detour back through the roster in between (`advance`, below).
- * Only the one-time steering on arrival is gone.
+ *
+ * Tapping used to replace the whole screen with the decision (the "unblock"
+ * pane) - the same complaint #83 fixed for arrival, one level down (#90).
+ * `pane` now only ever names the roster or the stage; the sheet floats over
+ * whichever of those is already showing rather than being a third one.
  */
 export function usePhoneLanding(
   rows: RosterRow[],
@@ -90,21 +104,31 @@ export function usePhoneLanding(
     rawSelect(next?.id ?? null);
   }, [waiting, rawSelect]);
 
-  // The unblock screen is for a row that is actually holding the developer.
+  // The decision sheet is for a row that is actually holding the developer.
   // Landing on one and then having it stop - dispatched, declined, answered
   // from the laptop, crashed - used to leave `pane` on "unblock" anyway, and
-  // that screen draws nothing but its own header once there is no decision
-  // behind it. The ordinary stage is what it should fall back to.
+  // that screen drew nothing but its own header once there was no decision
+  // behind it (the sheet, being a dialog rather than a pane, just does not
+  // open at all now that nothing is asking for it - there is no equivalent
+  // to fall back from).
   const selectedWants = waiting.some((candidate) => candidate.id === selectedId);
 
   // Above the breakpoint this is exactly what selectedId ? "stage" : "roster"
-  // always was - #unblock is a phone screen, and pane never claims to be it
-  // where there is no phone to show it on. Below it, nothing selected is
-  // always the roster (#83) - the one exception used to be the auto-landing
-  // this hook did on its own, which is gone.
+  // always was, and stays that way regardless of `selectedWants` - the sheet
+  // is a phone-only affordance (#90), and pane never claims to be it where
+  // there is no phone to show it on. Below it, nothing selected is always
+  // the roster (#83); a waiting row leaves the roster in front too, now
+  // that tapping it opens a sheet over the pane rather than replacing it.
   const pane: PhonePane = selectedId === null
     ? "roster"
-    : (narrow && selectedWants ? "unblock" : "stage");
+    : (narrow && selectedWants ? "roster" : "stage");
 
-  return { pane, select: rawSelect, browseRoster, waitingCount: waiting.length, advance };
+  return {
+    pane,
+    sheetEligible: narrow && selectedWants,
+    select: rawSelect,
+    browseRoster,
+    waitingCount: waiting.length,
+    advance,
+  };
 }
