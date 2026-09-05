@@ -43,6 +43,12 @@ export interface Fixtures {
    * a daemon that answered badly. Both used to un-disable the button and say
    * nothing at all (#60). */
   answerFails?: "reject" | number;
+  /** Make POST .../message fail the same two ways (#86, the optimistic
+   * send's own failure path). */
+  messageFails?: "reject" | number;
+  /** Make POST .../message never land at all - what the optimistic entry
+   * looks like while genuinely still in flight. */
+  messageHangs?: boolean;
   /** House rules already on the daemon when the page opens. */
   settings?: { codingStyle: string; workflowRules: string; reviewModel?: string };
   /** What GitHub says about the project the drawer is opened on. */
@@ -268,6 +274,19 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       if (fixtures.answerFails === "reject") throw new TypeError("fetch failed");
       if (typeof fixtures.answerFails === "number") {
         return { ok: false, status: fixtures.answerFails, json: async () => ({}) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    if (init?.method === "POST" && url.includes("/message")) {
+      sent.push({ url, body: JSON.parse(String(init.body)) });
+      // What a message sent optimistically (#86) draws while the POST
+      // behind it is still on its way - never resolves either way.
+      if (fixtures.messageHangs) return new Promise<never>(() => {});
+      // "reject" is a dead link; a number is a daemon that answered with a
+      // status - both used to leave the developer's text sitting nowhere.
+      if (fixtures.messageFails === "reject") throw new TypeError("fetch failed");
+      if (typeof fixtures.messageFails === "number") {
+        return { ok: false, status: fixtures.messageFails, json: async () => ({ error: "could not send" }) };
       }
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
     }

@@ -1184,6 +1184,25 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 }
 .entry .when { color: var(--faint); letter-spacing: 0.06em; }
 
+/* A message this page just sent, arriving rather than simply being there
+   (#86) - the one entry in this thread allowed the animation the rest of
+   `.entry` explicitly does without (see the note above, and #82). Safe for
+   the reason that note describes the risk: `PendingEntry.tsx` flips
+   `arrived` itself, once, in a `useEffect` after its first paint, so this is
+   a transition between two states the component tracked - not a bare
+   `animation:` that would replay every time `#app` un-hides this subtree.
+   Direction is downward-into-place: the composer is below the thread, so
+   arriving from there reads as coming from where it was typed. */
+.pending-entry {
+  opacity: 0;
+  transform: translateY(14px) scale(0.98);
+  transition: opacity var(--duration-enter) var(--ease-enter), transform var(--duration-enter) var(--ease-enter);
+}
+.pending-entry.arrived { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .pending-entry { transition: none; opacity: 1; transform: none; }
+}
+
 .bubble {
   background: var(--raised);
   border: 1px solid var(--line);
@@ -3901,11 +3920,98 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 
   /* The one control this footer could not do without on a phone: a soft
      keyboard's Enter is a return key, and there is nothing else here that
-     says "send". Sized for a thumb rather than a pointer. */
+     says "send". An icon rather than the word (#86) - centred in a true
+     44x44 square rather than read, since a thumb finds a shape faster than
+     it reads three letters. */
   #composer-send.phone-only {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  /* Idle is the same colour the desktop button already uses for "this is
+     the key". Pressed needs nothing of its own - the universal :active rule
+     near the top of this file already scales every button on a tap. */
+  #composer-send.phone-only[data-state="idle"] { color: var(--wants); }
+  /* In flight: the same hue the roster uses for a turn that is running, so
+     "something is happening" reads the same wherever it shows up. A loop,
+     not a one-shot, so it does not fit any of :root's tokens as-is - scaled
+     up from --duration-scene rather than a fresh literal, the same call
+     RosterSkeleton.tsx's shimmer already made (#80), so the whole cockpit
+     has one "how long is a loop" answer instead of two. */
+  #composer-send.phone-only[data-state="sending"] {
+    color: var(--busy);
+    border-color: var(--busy-dim);
+  }
+  #composer-send.phone-only[data-state="sending"] .send-mark {
+    animation: send-pulse calc(var(--duration-scene) * 4) var(--ease) infinite;
+  }
+  @keyframes send-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  /* Failed: the broken hue, held for a couple of seconds (App.tsx's
+     `failSend`) and then idle again on its own - long enough to read,
+     short enough that it is plainly about the last attempt and not a
+     permanent mark on the control. */
+  #composer-send.phone-only[data-state="failed"] {
+    color: var(--broken);
+    border-color: var(--broken);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #composer-send.phone-only[data-state="sending"] .send-mark { animation: none; opacity: 0.7; }
+  }
+
+  /* ── Composer focus mode (#86) ─────────────────────────────────────────
+     Typing takes the screen; nothing else about this width changes. Driven
+     by :focus-within/:has() rather than tracked state - a transition, not
+     an animation, so there is nothing here that could replay the way #79's
+     arrival animations did (#82): it only ever plays when the property it
+     names actually changes value, and "focus left this subtree" is a real
+     change every time, never something #app's display:none toggling could
+     fake on its own. */
+  #thread, #progress, #working {
+    transition: flex var(--duration-scene) var(--ease), opacity var(--duration-scene) var(--ease);
+  }
+  #composer { transition: flex var(--duration-scene) var(--ease); }
+  #stage:has(#composer:focus-within) #thread,
+  #stage:has(#composer:focus-within) #progress,
+  #stage:has(#composer:focus-within) #working {
+    flex: 0 1 0%;
+    min-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  #stage:has(#composer:focus-within) #composer { flex: 1; }
+
+  /* The way back, without sending - collapsed to nothing until the
+     composer actually has focus, so it never competes for room the rest
+     of the time. */
+  .composer-focus-bar {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height var(--duration-scene) var(--ease), opacity var(--duration-scene) var(--ease);
+  }
+  #composer:focus-within .composer-focus-bar {
+    max-height: 40px;
+    opacity: 1;
+    margin-bottom: 4px;
+  }
+  #composer-done {
     display: block;
-    min-height: 44px;
-    padding: 12px 16px;
+    margin-left: auto;
+    padding: 8px 12px;
+    min-height: 32px;
+    border: 1px solid var(--line-firm);
+    border-radius: 999px;
+    background: var(--raised);
+    color: var(--muted);
+    font: 500 12px/1 var(--sans);
+    cursor: pointer;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #thread, #progress, #working, #composer, .composer-focus-bar { transition: none; }
   }
 
   /* Decisions: read it, tap it. The keycap numbers and the composer's own

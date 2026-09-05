@@ -22,6 +22,7 @@ import { ServerSetup } from "./ServerSetup.js";
 import { SignIn } from "./SignIn.js";
 import { useFirebaseUser } from "./useFirebaseUser.js";
 import { NewSessionDialog } from "./NewSessionDialog.js";
+import type { PendingMessage } from "./PendingEntry.js";
 import { PhoneUnblock } from "./PhoneUnblock.js";
 import { Queue } from "./Queue.js";
 import { Progress } from "./Progress.js";
@@ -84,7 +85,33 @@ export function App() {
     addFiles,
     removeAttachment,
     clearAttachments,
+    restoreIfEmpty: restoreAttachmentsIfEmpty,
   } = useAttachments();
+  // A plain message on screen before the daemon has answered for it - see
+  // `submit()` below (#86). Keyed locally, never by a real `seq`, and one
+  // list across every specialist rather than one per row - `pendingForRow`
+  // is what keeps a message sent to one from showing up in another's thread
+  // while it is still in flight.
+  const [pending, setPending] = useState<PendingMessage[]>([]);
+  const pendingForRow = useMemo(
+    () => pending.filter((message) => message.sessionId === selectedId),
+    [pending, selectedId],
+  );
+  // What the send control shows - idle by default, "sending" for the length
+  // of whichever POST is currently in flight (optimistic or not), "failed"
+  // for a beat after one comes back bad. Purely visual: nothing here gates
+  // whether the next message can be typed or sent.
+  const [sendState, setSendState] = useState<"idle" | "sending" | "failed">("idle");
+  const sendStateReset = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Held long enough to read, then back to idle on its own - the same
+  // "failed" is not a permanent mark, someone is going to try again in a
+  // few seconds either way.
+  const failSend = useCallback(() => {
+    setSendState("failed");
+    if (sendStateReset.current) clearTimeout(sendStateReset.current);
+    sendStateReset.current = setTimeout(() => setSendState("idle"), 2400);
+  }, []);
+  useEffect(() => () => { if (sendStateReset.current) clearTimeout(sendStateReset.current); }, []);
   // The intake's own box, kept apart from the composer's: one is an answer,
   // the other is a message, and they are sent to different places.
   const [note, setNote] = useState("");
@@ -220,27 +247,79 @@ export function App() {
     }
 
     // An intake is answered in its own sheet, so the composer beneath it is
-    // what it always was: a way to say something to the specialist.
+    // what it always was: a way to say something to the specialist. This
+    // path is unchanged by #86 - a decision is one thing being resolved, not
+    // a message joining a conversation, and dismissing it early would leave
+    // the footer showing options that had, from the daemon's side, already
+    // been overtaken.
     if (decision && !intake) {
       if (!choice && said === "" && attachments.length === 0) return;
+      setSendState("sending");
       const res = await postJson(`/api/sessions/${row.id}/answer`, { optionId: choice, text: said, images: attachments });
       if (!res.ok) {
         setError((await res.json()).error ?? "could not send");
+        failSend();
         return;
       }
       dismiss();
-    } else {
-      if (said === "" && attachments.length === 0) return;
-      const res = await postJson(`/api/sessions/${row.id}/message`, { text: said, images: attachments });
-      if (!res.ok) {
-        setError((await res.json()).error ?? "could not send");
-        return;
-      }
+      setSendState("idle");
+      setText("");
+      clearAttachments();
+      await reload();
+      return;
     }
 
+    if (said === "" && attachments.length === 0) return;
+
+    // Optimistic (#86): the whole of "takes too long" was two round trips -
+    // the POST, then a full thread refetch - before anything on screen
+    // moved, over a relay where each one can be seconds. Clearing the box
+    // and putting the message in the thread happen here, before either
+    // trip; the POST and the reload that confirms it both happen behind
+    // that, in the background.
+    const id = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const sentText = said;
+    const sentImages = attachments;
     setText("");
     clearAttachments();
+    setPending((current) => [
+      ...current,
+      { id, sessionId: row.id, text: sentText, images: sentImages, at: new Date().toISOString() },
+    ]);
+    setSendState("sending");
+
+    const giveUp = (message: string) => {
+      // Restore what was typed rather than swallow it (#60's precedent) -
+      // but only into a box nobody has since started a new draft in.
+      // Typing something else while this one was in flight is the
+      // developer moving on; putting the failed text back over it would be
+      // the one thing worse than the failure itself. Read through the
+      // updater rather than the `text`/`attachments` this closure caught at
+      // call time, which is stale by now - the same reason a plain
+      // `attachments.length` check would be wrong here.
+      setPending((current) => current.filter((p) => p.id !== id));
+      setText((current) => (current.trim() === "" ? sentText : current));
+      restoreAttachmentsIfEmpty(sentImages);
+      setError(message);
+      failSend();
+    };
+
+    let res: Response;
+    try {
+      res = await postJson(`/api/sessions/${row.id}/message`, { text: sentText, images: sentImages });
+    } catch {
+      giveUp("Didn't send. Check the connection and try again.");
+      return;
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      giveUp(body.error ?? "could not send");
+      return;
+    }
+
     await reload();
+    setPending((current) => current.filter((p) => p.id !== id));
+    setSendState("idle");
   }
 
   useDecisionKeys({
@@ -383,6 +462,7 @@ export function App() {
             onOpen={setArtifact}
             unreachable={threadUnreachable}
             loading={threadLoading}
+            pending={pendingForRow}
           />
           <Working steps={steps} />
 
@@ -427,6 +507,7 @@ export function App() {
               addFiles={addFiles}
               removeAttachment={removeAttachment}
               attachmentError={attachmentError}
+              sendState={sendState}
             />
           </footer>
         </section>
