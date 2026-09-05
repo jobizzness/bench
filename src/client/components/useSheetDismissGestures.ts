@@ -148,7 +148,19 @@ export function useSheetDismissGestures(
       const rect = dialog.getBoundingClientRect();
       dialog.style.transition = "transform var(--duration-scene) var(--ease-exit)";
       dialog.style.transform = `translateY(${rect.height}px)`;
-      dialog.addEventListener("transitionend", () => onCloseRef.current(), { once: true });
+      dialog.addEventListener("transitionend", () => {
+        // Cleared before `onClose`, not after, and not left for the next
+        // opener to deal with: `DecisionSheet` stays mounted across open and
+        // close, so this is the same element every time. Leaving the exit
+        // transform on it meant the next decision opened a full sheet-height
+        // below the viewport - the `::backdrop` is not affected by the
+        // dialog's own transform, so what the developer got was a dimmed
+        // roster with nothing on top of it, and it stayed that way until a
+        // reload (#94).
+        dialog.style.transition = "";
+        dialog.style.transform = "";
+        onCloseRef.current();
+      }, { once: true });
     };
 
     const onTouchEnd = () => {

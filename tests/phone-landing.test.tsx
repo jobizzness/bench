@@ -375,3 +375,42 @@ describe("a hand-off waiting on a phone", () => {
     expect(sheetOpen()).toBe(false);
   });
 });
+
+/**
+ * #94. The sheet's exit gesture drives an inline `transform` on the dialog,
+ * and `DecisionSheet` stays mounted across open and close - so it is the
+ * same element every time. A transform left behind by one dismissal opened
+ * the next decision a full sheet-height below the viewport, where the
+ * `::backdrop` still drew but the sheet did not: a dimmed roster with
+ * nothing on it, and it stayed that way until a reload.
+ *
+ * jsdom cannot see that geometrically - it has no layout - but it does not
+ * need to. The bug is inline-style bookkeeping, and that is what this holds:
+ * whatever a gesture left on the element, opening starts clean.
+ */
+describe("the decision sheet reopening after a gesture", () => {
+  it("opens with no transform left over from the last dismissal", async () => {
+    setNarrow(true);
+    ui = await bootCockpit({
+      rows: [waitingRow({ id: "a", label: "alpha", project: "/var/www/bench" })],
+      decision: plain("Ship it?"),
+    });
+
+    await ui.open("alpha");
+    const dialog = await waitFor(() => (sheetOpen() ? ui.$("#unblock") : null), "the sheet") as HTMLElement;
+
+    // What the swipe-dismiss leaves on the element while its exit plays, and
+    // what an interrupted spring-back can leave on it for good.
+    dialog.style.transition = "transform 340ms";
+    dialog.style.transform = "translateY(796px)";
+
+    await ui.click(ui.$("#unblock-roster"));
+    await waitFor(() => (sheetOpen() ? null : dialog), "the sheet to close");
+
+    await ui.open("alpha");
+    await waitFor(() => (sheetOpen() ? dialog : null), "the sheet to reopen");
+
+    expect(dialog.style.transform).toBe("");
+    expect(dialog.style.transition).toBe("");
+  });
+});

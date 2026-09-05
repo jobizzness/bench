@@ -103,7 +103,18 @@ export function DecisionSheet({
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open) { if (!dialog.open) dialog.showModal?.(); }
+    if (open) {
+      // Opening starts from a clean element, whatever the last gesture left
+      // on it. The dismiss path clears up after itself now (#94), but a
+      // spring-back whose transition is interrupted mid-flight never fires
+      // the `transitionend` that would have cleared it either - and this
+      // dialog is reused for every decision, so one leak strands every one
+      // that follows. Cheaper to reset here than to prove no gesture can
+      // ever leave a transform behind.
+      dialog.style.transition = "";
+      dialog.style.transform = "";
+      if (!dialog.open) dialog.showModal?.();
+    }
     else if (dialog.open && !exitingRef.current) dialog.close?.();
   }, [open]);
 
