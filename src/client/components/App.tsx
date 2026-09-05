@@ -176,8 +176,17 @@ export function App() {
   // is handed to the ordinary stage instead, the same way Queue.tsx already
   // hands one over rather than answering it in place. usePhoneLanding
   // decides everything else about where you land without knowing what kind
-  // of decision it found; this is the one override on top of it.
-  const effectivePane = landing.pane === "unblock" && intake ? "stage" : landing.pane;
+  // of decision it found; these are the overrides on top of it.
+  //
+  // A tab held on a hand-off is the other one. It wants the developer as
+  // much as an unanswered decision does, so the phone now lands on it (#75) -
+  // but it has no report and no decision, and the unblock screen is built
+  // out of both. What it needs is the dispatch modal, and that opens over
+  // the ordinary stage.
+  const heldForDispatch = row?.status === "awaiting_dispatch";
+  const effectivePane = landing.pane === "unblock" && (intake || heldForDispatch)
+    ? "stage"
+    : landing.pane;
 
   // A questionnaire that arrives while you are reading something else still
   // has to announce itself. Closing it leaves the card, not silence.

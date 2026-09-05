@@ -1776,6 +1776,63 @@ describe("a tab another specialist spins up", () => {
   });
 });
 
+/**
+ * `setBroadcast` carries the flag to every descendant that exists when it is
+ * called. The ones that matter are opened afterwards: a specialist supervised
+ * from a phone spins up a sub-agent mid-turn, and if that tab is not
+ * broadcast it is never mirrored, never reaches the phone's roster, and
+ * answers 403 to the dispatch it is sitting there waiting for (#75).
+ */
+describe("broadcast on a tab another specialist opens", () => {
+  it("is inherited from a parent that is broadcast", async () => {
+    const { project, registry } = await setupForCreate();
+    const parentId = await registry.create({ project, label: "parent", model: "opus" });
+    await registry.setBroadcast(parentId, true);
+
+    const childId = await registry.create({ project, label: "child", model: "opus", createdBy: parentId });
+
+    expect(rowOf(registry, childId).broadcast).toBe(true);
+  });
+
+  it("survives a restart, so the mirror does not lose it on the next daemon", async () => {
+    const { project, registry, config } = await setupForCreate();
+    const parentId = await registry.create({ project, label: "parent", model: "opus" });
+    await registry.setBroadcast(parentId, true);
+    const childId = await registry.create({ project, label: "child", model: "opus", createdBy: parentId });
+
+    expect(rowOf(await afterRestart(config), childId).broadcast).toBe(true);
+  });
+
+  it("is not inherited from a parent that is not broadcast", async () => {
+    const { project, registry } = await setupForCreate();
+    const parentId = await registry.create({ project, label: "parent", model: "opus" });
+
+    const childId = await registry.create({ project, label: "child", model: "opus", createdBy: parentId });
+
+    expect(rowOf(registry, childId).broadcast).toBe(false);
+  });
+
+  it("stays off for a tab the developer opened themselves", async () => {
+    // Nothing to inherit from, and off by default is the whole point of
+    // broadcast: nothing leaves the machine that nobody asked to leave it.
+    const { project, registry } = await setupForCreate();
+    const soloId = await registry.create({ project, label: "solo", model: "opus" });
+
+    expect(rowOf(registry, soloId).broadcast).toBe(false);
+  });
+
+  it("is not inherited from a parent that has since stopped broadcasting", async () => {
+    const { project, registry } = await setupForCreate();
+    const parentId = await registry.create({ project, label: "parent", model: "opus" });
+    await registry.setBroadcast(parentId, true);
+    await registry.setBroadcast(parentId, false);
+
+    const childId = await registry.create({ project, label: "child", model: "opus", createdBy: parentId });
+
+    expect(rowOf(registry, childId).broadcast).toBe(false);
+  });
+});
+
 describe("a report on a tab another specialist opened", () => {
   it("wakes the parent with a pointer to the child's report", async () => {
     const { project, registry } = await setupForCreate(REPORTING_CLI);

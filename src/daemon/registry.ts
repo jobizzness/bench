@@ -1116,6 +1116,25 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     const id = randomUUID();
     const reportsDir = join(input.project, ".bench", "reports", id);
 
+    // A tab opened by a specialist that is broadcast is broadcast itself.
+    //
+    // `setBroadcast` already carries the flag to every descendant, on exactly
+    // the reasoning that "a specialist and the researcher it spun up are one
+    // piece of work" - but it only reaches the ones that exist when the
+    // switch is flipped, and the interesting ones are opened afterwards.
+    // Without this, a specialist supervised from a phone can open a sub-agent
+    // and hand it a prompt, and the tab is never mirrored, never appears on
+    // the phone's roster, and answers 403 to the dispatch it is waiting for
+    // (#75).
+    //
+    // Read from the parent's row rather than inherited blindly: a tab opened
+    // by a specialist that is not broadcast stays unbroadcast, and one the
+    // developer opened from the cockpit has no parent to inherit from, so
+    // both keep the off-by-default this has always had.
+    const broadcast = input.createdBy === undefined
+      ? false
+      : this.entries.get(input.createdBy)?.row.broadcast ?? false;
+
     this.entries.set(id, {
       reportsDir,
       threadPath: join(reportsDir, "thread.jsonl"),
@@ -1155,8 +1174,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         createdBy: input.createdBy ?? null,
         pendingPrompt: null,
         reasoningEffort,
-        // Off by default. See `setBroadcast` for what turning it on means.
-        broadcast: false,
+        // Off by default, and inherited from the parent when there is one.
+        // See `setBroadcast` for what turning it on means, and the note
+        // above for why creation honours it too.
+        broadcast,
       },
     });
     this.emit("roster");
@@ -1200,6 +1221,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         id, label: input.label, role, project: input.project, worktree, branch, reportsDir,
         model, port, createdAt: new Date().toISOString(), isolated,
         createdBy: input.createdBy ?? null, reasoningEffort,
+        // Written here rather than through `store.setBroadcast` afterwards:
+        // `put` replaces the whole record, so a flag set before this call
+        // would be wiped by it. Absent when false, which is what "never
+        // broadcast" has always looked like on disk (see `SessionRecord`).
+        ...(broadcast ? { broadcast: true } : {}),
       });
       this.update(id, "awaiting_decision", "ready");
     } catch (error) {

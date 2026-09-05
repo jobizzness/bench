@@ -216,3 +216,71 @@ describe("landing on a phone", () => {
     expect(ui.$("#unblock")).toBeNull();
   });
 });
+
+/**
+ * A tab another specialist opened and handed a prompt to holds the developer
+ * exactly as hard as an unanswered decision does - but it has no report, so
+ * `isWaiting` is false for it and the phone used to say "nothing needs you"
+ * while a sub-agent sat there undispatched (#75).
+ */
+describe("a hand-off waiting on a phone", () => {
+  const held = (over: Parameters<typeof row>[0] = {}) => row({
+    id: "child", label: "payouts", project: "/var/www/bench",
+    status: "awaiting_dispatch", latestReportSeq: null,
+    pendingPrompt: "Build what the spec at docs/x.md describes.",
+    ...over,
+  });
+
+  it("is what the phone lands on, rather than the empty screen", async () => {
+    setNarrow(true);
+    ui = await bootCockpit({ rows: [held()] });
+
+    await waitFor(() => (ui.$("#dispatch-modal")?.hasAttribute("open") ? ui.$("#dispatch-modal") : null),
+      "the dispatch modal");
+    // `#empty-title` rather than `#empty`: the thread has an element of that
+    // id too, and it is on the page whenever the stage is - see #77.
+    expect(ui.$("#empty-title")).toBeNull();
+    expect(ui.$("#dispatch-prompt")!.textContent).toBe("Build what the spec at docs/x.md describes.");
+  });
+
+  it("goes to the stage, not the unblock screen it has no report for", async () => {
+    setNarrow(true);
+    ui = await bootCockpit({ rows: [held()] });
+
+    await waitFor(() => (ui.$("#dispatch-modal")?.hasAttribute("open") ? ui.$("#dispatch-modal") : null),
+      "the dispatch modal");
+    expect(pane()).toBe("stage");
+    expect(ui.$("#unblock")).toBeNull();
+  });
+
+  it("counts alongside a decision, rather than being invisible next to one", async () => {
+    setNarrow(true);
+    ui = await bootCockpit({
+      rows: [
+        waitingRow({ id: "a", label: "alpha", project: "/var/www/bench" }),
+        held(),
+      ],
+      decision: plain("Ship it?"),
+    });
+
+    await waitFor(() => ui.$("#unblock-count"), "the count of what is waiting");
+    expect(ui.$("#unblock-count")!.textContent).toBe("1 of 2");
+  });
+
+  it("once dispatched, leaves the stage rather than a blank unblock screen", async () => {
+    setNarrow(true);
+    ui = await bootCockpit({ rows: [held()] });
+
+    await waitFor(() => (ui.$("#dispatch-modal")?.hasAttribute("open") ? ui.$("#dispatch-modal") : null),
+      "the dispatch modal");
+
+    // What the roster looks like a moment after Dispatch: the tab is running,
+    // and nothing is holding the developer any more. Without the fallback in
+    // `usePhoneLanding`, `pane` stayed on "unblock" - a screen that draws its
+    // own header and nothing else once there is no decision behind it.
+    await ui.roster([held({ status: "working", pendingPrompt: null })]);
+
+    await waitFor(() => (pane() === "stage" ? ui.$("#app") : null), "the stage");
+    expect(ui.$("#unblock")).toBeNull();
+  });
+});

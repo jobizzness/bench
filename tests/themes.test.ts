@@ -49,7 +49,11 @@ describe("the token contract", () => {
     // the themes for the same reason: it is a mask, so it carries no colour,
     // and five copies of an eight-kilobyte path is five chances to drift.
     const shared = tokens(":root {");
-    expect(shared).toEqual(["--ease", "--figure-mask", "--mono", "--sans", "--step"]);
+    expect(shared).toEqual([
+      "--duration-enter", "--duration-press", "--duration-scene",
+      "--ease", "--ease-enter", "--ease-exit",
+      "--figure-mask", "--mono", "--sans", "--step",
+    ]);
   });
 });
 
