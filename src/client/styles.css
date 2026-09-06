@@ -750,24 +750,45 @@ button, input, textarea, select { font: inherit; color: inherit; }
   cursor: pointer;
   border-bottom: 1px solid var(--line);
   transition: background 120ms var(--ease), transform var(--duration-press) var(--ease-exit);
-  /* No arrival animation here, deliberately - see #82.
-     #79 put `animation: arrive` on this rule, reasoning that a keyed row
-     keeps its DOM node across a roster push so the animation could only ever
-     play on a real mount. That is true and it is not enough: a plain
-     `animation:` property also plays every time an element goes from not
-     rendered to rendered, and below the breakpoint the panes are swapped
-     with `display: none` (see `#app[data-pane]` at the foot of this file).
-     So every trip from the stage back to the roster replayed this on every
-     row at once, and coming back from the unblock screen - which hides the
-     whole of `#app` - replayed it on the rows, the thread entries and the
-     report cards together. It read as flashing, which is what it was.
-     Marking genuinely-new content needs to be done in the components, not
-     inferred from mounting; #82 is that. */
 }
 @media (hover: hover) {
   .row:hover { background: var(--hover); }
 }
 .row[aria-selected="true"] { background: var(--raised); }
+
+/* A specialist genuinely appearing, not the roster being redrawn - see
+   `useRoster.ts`'s own `newIds` and #82.
+
+   #79 put `animation: arrive` on `.row` itself, reasoning that a keyed row
+   keeps its DOM node across a roster push so the animation could only ever
+   play on a real mount. True, and not enough: a plain `animation:` property
+   also plays every time an element goes from not rendered to rendered, and
+   below the breakpoint the panes are swapped with `display: none` (see
+   `#app[data-pane]` at the foot of this file) - so every trip from the
+   stage back to the roster replayed it on every row at once. Folding and
+   reopening a `<details>` group does the same thing to whatever is inside.
+
+   `Row.tsx` is what avoids that this time: `.row-entering` is a class the
+   component adds itself, only once, only for a row whose id `useRoster.ts`
+   had not already seen - a re-render or an un-hide is neither of those, so
+   neither ever adds it again. `transition`, not `animation:`, is what makes
+   that safe even for the one moment `.row-entering` genuinely is present
+   twice in the DOM's history for the same node: a transition only runs when
+   the property it watches actually changes value, and `Row.tsx` drops the
+   class entirely once this one has (`onTransitionEnd`), so there is nothing
+   left here for a later un-hide to replay. See `useArrival.ts`. */
+.row.row-entering {
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--duration-enter) var(--ease-enter), transform var(--duration-enter) var(--ease-enter);
+}
+.row.row-entering.row-arrived { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  /* Belt and braces: `useArrival.ts` already refuses to start this for a
+     reduced-motion reader, so `.row-entering` should never be on the DOM in
+     the first place. If it somehow were, this is what "off" means. */
+  .row.row-entering { transition: none; opacity: 1; transform: none; }
+}
 
 /* A roster row's shape with nothing behind it yet - not selectable, not a
    rail (there is no status to colour it with), just the box the real row
@@ -1253,13 +1274,33 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
    messages stranded in the opposite one. This is a work surface, not a
    messaging app: who said what is carried by the label and the bubble's own
    treatment, not by which side it sits on. */
-/* No arrival animation here either - see the note on `.row` above, and #82.
-   Keying on `seq` does stop a roster push from replaying it, but nothing
-   stops the whole of `#app` being un-hidden when the phone leaves the
-   unblock screen, and that replayed this on every entry in the window at
-   once. */
 .entry {
   margin: 0 0 26px;
+}
+
+/* A message actually new to the conversation, not the thread being redrawn
+   or revisited - see `useThread.ts`'s own `newSeqs` and #82. Keying on `seq`
+   (`ThreadEntry.tsx`) already stops a roster push from replaying this, but
+   nothing stopped the whole of `#app` being un-hidden from replaying it on
+   every entry in the window at once, which is what #79's `animation: arrive`
+   on this rule did.
+
+   `.entry-entering` is `ThreadEntry.tsx`'s own class, added once for a `seq`
+   `useThread.ts` had not already recorded, and dropped again once its own
+   transition ends - the same shape as `.row.row-entering` above, for the
+   same reason. A report or reply card inside this entry has no arrival
+   rule of its own: it mounts in the same render as this wrapper
+   (`ArtifactCard.tsx`), so it rides in on this fade rather than needing a
+   second one. */
+.entry.entry-entering {
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--duration-enter) var(--ease-enter), transform var(--duration-enter) var(--ease-enter);
+}
+.entry.entry-entering.entry-arrived { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  /* Belt and braces - see the equivalent note on `.row.row-entering`. */
+  .entry.entry-entering { transition: none; opacity: 1; transform: none; }
 }
 
 .entry .who {
@@ -1336,14 +1377,15 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 /* Artifact cards: reports and answers. The card is a door, not a drawer -
    clicking it opens the page in a dialog. Mounted once, the same moment as
    the entry around it (ArtifactCard.tsx renders the card immediately; only
-   a reply's preview content loads in after) - so this plays alongside
-   .entry's own arrival rather than on some later re-render. */
+   a reply's preview content loads in after) - so it has no arrival of its
+   own (see `.row` and #82) and instead plays alongside `.entry-entering`'s
+   fade above, which already carries this along since the card sits inside
+   that element. */
 .card {
   background: var(--raised);
   border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
-  /* No arrival animation - see `.row` and #82. */
   transition: border-color 140ms var(--ease), transform var(--duration-press) var(--ease-exit);
 }
 @media (hover: hover) {

@@ -63,7 +63,7 @@ export function App() {
   // that `100dvh` alone does not always account for - see the hook's own
   // comment and `#app` in styles.css.
   useVisualViewportHeight();
-  const { rows, live, wakingMachines, degradedMachines, activeMachineName } = useRoster(selectedId);
+  const { rows, live, wakingMachines, degradedMachines, activeMachineName, newIds } = useRoster(selectedId);
   const row = rows.find((r) => r.id === selectedId) ?? null;
 
   // Below the breakpoint, which of the phone's two panes is in front of the
@@ -75,7 +75,7 @@ export function App() {
   const landing = usePhoneLanding(rows, selectedId, rawSelect);
   const select = landing.select;
 
-  const { entries, reload, threadUnreachable, loading: threadLoading } = useThread(selectedId, threadSignature(row));
+  const { entries, reload, threadUnreachable, loading: threadLoading, newSeqs } = useThread(selectedId, threadSignature(row));
   const decisionState = useDecision(row);
   const { decision, answers, setAnswers, choice, setChoice, focus, setFocus, dismiss } = decisionState;
 
@@ -148,8 +148,8 @@ export function App() {
   useDocumentTitle(rows, selectedId);
 
   const state = useMemo(
-    () => ({ rows, selectedId, live, justAnswered: landing.justAnswered }),
-    [rows, selectedId, live, landing.justAnswered],
+    () => ({ rows, selectedId, live, justAnswered: landing.justAnswered, newIds }),
+    [rows, selectedId, live, landing.justAnswered, newIds],
   );
   const actions = useMemo(() => ({ select, closeSpecialist }), [select, closeSpecialist]);
 
@@ -490,6 +490,7 @@ export function App() {
             unreachable={threadUnreachable}
             loading={threadLoading}
             pending={pendingForRow}
+            newSeqs={newSeqs}
           />
           <Working steps={steps} />
 
