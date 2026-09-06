@@ -3405,6 +3405,14 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   background-attachment: local, local, scroll, scroll, scroll;
 }
 
+/* The tap target that folds the checklist away on a phone (#100). Hidden
+   above the breakpoint by the same convention as `.composer-focus-bar`
+   and `#composer-send.phone-only` (#97): a base rule that turns it off,
+   re-enabled inside the phone media query below, rather than writing the
+   phone case as the default and hoping every wider rule remembers to
+   undo it. */
+#plan-toggle { display: none; }
+
 #plan {
   list-style: none;
   margin: 0;
@@ -4279,6 +4287,83 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   }
   @media (prefers-reduced-motion: reduce) {
     #thread, #progress, #working, #composer, .composer-focus-bar { transition: none; }
+  }
+
+  /* ── Checklist disclosure (#100) ───────────────────────────────────────
+     Collapsed at rest rather than a fixed quarter of the screen for a
+     checklist read only occasionally, above a thread read constantly.
+     One tap expands it to what desktop always shows; a second tap folds
+     it back.
+
+     This composes with the focus-mode block just above rather than
+     fighting it: focus mode hides `#progress` wholesale (`flex`/`opacity`
+     on the section itself, driven by `:has(#composer:focus-within)`) and
+     does not care what is inside it, while this rule only ever touches
+     `#plan-collapse`, a wrapper inside that section. Focusing the composer
+     while the checklist is expanded hides the whole panel, expanded state
+     and all; it reappears exactly as it was left the moment focus leaves,
+     because collapsing the outer section and collapsing the inner one are
+     two different properties on two different elements, never the same
+     property fought over by both.
+
+     `grid-template-rows: 0fr` -> `1fr` on `#plan-collapse`, not a
+     `max-height` guess - a guessed max-height spends most of its
+     transition animating empty space above a five-step plan and snaps
+     shut on a fifty-step one instead of easing. This animates to
+     whatever the content's real height is, with no guessed constant and
+     no measurement, and a step landing mid-transition just changes what
+     height "1fr" resolves to next frame rather than jumping. `overflow:
+     hidden` lives on the inner wrapper, not on `#plan-collapse` itself -
+     a grid track does not clip its own contents, so something has to. */
+  #plan-toggle {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    width: 100%;
+    margin: 0;
+    padding: 3px 0;
+    border: none;
+    background: none;
+    font: 500 13.5px/1.4 var(--sans);
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+  #plan-toggle-mark {
+    flex: none;
+    width: 0;
+    height: 0;
+    margin-top: 6px;
+    border-left: 4px solid currentColor;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    color: var(--faint);
+    transition: transform var(--duration-press) var(--ease);
+  }
+  #plan-toggle[aria-expanded="true"] #plan-toggle-mark { transform: rotate(90deg); }
+  #plan-toggle-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #plan-collapse {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows var(--duration-scene) var(--ease);
+  }
+  #plan-collapse[data-expanded="true"] { grid-template-rows: 1fr; }
+  #plan-collapse > .plan-collapse-inner {
+    /* `padding`, not `margin`: a margin on this element sits outside its
+       own border box, so this element's own `overflow: hidden` cannot
+       clip it away at the 0fr end - it would show as a permanent 10px gap
+       above a "collapsed" panel. Padding is inside the border box, so it
+       shrinks to nothing along with everything else this clips. */
+    overflow: hidden;
+    min-height: 0;
+    padding-top: 10px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #plan-toggle-mark, #plan-collapse { transition: none; }
   }
 
   /* Decisions: read it, tap it. The keycap numbers and the composer's own

@@ -116,6 +116,58 @@ describe("the command trail", () => {
   });
 });
 
+describe("the phone disclosure (#100)", () => {
+  // jsdom has no layout, so what is collapsed or how tall the panel gets is
+  // the screenshots' job (`checklist-shots.mjs` in the report). What a test
+  // can hold is the state the CSS reads: the toggle exists, starts closed,
+  // flips on tap, and its label is not just a repeat of `Working`'s strip.
+  const toggle = () => ui.$<HTMLButtonElement>("#plan-toggle");
+
+  it("renders closed", async () => {
+    await open({ rows: [WORKING], plan: PLAN });
+    expect(toggle()!.getAttribute("aria-expanded")).toBe("false");
+    expect(ui.$("#plan-collapse")!.dataset.expanded).toBe("false");
+  });
+
+  it("opens on tap, and closes again on a second tap", async () => {
+    await open({ rows: [WORKING], plan: PLAN });
+
+    await ui.click(toggle());
+    expect(toggle()!.getAttribute("aria-expanded")).toBe("true");
+    expect(ui.$("#plan-collapse")!.dataset.expanded).toBe("true");
+
+    // #94's lesson: check the second time, not just the first.
+    await ui.click(toggle());
+    expect(toggle()!.getAttribute("aria-expanded")).toBe("false");
+    await ui.click(toggle());
+    expect(toggle()!.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("names the step in progress, not a count `Working`'s strip already gives", async () => {
+    await open({ rows: [WORKING], plan: PLAN });
+    // PLAN's doing step, from the fixture above.
+    expect(toggle()!.textContent).toContain("Single-use tokens");
+    expect(toggle()!.textContent).not.toMatch(/\d+ of \d+/);
+  });
+
+  it("falls back to a plain label when nothing is currently doing", async () => {
+    const DONE_PLAN = PLAN.map((step) => ({ ...step, state: "done" as const }));
+    await open({ rows: [WORKING], plan: DONE_PLAN });
+    expect(toggle()!.textContent).toContain("Checklist");
+  });
+
+  it("closes again when a different specialist is opened", async () => {
+    const OTHER = row({ id: "s2", label: "other", status: "working", detail: "Bash ls", activity: TRAIL });
+    ui = await bootCockpit({ rows: [WORKING, OTHER], plan: PLAN });
+    await ui.open(String(WORKING.label));
+    await ui.click(toggle());
+    expect(toggle()!.getAttribute("aria-expanded")).toBe("true");
+
+    await ui.open(String(OTHER.label));
+    expect(toggle()!.getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
 describe("staying out of the way", () => {
   it("shows nothing when there is neither a checklist nor a trail", async () => {
     await open({ rows: [row({ ...WORKING, activity: [] })], plan: null });
