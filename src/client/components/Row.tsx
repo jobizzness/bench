@@ -4,6 +4,7 @@ import { useBenchActions, useBenchState } from "./context.js";
 import { primaryWaiting, waitingKey, wantsAttention } from "../waiting.js";
 import { Meta } from "./Meta.js";
 import { GripMark } from "./GripMark.js";
+import { useArrival } from "./useArrival.js";
 
 /** One specialist in the roster: its name, its quiet line, and the two things
  * you can do to the row itself - move it, or close it. */
@@ -28,7 +29,10 @@ export function Row({ row, selected, held = false, onTake, onNudge, nested = fal
   children?: ReactNode;
 }) {
   const { select, closeSpecialist } = useBenchActions();
-  const { rows, justAnswered } = useBenchState();
+  const { rows, justAnswered, newIds } = useBenchState();
+  // A specialist genuinely appearing, not the roster being redrawn or a
+  // pane un-hiding it - see `useRoster.ts`'s own `newIds` and #82.
+  const arrival = useArrival(newIds.has(row.id), "row");
 
   // Answered from the phone's decision sheet, but the roster has not caught
   // up yet - see `usePhoneLanding.ts`'s own note on `justAnswered`. Reading
@@ -52,7 +56,8 @@ export function Row({ row, selected, held = false, onTake, onNudge, nested = fal
     // of the row actually clicked.
     <li className="row-slot">
       <div
-        className="row"
+        className={`row${arrival.className ? ` ${arrival.className}` : ""}`}
+        onTransitionEnd={arrival.onTransitionEnd}
         data-status={row.status}
         // Status is not the same question as "does this want me". A specialist
         // that answered and wrote no report is awaiting_decision too, and the

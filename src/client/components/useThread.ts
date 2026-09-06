@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RosterRow, ThreadEntry } from "../../shared/types.js";
 import { authFetch } from "../api.js";
 
@@ -30,6 +30,46 @@ async function fetchThread(id: string): Promise<ThreadEntry[] | null> {
 }
 
 const NOTHING: ThreadEntry[] = [];
+const NO_NEW_SEQS: ReadonlySet<number> = new Set();
+
+/**
+ * Which of `entries` (all belonging to `id`) are above the highest `seq`
+ * this hook has already recorded for that specific session - and advances
+ * the record to match. A `Map` keyed by session id, not one number, because
+ * this hook outlives any one specialist: switching away and back must not
+ * forget what was already read there and re-flag it as new (#82's "second
+ * use" - `ThreadEntry` remounts on the way back, since `entries` collapses
+ * to nothing for a session that is not the selected one, but the record
+ * here does not, so the id that mounts fresh still reads `isNew` false the
+ * second time).
+ *
+ * `initialized` is the same "first load reports nothing" rule `useRoster.ts`
+ * needs, kept separately per session: the first thread a specialist ever
+ * shows must not animate its whole history in, but the *next* specialist you
+ * open must not inherit that "nothing is new yet" grace from the first one's
+ * bookkeeping either - each id earns its own.
+ */
+function useNewEntrySeqs(id: string | null, entries: ThreadEntry[]): ReadonlySet<number> {
+  const seen = useRef<Map<string, number>>(new Map());
+  const initialized = useRef<Set<string>>(new Set());
+
+  const newSeqs = useMemo(() => {
+    if (id === null || !initialized.current.has(id)) return NO_NEW_SEQS;
+    const floor = seen.current.get(id) ?? -Infinity;
+    const fresh = entries.filter((entry) => entry.seq > floor);
+    return fresh.length === 0 ? NO_NEW_SEQS : new Set(fresh.map((entry) => entry.seq));
+  }, [id, entries]);
+
+  useEffect(() => {
+    if (id === null) return;
+    if (entries.length > 0) initialized.current.add(id);
+    const floor = seen.current.get(id) ?? -Infinity;
+    const highest = entries.reduce((max, entry) => Math.max(max, entry.seq), floor);
+    seen.current.set(id, highest);
+  }, [id, entries]);
+
+  return newSeqs;
+}
 
 export function useThread(id: string | null, signature: string): {
   entries: ThreadEntry[];
@@ -44,6 +84,10 @@ export function useThread(id: string | null, signature: string): {
    * (#80). Never true once there is a good copy to fall back on - a reload
    * after answering does not put the thread back into this state. */
   loading: boolean;
+  /** `seq`s above the highest this hook has already recorded for `id` -
+   * `ThreadEntry.tsx`'s own arrival, once, for a message actually new to the
+   * conversation rather than the thread being redrawn or revisited (#82). */
+  newSeqs: ReadonlySet<number>;
 } {
   // Keyed by the specialist the entries actually came from, so a failed read
   // can keep the last good copy without the risk that goes with it: switching
@@ -96,6 +140,7 @@ export function useThread(id: string | null, signature: string): {
   // something to keep showing, so the skeleton is not the honest thing to
   // draw over it.
   const loading = id !== null && loaded.id !== id && !unreachable;
+  const newSeqs = useNewEntrySeqs(id, entries);
 
-  return { entries, reload, threadUnreachable: unreachable, loading };
+  return { entries, reload, threadUnreachable: unreachable, loading, newSeqs };
 }

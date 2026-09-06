@@ -13,7 +13,7 @@ function Empty({ heading, body }: { heading: string; body: string }) {
 }
 
 export function Thread({
-  entries, sessionId, hasRows, onOpen, unreachable = false, loading = false, pending = [],
+  entries, sessionId, hasRows, onOpen, unreachable = false, loading = false, pending = [], newSeqs,
 }: {
   entries: Entry[];
   sessionId: string | null;
@@ -32,6 +32,10 @@ export function Thread({
    * `submit()` (#86). Drawn after the windowed `entries`, always - a queue
    * this short is never itself worth paging. */
   pending?: PendingMessage[];
+  /** `entry.seq`s `useThread.ts` has not recorded before for this session -
+   * `ThreadEntry`'s own arrival, once, for a message actually new to the
+   * conversation (#82). */
+  newSeqs: ReadonlySet<number>;
 }) {
   const host = useRef<HTMLDivElement>(null);
   // Resolved once for the whole thread: the same number turns up in several
@@ -65,7 +69,14 @@ export function Thread({
                   </button>
                 )}
                 {visible.map((entry) => (
-                  <ThreadEntry key={entry.seq} entry={entry} sessionId={sessionId} refs={refs} onOpen={onOpen} />
+                  <ThreadEntry
+                    key={entry.seq}
+                    entry={entry}
+                    sessionId={sessionId}
+                    refs={refs}
+                    onOpen={onOpen}
+                    isNew={newSeqs.has(entry.seq)}
+                  />
                 ))}
                 {pending.map((message) => (
                   <PendingEntry key={message.id} message={message} refs={refs} />

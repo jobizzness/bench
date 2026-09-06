@@ -16,6 +16,10 @@ export interface BenchState {
    * you" rail until the next poll (#93). Empty outside the phone flow, since
    * nothing else ever calls `markAnswered`. */
   justAnswered: ReadonlySet<string>;
+  /** Ids `useRoster.ts` has not seen before this push - `Row.tsx`'s own
+   * arrival, once, for a specialist genuinely appearing rather than the
+   * roster being redrawn (#82). */
+  newIds: ReadonlySet<string>;
 }
 
 export interface BenchActions {
@@ -25,7 +29,7 @@ export interface BenchActions {
   closeSpecialist: (row: RosterRow) => void;
 }
 
-const StateContext = createContext<BenchState>({ rows: [], selectedId: null, live: null, justAnswered: new Set() });
+const StateContext = createContext<BenchState>({ rows: [], selectedId: null, live: null, justAnswered: new Set(), newIds: new Set() });
 const ActionsContext = createContext<BenchActions>({ select: () => {}, closeSpecialist: () => {} });
 
 /**

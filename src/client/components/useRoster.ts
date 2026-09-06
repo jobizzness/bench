@@ -34,6 +34,13 @@ export interface Roster {
    * anything else. See "Machine-global routes" in the design and
    * `SettingsDialog.tsx`, the one place this is shown. */
   activeMachineName: string | null;
+  /** Ids that were not on any roster this client has held before now - one
+   * push's worth, not cumulative. `Row.tsx` reads this once, at its own
+   * mount, to decide whether it is a specialist genuinely appearing rather
+   * than one merely being drawn again (#82). Never populated by the first
+   * roster this client ever sees, empty or not - see the comment in
+   * `useRoster` below. */
+  newIds: ReadonlySet<string>;
 }
 
 /**
@@ -266,6 +273,45 @@ function machineOwning(byMachine: Map<string, MachineRoster>, sessionId: string)
  * "not watching anything in particular" and changes nothing about the local
  * socket.
  */
+const NO_NEW_IDS: ReadonlySet<string> = new Set();
+
+/**
+ * Which ids in `rows` were not on any roster this hook has already folded
+ * into `seen` - and advances `seen` to match. Kept out of `useRoster` itself
+ * only because the "first snapshot never counts" rule below needs its own
+ * pair of refs and reads more plainly on its own.
+ *
+ * The one thing this has to get right, for #82's own acceptance criteria:
+ * a cold open must not treat its first roster as twenty arrivals. The
+ * naive version - seed `seen` from whatever `rows` holds the first time this
+ * runs - does not survive the app's own startup order: the very first render
+ * always has `rows === []` (the socket has not answered yet), so seeding
+ * from that seeds nothing, and the *next* render - the real roster landing -
+ * would find every id missing from an empty `seen` and call all of them new.
+ * `loaded` is the fix: it only flips once `rows` has actually held something,
+ * and `newIds` refuses to report anything until it has. A `rows` that starts
+ * non-empty (unlikely, but not impossible if a socket resolves unusually
+ * fast) is handled the same way - the render that first sees it is the one
+ * `loaded` flips on, so that render still reports nothing.
+ */
+function useNewRosterIds(rows: RosterRow[]): ReadonlySet<string> {
+  const seen = useRef<Set<string>>(new Set());
+  const loaded = useRef(false);
+
+  const newIds = useMemo(() => {
+    if (!loaded.current) return NO_NEW_IDS;
+    const fresh = rows.filter((row) => !seen.current.has(row.id));
+    return fresh.length === 0 ? NO_NEW_IDS : new Set(fresh.map((row) => row.id));
+  }, [rows]);
+
+  useEffect(() => {
+    if (rows.length > 0) loaded.current = true;
+    for (const row of rows) seen.current.add(row.id);
+  }, [rows]);
+
+  return newIds;
+}
+
 export function useRoster(watching: string | null = null): Roster {
   const local = useLocalRoster();
   const remote = useRemoteRoster(watching);
@@ -275,6 +321,8 @@ export function useRoster(watching: string | null = null): Roster {
     const localIds = new Set(local.rows.map((r) => r.id));
     return [...local.rows, ...remote.rows.filter((r) => !localIds.has(r.id))];
   }, [local.rows, remote.rows]);
+
+  const newIds = useNewRosterIds(rows);
 
   // Machine-global routes - Settings, the keys, the project list - follow
   // whichever machine the open specialist is on, defaulting to local; see
@@ -292,5 +340,6 @@ export function useRoster(watching: string | null = null): Roster {
     wakingMachines: remote.wakingMachines,
     degradedMachines: remote.degradedMachines,
     activeMachineName: watchedRow?.machine?.name ?? null,
+    newIds,
   };
 }
