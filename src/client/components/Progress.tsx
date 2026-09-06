@@ -1,7 +1,6 @@
 import type { PlanStep } from "../../daemon/plan.js";
 import { progressVisible } from "../progress.js";
-import { Plan } from "./Plan.js";
-import { Trail } from "./Trail.js";
+import { PlanDisclosure } from "./PlanDisclosure.js";
 import { useBenchState } from "./context.js";
 import { useTick } from "./useTick.js";
 
@@ -35,8 +34,10 @@ export function Progress({ decisionShowing, steps }: {
 
   return (
     <section id="progress" data-live={live}>
-      {steps && <Plan steps={steps} />}
-      <Trail items={trail} />
+      {/* Remounts (rather than resetting via an effect) on every specialist
+          switch - see `PlanDisclosure`'s own comment for why that is what
+          keeps a specialist switch from animating the panel shut. */}
+      <PlanDisclosure key={selectedId} steps={steps} trail={trail} />
     </section>
   );
 }
