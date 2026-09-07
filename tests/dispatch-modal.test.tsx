@@ -152,6 +152,21 @@ describe("moving a held tab off the model it inherited", () => {
     });
   });
 
+  it("sends nothing when the model picked is the one already running", async () => {
+    // #98: the effort control used to be seeded to "medium" and compared
+    // against a prop that is undefined for any row with no stored effort -
+    // every held tab here - so re-picking the model it was already on still
+    // read as an effort change and stopped it for nothing.
+    ui = await bootCockpit({ ...held, routerKey: { present: true, hint: "…key" } });
+    await ui.open("auth");
+    await ui.click(ui.$("#dispatch-model"));
+
+    await ui.click(ui.$('#dispatch-model-dialog [data-model="opus"]'));
+
+    expect(ui.sent).toEqual([]);
+    expect(showing("#dispatch-model-dialog")).toBe(false);
+  });
+
   it("keeps its search box out of the dispatch form", async () => {
     // Enter in a text field submits the form the field sits in, and the
     // picker used to sit inside this one - so typing "flash" and pressing

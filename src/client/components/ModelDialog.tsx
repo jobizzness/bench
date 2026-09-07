@@ -162,6 +162,18 @@ export function ModelDialog({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [effort, setEffort] = useState<"none" | "low" | "medium" | "high">("medium");
+  /**
+   * What `effort` was seeded to when the dialog opened, so a later comparison
+   * can tell "still what it started as" from "the developer touched this".
+   *
+   * The prop it is seeded from, `reasoningEffort`, is `undefined` for any
+   * specialist whose session record predates the field - which is every
+   * long-lived tab on this bench. Comparing `effort` against that prop
+   * directly meant `"medium" !== undefined` was always true, so picking a
+   * model the specialist was already on still looked like an effort change
+   * and stopped it for nothing.
+   */
+  const [initialEffort, setInitialEffort] = useState<"none" | "low" | "medium" | "high">("medium");
   /** Which result the arrow keys are on. -1 is none, which is where it starts:
    * opening the picker should not preselect a model nobody asked for. */
   const [active, setActive] = useState(-1);
@@ -182,7 +194,9 @@ export function ModelDialog({
     setQuery("");
     setActive(-1);
     setCheapest(false);
-    setEffort(reasoningEffort ?? "medium");
+    const seeded = reasoningEffort ?? "medium";
+    setEffort(seeded);
+    setInitialEffort(seeded);
     dialog.showModal?.();
     // Put the caret in the search box, because searching is what this modal
     // is for. `autoFocus` is not enough: showModal() takes focus itself and
@@ -296,7 +310,7 @@ export function ModelDialog({
   useEffect(() => { setActive((at) => (at >= rows.length ? rows.length - 1 : at)); }, [rows.length]);
 
   const choose = async (model: string) => {
-    if (model === current && effort === reasoningEffort) { onClose(); return; }
+    if (model === current && effort === initialEffort) { onClose(); return; }
     setError("");
 
     // Nothing to move: report the pick and let the caller hold it.
@@ -318,7 +332,7 @@ export function ModelDialog({
           return;
         }
       }
-      if (effort !== reasoningEffort) {
+      if (effort !== initialEffort) {
         const res = await postJson(`/api/sessions/${sessionId}/reasoning-effort`, { reasoningEffort: effort });
         const body = await res.json();
         if (!res.ok) {
