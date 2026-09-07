@@ -2,7 +2,8 @@
  * @vitest-environment jsdom
  * @vitest-environment-options { "url": "http://localhost/?token=t" }
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import * as api from "../src/client/api.js";
 import { bootCockpit, row, type Cockpit } from "./helpers/cockpit.js";
 import { waitFor } from "./helpers/wait-for.js";
 
@@ -23,6 +24,7 @@ afterEach(() => {
   // Selection lives in the URL, and the URL outlives the mount: a test that
   // opens a specialist would otherwise decide what the next one starts on.
   history.pushState({}, "", "/?token=t");
+  vi.restoreAllMocks();
 });
 
 const toggle = () => ui.$<HTMLInputElement>("#f-worktree")!;
@@ -269,5 +271,35 @@ describe("the model a role starts on", () => {
     await ui.click(ui.$("#f-create"));
 
     expect(created()!.body.model).toBe("google/gemini-3.1-pro-preview");
+  });
+});
+
+/**
+ * A specialist created from a remote cockpit that stays `broadcast: false`
+ * is invisible in the only roster that made it, and unreachable afterwards
+ * (#76). The registry side of this (an explicit `broadcast` wins over
+ * inheriting from `createdBy`) has its own tests in registry.test.ts - this
+ * is only the one line at the edge, sending it in the first place.
+ */
+describe("whether this cockpit says broadcast", () => {
+  it("sends broadcast: true when this cockpit is remote", async () => {
+    vi.spyOn(api, "isRemote").mockReturnValue(true);
+
+    await open();
+    await fill("from-a-phone");
+    await ui.click(ui.$("#f-create"));
+
+    expect(created()!.body.broadcast).toBe(true);
+  });
+
+  it("sends no opinion at all when this cockpit is not remote", async () => {
+    // isRemote() is false by default in this file's fixed local endpoint -
+    // no spy needed, and that absence is itself the thing under test: an
+    // older client, and this one talking to its own daemon, look identical.
+    await open();
+    await fill("from-the-desk");
+    await ui.click(ui.$("#f-create"));
+
+    expect(created()!.body.broadcast).toBeUndefined();
   });
 });

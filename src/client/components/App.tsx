@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { endpoint, isRemote, postJson } from "../api.js";
 import { isProxied } from "../../shared/models.js";
-import { tap, tapFailed } from "../haptics.js";
+import { tap, tapBurst, tapFailed } from "../haptics.js";
+import { launchSendMark, launchSendMarkBurst } from "./flySendMark.js";
+import { useSendBurst } from "./useSendBurst.js";
 import { useAttachments } from "./useAttachments.js";
 import { shouldAskForServer } from "../endpoint.js";
 import { answersFor } from "../../shared/decisions.js";
@@ -104,6 +106,10 @@ export function App() {
   // whether the next message can be typed or sent.
   const [sendState, setSendState] = useState<"idle" | "sending" | "failed">("idle");
   const sendStateReset = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A burst of sends gets its own feedback - the plane and the glow (#103).
+  // Owned here, not in Composer, because the send moment this reads from
+  // lives in `submit()` below.
+  const burst = useSendBurst();
   // Held long enough to read, then back to idle on its own - the same
   // "failed" is not a permanent mark, someone is going to try again in a
   // few seconds either way.
@@ -307,6 +313,14 @@ export function App() {
     // already does (#95) - sending a message from the composer used to be
     // the one decisive action in this app that stayed silent.
     tap();
+    // The plane and the glow (#103) - both synchronous, nothing here awaits,
+    // same as everything else in this block (#86). Every send gets its own
+    // plane; a burst at its loudest gets two more, staggered, and - once,
+    // on the send that first got it there, never again while it stays
+    // there - a third haptic.
+    const { level: burstLevel, justReachedMax } = burst.record();
+    if (burstLevel === 3) launchSendMarkBurst(); else launchSendMark();
+    if (justReachedMax) tapBurst();
 
     const giveUp = (message: string) => {
       // Restore what was typed rather than swallow it (#60's precedent) -
@@ -537,6 +551,7 @@ export function App() {
               removeAttachment={removeAttachment}
               attachmentError={attachmentError}
               sendState={sendState}
+              burstLevel={burst.level}
             />
           </footer>
         </section>
