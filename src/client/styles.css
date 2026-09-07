@@ -1904,6 +1904,62 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
 #composer-text:focus { outline: none; border-color: var(--wants-dim); }
 #composer-text:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* A burst of sends (#103, `useSendBurst.ts`) - `data-burst` is the only
+   thing App.tsx sets, everything from here down is what it means. Every
+   level shares the same two-shadow shape (a crisp ring, a soft bloom) so
+   `transition` can interpolate between them instead of snapping: sizes move,
+   the colour never does. Zero size reads as no shadow at all, which is
+   level 0 and level 1 both - "a single send is not a streak". */
+#composer-form {
+  box-shadow: 0 0 0 0 var(--wants-dim), 0 0 0 0 var(--wants);
+  transition: box-shadow 600ms var(--ease);
+}
+#composer-form[data-burst="2"] {
+  box-shadow: 0 0 0 1px var(--wants-dim), 0 0 16px 2px var(--wants);
+}
+#composer-form[data-burst="3"] {
+  box-shadow: 0 0 0 1px var(--wants-dim), 0 0 24px 4px var(--wants);
+  /* Breathing rather than static at the loudest level - safe as an
+     `animation:` even though `#stage` can go `display: none` on a phone
+     pane swap (#82's own hazard for exactly this property), because unlike
+     the arrival fades #82 was written about, this one only ever plays while
+     `data-burst="3"` is still true: it depicts a live, ongoing state rather
+     than a settled one, so a pane swap resuming it mid-breath reads as
+     "still on a roll", not as something replaying that had already
+     finished. Same reasoning `.row[data-waiting-primary]` relies on above. */
+  animation: composer-burst-breathe 1.6s ease-in-out infinite;
+}
+@keyframes composer-burst-breathe {
+  0%, 100% { box-shadow: 0 0 0 1px var(--wants-dim), 0 0 20px 3px var(--wants); }
+  50%      { box-shadow: 0 0 0 1px var(--wants-dim), 0 0 34px 7px var(--wants); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The glow itself is information ("you are on a roll") and stays; only
+     the breathing is motion. Falls back to level 3's own static shadow
+     (the rule above), never to level 2's - reduced motion is not the same
+     request as "a smaller glow". */
+  #composer-form[data-burst="3"] { animation: none; }
+}
+
+/* The plane a send launches (`flySendMark.ts`) - fixed to the viewport, not
+   the composer, because it must not be clipped by any ancestor's `overflow`
+   and must not live anywhere a re-render could find it (see that file's own
+   comment for the rest of #82's reasoning). One-shot and `forwards`: it
+   never loops, so there is nothing here for reduced motion to turn off -
+   the module itself does not create the element when reduced motion is on. */
+.send-fly {
+  position: fixed;
+  pointer-events: none;
+  z-index: 60;
+  color: var(--wants);
+  filter: drop-shadow(0 0 6px var(--wants));
+  animation: send-fly 500ms var(--ease-exit) forwards;
+}
+@keyframes send-fly {
+  0%   { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(20px, -130px) scale(0.35); opacity: 0; }
+}
+
 /* The hint and the usage mark share one line. The hint takes the room and
    the mark sits at the end of it, so the composer keeps the height it had. */
 #composer-foot {

@@ -27,3 +27,22 @@ export function tapFailed(): void {
     navigator.vibrate([12, 60, 12]);
   }
 }
+
+/**
+ * The burst reaching its loudest (#103) - fired once, on the send that first
+ * pushes `useSendBurst`'s level to 3, not on every send that stays there.
+ * The developer asked for more feedback, and a streak actually reaching its
+ * cap is the one moment earned enough to spend a second haptic vocabulary
+ * entry on.
+ *
+ * Ascending rather than `tapFailed()`'s two equal pulses: climbing, three
+ * beats getting longer, reads as "building up" by feel the same way it
+ * reads by eye in the glow - `tapFailed()`'s `[12, 60, 12]` is symmetric and
+ * comes straight back down, which is exactly the shape a success must not
+ * share with a failure.
+ */
+export function tapBurst(): void {
+  if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+    navigator.vibrate([10, 30, 10, 30, 20]);
+  }
+}

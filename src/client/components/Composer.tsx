@@ -25,6 +25,7 @@ export function Composer({
   model, answeredBy, onChangeModel, project,
   attachments = [], addFiles = async () => {}, removeAttachment = () => {}, attachmentError = null,
   sendState = "idle",
+  burstLevel = 0,
 }: {
   text: string;
   setText: (value: string) => void;
@@ -60,6 +61,10 @@ export function Composer({
   removeAttachment?: (index: number) => void;
   /** Image-specific validation errors. */
   attachmentError?: string | null;
+  /** How many sends have landed close together, 0-3 (#103, `useSendBurst`).
+   * Drawn as `data-burst` on the form - the composer's own glow reads it,
+   * nothing else here does. */
+  burstLevel?: number;
 }) {
   useAutoGrow(inputRef, text);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -90,6 +95,7 @@ export function Composer({
         onSubmit={(event) => { event.preventDefault(); onSubmit(); }}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
+        data-burst={burstLevel > 0 ? String(burstLevel) : undefined}
       >
         {/* Below the breakpoint only (styles.css) - the way back out of
             focus mode that does not require finding somewhere else on
