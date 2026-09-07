@@ -1831,6 +1831,36 @@ describe("broadcast on a tab another specialist opens", () => {
 
     expect(rowOf(registry, childId).broadcast).toBe(false);
   });
+
+  // A specialist created from a phone was created broadcast: false, with no
+  // way for the caller to say otherwise - the daemon created it, but the
+  // phone's own roster (a mirror of broadcast specialists only) never showed
+  // it, and it answered 403 to everything sent to it afterwards (#76).
+  it("is on when the caller states it, as a remote cockpit does", async () => {
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "remote", model: "opus", broadcast: true });
+
+    expect(rowOf(registry, id).broadcast).toBe(true);
+  });
+
+  it("still defaults off for a local cockpit that sends no opinion", async () => {
+    const { project, registry } = await setupForCreate();
+    const id = await registry.create({ project, label: "local", model: "opus" });
+
+    expect(rowOf(registry, id).broadcast).toBe(false);
+  });
+
+  it("overrides inheritance when the caller states it explicitly", async () => {
+    const { project, registry } = await setupForCreate();
+    const parentId = await registry.create({ project, label: "parent", model: "opus" });
+    await registry.setBroadcast(parentId, true);
+
+    const childId = await registry.create({
+      project, label: "child", model: "opus", createdBy: parentId, broadcast: false,
+    });
+
+    expect(rowOf(registry, childId).broadcast).toBe(false);
+  });
 });
 
 describe("a report on a tab another specialist opened", () => {
