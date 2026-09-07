@@ -37,6 +37,21 @@ export const MODELS: readonly Model[] = [
 export const DEFAULT_MODEL = "opus";
 
 /**
+ * The one sentence explaining what reasoning effort does, said the same way
+ * everywhere it is offered - the model picker, the new-specialist form, and
+ * Settings.
+ *
+ * It used to be three hand-written variants, each naming specific third-party
+ * models (Gemini 3.1 Pro Preview/3.7 Pro, OpenAI o1/o3) rather than the thing
+ * that actually determines whether it does anything: whether the model is
+ * reached through OpenRouter. `reasoning-effort` is read in exactly one place,
+ * the OpenRouter/Gemini proxy - see daemon/gemini.ts - so naming a vendor was
+ * always going to go stale the next time OpenRouter added or dropped one.
+ */
+export const REASONING_EFFORT_NOTE =
+  "Applies to models run through OpenRouter. Has no effect on Anthropic's own.";
+
+/**
  * Whether this bench will accept the name.
  *
  * An OpenRouter id is accepted on its shape rather than checked against the

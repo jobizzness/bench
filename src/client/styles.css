@@ -2037,6 +2037,52 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
    needs" beats a list that quietly leaves out half the bench. */
 .model-option:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* Thinking Effort. Its own class rather than .model-option: the two used to
+   share one, which made a picker with four Anthropic models plus four effort
+   levels count eight ".model-option"s where only the models were meant. */
+.effort-options {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.effort-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  padding: 12px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.effort-option b { font: 600 13px/1.3 var(--sans); }
+.effort-option span {
+  font: 400 11px/1.3 var(--sans);
+  opacity: 0.8;
+}
+.effort-option:focus-visible { border-color: var(--line-firm); }
+@media (hover: hover) {
+  .effort-option:hover:not(:disabled) { border-color: var(--line-firm); }
+}
+.effort-option[data-current="true"] {
+  border-color: var(--wants);
+  color: var(--wants);
+}
+.effort-option[data-current="true"] b::after {
+  content: " ·  now";
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.04em;
+}
+.effort-option:disabled { opacity: 0.4; cursor: not-allowed; }
+@media (max-width: 420px) {
+  .effort-options { grid-template-columns: repeat(2, 1fr); }
+}
+
 /* ── Everything else: the OpenRouter side ────────────────────────────
 
    A column of rows rather than a grid of cards, and the reason is the
