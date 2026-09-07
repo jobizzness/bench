@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
-import { MODELS } from "../../shared/models.js";
+import { MODELS, REASONING_EFFORT_NOTE } from "../../shared/models.js";
 import { costOfTurn, dollars, multipleLabel, multipleOf, type Price } from "../../shared/cost.js";
 import { AutoRouters, isAutoRouter } from "./AutoRouters.js";
 import { ModelRow, shortName, windowLabel, type Listed } from "./ModelRow.js";
@@ -394,40 +394,6 @@ export function ModelDialog({
             + "new model and picks the conversation up where it left off."}
       </p>
 
-      <section className="model-house" data-house="thinking-effort">
-        <h3>Thinking Effort</h3>
-        <p className="field-note">
-          The reasoning depth used by Gemini 3.1 Pro Preview/3.7 Pro or OpenAI o1/o3 reasoning models.
-        </p>
-        <div className="model-options" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem", marginBottom: "1.5rem" }}>
-          {(["none", "low", "medium", "high"] as const).map((level) => (
-            <button
-              type="button"
-              key={level}
-              className="model-option"
-              data-current={effort === level}
-              aria-current={effort === level}
-              disabled={busy}
-              onClick={() => setEffort(level)}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "0.75rem",
-                textAlign: "center",
-                height: "auto"
-              }}
-            >
-              <b>{level === "none" ? "Off" : level.charAt(0).toUpperCase() + level.slice(1)}</b>
-              <span style={{ fontSize: "0.7rem", marginTop: "0.25rem", opacity: 0.8 }}>
-                {level === "none" ? "minimal" : `${level} effort`}
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
-
       <section className="model-house" data-house="anthropic">
         <h3>Anthropic</h3>
         <p className="field-note" data-house-note="anthropic">
@@ -460,6 +426,31 @@ export function ModelDialog({
       {hasKey && (
         <AutoRouters current={current} disabled={busy} onPick={(model) => void choose(model)} />
       )}
+
+      {/* Below the models it cannot change, not above them: this has no
+          effect on Anthropic's four, so it used to sit where it read as
+          applying to the section directly beneath it. It sits right before
+          the catalogue it actually governs instead. */}
+      <section className="model-house" data-house="thinking-effort">
+        <h3>Thinking Effort</h3>
+        <p className="field-note">{REASONING_EFFORT_NOTE}</p>
+        <div className="effort-options">
+          {(["none", "low", "medium", "high"] as const).map((level) => (
+            <button
+              type="button"
+              key={level}
+              className="effort-option"
+              data-current={effort === level}
+              aria-current={effort === level}
+              disabled={busy}
+              onClick={() => setEffort(level)}
+            >
+              <b>{level === "none" ? "Off" : level.charAt(0).toUpperCase() + level.slice(1)}</b>
+              <span>{level === "none" ? "minimal" : `${level} effort`}</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
       <section id={own("router")} className="model-house model-router">
         <h3>Everything else</h3>

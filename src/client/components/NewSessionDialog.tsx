@@ -202,21 +202,10 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
           </p>
         )}
 
-        <label htmlFor="f-reasoning-effort">Reasoning effort</label>
-        <select
-          id="f-reasoning-effort"
-          value={reasoningEffort}
-          onChange={(event) => setReasoningEffort(event.target.value as any)}
-        >
-          <option value="none">Off (Minimal thinking)</option>
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-        </select>
-        <p className="field-note" id="f-reasoning-effort-note">
-          Configure the thinking depth for reasoning models (e.g. Gemini 3.1 Pro Preview/3.7 Pro or o1/o3).
-        </p>
-
+        {/* Reasoning effort has its own control inside ModelDialog now - this
+            form used to carry a second one, a <select> whose value the
+            dialog's onPick silently overwrote whenever it fired. One value,
+            one control. */}
         <ModelDialog
           id="f-model-dialog"
           open={modelOpen}

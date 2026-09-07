@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { houseRules, NO_SETTINGS, type Settings } from "../../shared/settings.js";
+import { REASONING_EFFORT_NOTE } from "../../shared/models.js";
 import { RoleModels } from "./RoleModels.js";
 import { ServerLocation } from "./ServerLocation.js";
 import { HiddenProjects } from "./HiddenProjects.js";
@@ -126,9 +127,7 @@ export function SettingsDialog({ open, onClose, activeMachineName }: {
           <option value="medium">Medium</option>
           <option value="high">High</option>
         </select>
-        <p className="field-note">
-          The amount of thinking effort Gemini 3.1 Pro Preview/3.7 Pro or OpenAI reasoning models use before responding.
-        </p>
+        <p className="field-note">{REASONING_EFFORT_NOTE}</p>
 
         <details id="s-preview" open={framing !== ""}>
           <summary>What a specialist is told</summary>
