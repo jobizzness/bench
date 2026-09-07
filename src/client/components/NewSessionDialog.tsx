@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { authFetch, postJson } from "../api.js";
+import { authFetch, isRemote, postJson } from "../api.js";
 import { asRole, DEFAULT_ROLE, ROLES, ROLE_NOTE, type Role } from "../../shared/roles.js";
 import { isProxied, modelLabel } from "../../shared/models.js";
 import { ROLE_MODELS } from "../../shared/role-models.js";
@@ -104,6 +104,9 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
     try {
       const res = await postJson("/api/sessions", {
         project: path, label: label.trim(), role, model, isolated, reasoningEffort,
+        // A specialist created from a remote cockpit that stays unbroadcast
+        // is invisible in the only roster that made it - see #76.
+        ...(isRemote() ? { broadcast: true } : {}),
       });
       // The old prompt flow discarded this response, so a rejected request
       // produced no specialist and no explanation.
