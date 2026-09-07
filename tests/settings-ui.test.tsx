@@ -66,9 +66,27 @@ describe("the house rules page", () => {
     await ui.type(ui.$("#s-workflow"), "verify first");
     await ui.click(ui.$("#s-save"));
 
+    // Exact rather than a subset, on purpose: the page sends the whole
+    // settings object back, so this is the one assertion that notices a field
+    // being added to it or quietly dropped from it. `reasoningEffort` is here
+    // because it is the default the dialog was seeded with, not because
+    // anything was typed - see the round-trip test below.
     expect(saved()!.body).toEqual({
       codingStyle: "terse", workflowRules: "verify first", reviewModel: "opus", roleModels: {},
+      reasoningEffort: "medium",
     });
+  });
+
+  it("keeps a reasoning effort it was given, through a save of the rules", async () => {
+    // The page loads every setting and posts every setting, so a field it
+    // does not draw a control for - or draws and forgets to seed - goes back
+    // as its default and silently overwrites what was there. Cheap to assert,
+    // and the exact assertion above only proves the default case.
+    await open({ reasoningEffort: "high" });
+    await ui.type(ui.$("#s-style"), "terse");
+    await ui.click(ui.$("#s-save"));
+
+    expect(saved()!.body.reasoningEffort).toBe("high");
   });
 
   it("keeps what was saved when it is reopened", async () => {
