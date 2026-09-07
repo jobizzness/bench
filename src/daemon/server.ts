@@ -686,6 +686,10 @@ export function createServer(opts: {
           // request - the CLI sends its own session id, the cockpit sends
           // nothing. What that decides is in registry.send().
           ...(typeof body.createdBy === "string" ? { createdBy: body.createdBy } : {}),
+          // Present only when a remote cockpit made the request - see #76.
+          // Absent (the local cockpit, the CLI) leaves the existing rule
+          // (inherit from createdBy, else false) untouched.
+          ...(typeof body.broadcast === "boolean" ? { broadcast: body.broadcast } : {}),
         });
         // The role may have resolved the empty string the caller sent into
         // whatever that role runs on - `bench new`'s own confirmation is the

@@ -276,6 +276,16 @@ not exist for it. Broadcasting one **includes every sub-agent tab it opened**,
 because a specialist and the researcher it spun up are one piece of work and
 splitting them would mean broadcasting a parent whose findings you cannot read.
 
+One creation path is broadcast on arrival, with nobody having flipped the
+switch: a specialist made from a remote cockpit's own **New** button. The
+alternative was a specialist that exists on the daemon the moment it is
+created but is invisible in the only roster the developer is looking at, and
+unreachable afterwards — a specialist you cannot see or command from the only
+cockpit you have is not a specialist, it is a bug report waiting to happen
+(#76). "Off by default" still means the developer did not have to ask for
+this; it happens because the request could only have reached the daemon
+through their own authenticated remote session in the first place.
+
 The two gates compose. Broadcast is permission, presence is demand, and the
 daemon mirrors the intersection:
 

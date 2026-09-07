@@ -1101,6 +1101,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     createdBy?: string;
     /** Model reasoning/thinking effort level. */
     reasoningEffort?: "none" | "low" | "medium" | "high";
+    /** The caller's own say on whether this should be mirrored. Present only
+     * from a remote cockpit (#76) - when it is, it wins outright; when it is
+     * absent, the existing rule below (inherit from createdBy, else false)
+     * is unchanged, so a local cockpit and an older client are unaffected. */
+    broadcast?: boolean;
   }): Promise<string> {
     const isolated = input.isolated ?? true;
     const role = asRole(input.role);
@@ -1131,9 +1136,16 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // by a specialist that is not broadcast stays unbroadcast, and one the
     // developer opened from the cockpit has no parent to inherit from, so
     // both keep the off-by-default this has always had.
-    const broadcast = input.createdBy === undefined
-      ? false
-      : this.entries.get(input.createdBy)?.row.broadcast ?? false;
+    //
+    // A caller that states its own opinion wins outright (#76) - a remote
+    // cockpit's own New button, the only path where the request could only
+    // have reached the daemon through the developer's own authenticated
+    // session in the first place.
+    const broadcast = input.broadcast !== undefined
+      ? input.broadcast
+      : input.createdBy === undefined
+        ? false
+        : this.entries.get(input.createdBy)?.row.broadcast ?? false;
 
     this.entries.set(id, {
       reportsDir,
