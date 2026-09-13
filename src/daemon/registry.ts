@@ -7,6 +7,7 @@ import { createServer, type SessionRegistryLike } from "./server.js";
 import { createWorktree, currentBranch, excludeBenchDir, inspectWorktree, removeWorktree } from "./worktree.js";
 import { bootstrapWorktree, BootstrapError } from "./bootstrap.js";
 import { ClaudeSession } from "./claude-session.js";
+import type { Session } from "./session.js";
 import { existsSync } from "node:fs";
 import { latestReportSeq, findReport, latestTurn } from "./reports.js";
 import { SessionStore } from "./store.js";
@@ -58,7 +59,7 @@ interface Entry {
   row: RosterRow;
   reportsDir: string;
   threadPath: string;
-  session: ClaudeSession | null;
+  session: Session | null;
   alive: boolean;
   /** Enough to bring the specialist back after the daemon has restarted. */
   worktree: string;
@@ -829,7 +830,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     startTurn?: number;
     /** Set for an OpenRouter model, already resolved. */
     via?: { key: string; contextLength?: number | null };
-  }): ClaudeSession {
+  }): Session {
     const entry = this.entries.get(id)!;
     const reportsDir = entry.reportsDir;
 
@@ -1253,7 +1254,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   /** Every prompt takes the same path in. What the turn becomes is the
    * agent's call. */
   /** Bring a cold specialist back, on whatever backend it was made on. */
-  private revive(id: string, entry: Entry, via: { key: string; contextLength?: number | null } | undefined): ClaudeSession {
+  private revive(id: string, entry: Entry, via: { key: string; contextLength?: number | null } | undefined): Session {
     return this.attach(id, {
       label: entry.row.label,
       worktree: entry.worktree,

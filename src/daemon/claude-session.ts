@@ -13,6 +13,7 @@ import { buildSettings } from "./gates/settings.js";
 import { credentialEnv } from "./anthropic-key.js";
 import { sessionEnv as openRouterEnv } from "./gemini.js";
 import { ROLE_BRIEF, COST_AWARENESS_BRIEF, DEFAULT_ROLE, type Role } from "../shared/roles.js";
+import type { Session } from "./session.js";
 
 /** Enough for a refusal and a stack trace, not enough to hold a log file. */
 const STDERR_KEPT = 4000;
@@ -166,7 +167,7 @@ export interface SessionOptions {
  * emits a `result` event, then blocks on stdin - so the turn is the unit of
  * control and no separate "needs input" protocol is required.
  */
-export class ClaudeSession extends EventEmitter {
+export class ClaudeSession extends EventEmitter implements Session {
   readonly id: string;
   private child: ChildProcessWithoutNullStreams | null = null;
   private decoder = new LineDecoder();
