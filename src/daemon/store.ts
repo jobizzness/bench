@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AttachmentRef, Spend } from "../shared/types.js";
 import type { NudgeState } from "../shared/nudge.js";
+import { runtimeFor } from "./session.js";
 
 /**
  * The index is on disk but unreadable. Thrown rather than swallowed: every
@@ -223,6 +224,26 @@ export class SessionStore {
     });
   }
 
+  /**
+   * Heal a record that claims a conversation its runtime has no memory of -
+   * the CLI's own "no conversation found" refusal, most often left behind by
+   * a model change that crossed a runtime boundary before this record was
+   * written under the fixed `remodel` (#113). Unlike `forgetConversation`,
+   * nothing about the conversation's size or how many times it was cleared
+   * has changed, so `context` and `clearCount` are left alone - only the
+   * false claim that there is something to resume is.
+   */
+  async clearStaleResume(id: string): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record) return;
+      record.resumable = false;
+      delete record.runtimeSessionId;
+      await this.write(all);
+    });
+  }
+
   async rememberRuntimeSessionId(id: string, runtimeSessionId: string): Promise<void> {
     return this.change(async () => {
       const all = await this.all();
@@ -298,7 +319,17 @@ export class SessionStore {
       const all = await this.all();
       const record = all.find((r) => r.id === id);
       if (!record) return;
-      if (record.model !== model) delete record.runtimeSessionId;
+      if (record.model !== model) {
+        delete record.runtimeSessionId;
+        // A conversation belongs to the runtime that holds it. Crossing to a
+        // different one leaves `resumable` pointing at a conversation the new
+        // runtime has never heard of - Claude refuses outright ("No
+        // conversation found with session ID"), Devin quietly starts over
+        // while the roster still claims the old history (#113). Changing
+        // model within a runtime (opus -> sonnet) is not this: the transcript
+        // is still there, so `resumable` is left alone.
+        if (runtimeFor(record.model) !== runtimeFor(model)) record.resumable = false;
+      }
       record.model = model;
       await this.write(all);
     });

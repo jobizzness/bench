@@ -992,6 +992,31 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         this.remember(this.store.markResumable(id));
       }
 
+      // The opposite lie: `resumable` said there was a conversation to
+      // continue and the runtime says there never was one it knows about.
+      // Most often this is a record left over from a model change that
+      // crossed a runtime boundary before it was cleared at the boundary
+      // (#113) - Claude's own refusal here is proof there is nothing to
+      // resume, so believe that instead of repeating the same crash forever.
+      // Heal the claim, and if a prompt was waiting on this attempt, start it
+      // fresh rather than making the developer notice and resend it.
+      if (entry && opts.resume && /no conversation found with session id/i.test(stderr ?? "")) {
+        entry.resumable = false;
+        entry.runtimeSessionId = undefined;
+        this.remember(this.store.clearStaleResume(id));
+        // Only retried here for a plain Claude model: an OpenRouter one needs
+        // `via` re-resolved first, which is what `deliver()` already does on
+        // the developer's next prompt - and that prompt now revives with
+        // `resume: false`, since the claim above is healed.
+        const retry = this.retryPrompts.get(id);
+        if (retry && !isOpenRouterModel(entry.model)) {
+          this.revive(id, entry, undefined);
+          entry.session!.send(retry.text, retry.images);
+          this.update(id, "working", "starting a new conversation");
+          return;
+        }
+      }
+
       // Asked for, not suffered. The specialist is still here and its next
       // prompt revives it from the last turn it finished.
       if (entry?.stopping) {
@@ -1561,7 +1586,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * is the base URL that decides who answers. So the change is recorded and
    * the process is let go of - the next prompt revives it on the new model,
    * resuming the same transcript, which is the path a cold specialist already
-   * takes every time the daemon restarts.
+   * takes every time the daemon restarts. That only holds within a runtime:
+   * crossing between `devin` and any Claude model leaves no transcript for
+   * the new one to resume, so the conversation is dropped instead (#113).
    *
    * Lazy rather than eager on purpose. Restarting here would spend a turn's
    * startup on a decision the developer might still be thinking about, and a
@@ -1577,6 +1604,16 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // with no way to run its proxy, fails here - while the developer is
     // still looking at the modal - rather than on the next prompt.
     await this.viaFor(model);
+
+    // A conversation belongs to the runtime that holds it. Crossing to a
+    // different one (devin <-> any Claude model) leaves nothing for the new
+    // runtime to resume, and asking it to anyway is what crashes the tab
+    // (#113) - so the in-memory claim is cleared right alongside the model,
+    // not just the on-disk one `store.remodel` clears below.
+    if (runtimeFor(entry.model) !== runtimeFor(model)) {
+      entry.resumable = false;
+      entry.runtimeSessionId = undefined;
+    }
 
     entry.model = model;
     entry.row.model = model;
