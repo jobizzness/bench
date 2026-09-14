@@ -42,15 +42,36 @@ process.stdin.on("data", (chunk) => {
         : text + "|received=" + prompts;
       const finish = () => {
         send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "tool_call", title: "Editing file", status: "in_progress" } } });
-        if (mode === "usage") {
-          // The real wire shape, captured by driving an actual Devin turn (#115
-          // review comment) - flat "used"/"size", not nested "usage.totalTokens".
+        // The real wire shape, captured by driving actual Devin turns (#115
+        // review comments) - flat "used"/"size" on the notification, not a
+        // nested "usage.totalTokens"; "used" is the *conversation's*
+        // cumulative occupancy, not the turn's own spend, and the result's
+        // "usage.totalTokens" agrees with the last "used" of the same turn.
+        // "usage" models a fresh session's first two turns: turn one moves
+        // used 0 -> 100 -> 250 across two updates; turn two, on the same
+        // conversation, moves it 250 -> 295 across one.
+        if (mode === "usage" && prompts === 1) {
           send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", used: 100, size: 262000, _meta: { "cognition.ai/inputTokens": 90, "cognition.ai/outputTokens": 10 } } } });
           send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", used: 250, size: 262000, _meta: { "cognition.ai/inputTokens": 200, "cognition.ai/outputTokens": 50 } } } });
+        } else if (mode === "usage" && prompts === 2) {
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", used: 295, size: 262000, _meta: { "cognition.ai/inputTokens": 290, "cognition.ai/outputTokens": 5 } } } });
+        } else if (mode === "usage-resume" && prompts === 1) {
+          // A session resumed from a prior process: "used" starts already
+          // high - the conversation this session is resuming already spent
+          // tokens this process never saw a baseline for.
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", used: 5000, size: 262000 } } });
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", used: 5200, size: 262000 } } });
+        } else if (mode === "usage-resume" && prompts === 2) {
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", used: 5240, size: 262000 } } });
         }
         send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: answer } } } });
-        const result = mode === "usage"
-          ? { stopReason: "end_turn", usage: { totalTokens: 300, inputTokens: 240, outputTokens: 60, cachedReadTokens: 128 } }
+        const usageResult = mode === "usage"
+          ? (prompts === 1 ? { totalTokens: 250, inputTokens: 200, outputTokens: 50 } : { totalTokens: 295, inputTokens: 290, outputTokens: 5 })
+          : mode === "usage-resume"
+          ? (prompts === 1 ? { totalTokens: 5200, inputTokens: 5150, outputTokens: 50 } : { totalTokens: 5240, inputTokens: 5230, outputTokens: 10 })
+          : null;
+        const result = usageResult
+          ? { stopReason: "end_turn", usage: usageResult }
           : { stopReason: mode === "refusal" ? "refusal" : "end_turn" };
         send({ jsonrpc: "2.0", id: request.id, result });
       };
@@ -168,16 +189,19 @@ describe("DevinSession", () => {
     session.stop();
   });
 
-  it("moves turnTokens live off usage_update's 'used' field and carries the result's usage onto the ResultEvent", async () => {
+  it("moves turnTokens live off usage_update's 'used' field, as this turn's own spend, and carries the result's cumulative usage onto the ResultEvent", async () => {
     const session = await makeSession("usage");
     const progressTokens: number[] = [];
     session.on("progress", () => progressTokens.push(session.turnTokens));
     session.open();
     const result = await turn(session, "work");
 
+    // A fresh session's first turn: the baseline is 0, so the turn's own
+    // spend and the conversation's cumulative "used" coincide here - this
+    // is exactly the capture that made round two's mistake possible.
     expect(progressTokens).toEqual([100, 250]);
-    expect(session.turnTokens).toBe(300);
-    expect(result.usage).toEqual({ totalTokens: 300, inputTokens: 240, outputTokens: 60, cachedReadTokens: 128 });
+    expect(session.turnTokens).toBe(250);
+    expect(result.usage).toEqual({ totalTokens: 250, inputTokens: 200, outputTokens: 50 });
     expect(result).not.toHaveProperty("total_cost_usd");
     session.stop();
   });
@@ -188,26 +212,56 @@ describe("DevinSession", () => {
     expect(session.contextUsed).toBeNull();
     await turn(session, "work");
 
-    // The result carries no context-window size, so contextUsed reflects the
-    // last usage_update of the turn rather than the result's final token
-    // count - that is the only place a window figure is ever on the wire.
     expect(session.contextUsed).toEqual({ used: 250, window: 262000 });
     session.stop();
   });
 
-  it("resets turnTokens, but not contextUsed, at the start of the next turn", async () => {
+  it("reports the second turn's own spend, not the conversation, and contextUsed keeps growing", async () => {
+    // The defect round three actually found: a second, distinct turn on the
+    // same session must not read as the whole conversation so far.
     const session = await makeSession("usage");
     session.open();
     await turn(session, "first");
-    expect(session.turnTokens).toBe(300);
+    expect(session.turnTokens).toBe(250);
     expect(session.contextUsed).toEqual({ used: 250, window: 262000 });
 
     const midTurnTokens: number[] = [];
     session.on("progress", () => midTurnTokens.push(session.turnTokens));
-    await turn(session, "second");
+    const result = await turn(session, "second");
 
-    expect(midTurnTokens).toEqual([100, 250]);
-    expect(session.contextUsed).toEqual({ used: 250, window: 262000 });
+    // used moves 250 -> 295 across turn two; turnTokens reports the 45-token
+    // difference, never the conversation's 295.
+    expect(midTurnTokens).toEqual([45]);
+    expect(session.turnTokens).toBe(45);
+    expect(result.usage).toEqual({ totalTokens: 295, inputTokens: 290, outputTokens: 5 });
+    expect(session.contextUsed).toEqual({ used: 295, window: 262000 });
+    session.stop();
+  });
+
+  it("does not report a resumed session's first turn as its own spend, but recovers on the second", async () => {
+    // A resumed session has no in-process memory of what "used" was before
+    // it started - so its first turn's baseline is genuinely unknown, and
+    // reporting a number here would repeat the exact defect this round
+    // found, just gated behind a resume instead of a second turn.
+    const session = await makeSession("usage-resume", { resumeSessionId: "devin-persisted" });
+    session.open();
+    const first = await turn(session, "first");
+
+    // turnTokens stays 0 - the honest "unknown" this codebase already uses
+    // for "nothing has updated it yet" - rather than the conversation's
+    // 5200. The result's own usage block is still carried, cumulative and
+    // unadjusted, exactly as documented: nothing here invents a delta it
+    // cannot back.
+    expect(session.turnTokens).toBe(0);
+    expect(first.usage).toEqual({ totalTokens: 5200, inputTokens: 5150, outputTokens: 50 });
+    expect(session.contextUsed).toEqual({ used: 5200, window: 262000 });
+
+    // Turn two now has a real baseline, carried over from turn one's own
+    // usage_update - the gap is exactly one turn wide, never permanent.
+    const second = await turn(session, "second");
+    expect(session.turnTokens).toBe(40);
+    expect(second.usage).toEqual({ totalTokens: 5240, inputTokens: 5230, outputTokens: 10 });
+    expect(session.contextUsed).toEqual({ used: 5240, window: 262000 });
     session.stop();
   });
 
