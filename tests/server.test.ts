@@ -44,6 +44,9 @@ class StubRegistry extends EventEmitter {
   }
   getApiKey() { return this.keyOn ? this.key : null; }
   setApiKey(key: string) { this.key = key; this.keyOn = true; }
+  managedKeys: Array<{ id: string; key: string; label: string; status: "available" | "exhausted" | "refused" | "unreachable" | "unchecked"; checkedAt: number }> = [];
+  setManagedApiKeys(keys: typeof this.managedKeys) { this.managedKeys = keys; }
+  managedApiKeyStates() { return this.managedKeys.map(({ key: _key, ...item }, index) => ({ ...item, active: index === 0 })); }
   setApiKeyEnabled(on: boolean) { this.keyOn = on; }
   clearApiKey() { this.key = null; this.keyOn = true; }
   threadPathValue = "";
@@ -746,7 +749,7 @@ describe("the developer's own API key", () => {
   const put = (body: unknown) =>
     fetch(`${base}/api/anthropic-key`, { method: "POST", ...auth, body: JSON.stringify(body) });
 
-  beforeEach(() => { verdict = "ok"; registry.key = null; registry.keyOn = true; });
+  beforeEach(() => { verdict = "ok"; registry.key = null; registry.keyOn = true; registry.managedKeys = []; });
 
   it("says there is no key when none has been given", async () => {
     const res = await fetch(`${base}/api/anthropic-key`, auth);
@@ -817,6 +820,31 @@ describe("the developer's own API key", () => {
 
     expect(res.status).toBe(401);
     expect(registry.getApiKey()).toBeNull();
+  });
+
+  it("checks and loads several managed credentials without returning their secrets", async () => {
+    const second = "sk-ant-api03-second-managed-key-9b7c";
+    const res = await fetch(`${base}/api/anthropic-keys`, {
+      method: "POST", ...auth,
+      body: JSON.stringify({ credentials: [{ id: "one", key: KEY, label: "Primary" }, { id: "two", key: second, label: "Backup" }] }),
+    });
+    const text = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(registry.managedKeys).toHaveLength(2);
+    expect(registry.managedKeys.every((item) => item.status === "available")).toBe(true);
+    expect(text).not.toContain(KEY);
+    expect(text).not.toContain(second);
+  });
+
+  it("keeps a recently exhausted credential cooling down", async () => {
+    const checkedAt = Date.now();
+    await fetch(`${base}/api/anthropic-keys`, {
+      method: "POST", ...auth,
+      body: JSON.stringify({ credentials: [{ id: "one", key: KEY, label: "Primary", status: "exhausted", checkedAt }] }),
+    });
+
+    expect(registry.managedKeys[0]).toMatchObject({ id: "one", status: "exhausted", checkedAt });
   });
 });
 

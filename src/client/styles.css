@@ -527,6 +527,32 @@ button, input, textarea, select { font: inherit; color: inherit; }
   }
 }
 
+#open-profile {
+  width: 29px; height: 29px; padding: 0;
+  display: grid; place-items: center;
+  border: 1px solid var(--line-firm); border-radius: 50%;
+  background: var(--raised); color: var(--text);
+  font: 600 11px/1 var(--mono); cursor: pointer;
+}
+#open-profile svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+
+#profile-dialog { width: min(560px, 92vw); padding: 0; }
+.profile-body { padding: 22px; }
+.profile-body > header { display: flex; justify-content: space-between; align-items: start; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+.profile-body h2, .profile-body h3, .profile-body p { margin-top: 0; }
+.profile-body > header p { color: var(--muted); margin: 5px 0 0; }
+.profile-body section { margin-top: 20px; }
+.profile-sign-in { text-align: center; padding: 28px 0 18px; }
+.credential-list { list-style: none; margin: 0; padding: 0; }
+.credential-list li { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.credential-list li > div { display: flex; align-items: center; gap: 10px; }
+.credential-list span { color: var(--muted); font: 11px/1.3 var(--mono); }
+.credential-status { text-transform: capitalize; }
+.credential-status.available, .credential-status.ok { color: var(--wants); }
+.credential-status.exhausted, .credential-status.refused { color: var(--broken); }
+.credential-add { display: grid; gap: 9px; }
+.credential-add h3 { margin-bottom: 2px; }
+
 /* An icon rather than a word, because it is a place you already recognise -
    and square, so it does not read as a third button of the same kind. */
 /* The two marks at the right of the stage header share one shape: an icon, a
@@ -3037,6 +3063,7 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
      is not. */
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

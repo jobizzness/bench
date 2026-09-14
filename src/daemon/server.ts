@@ -41,6 +41,8 @@ export interface SessionRegistryLike {
   // No reader. The key goes to the daemon for the CLI's benefit, and a
   // server that cannot ask for it is a server that cannot serve it back.
   setApiKey(key: string): void;
+  setManagedApiKeys?(keys: import("./anthropic-key.js").ManagedAnthropicKey[]): void;
+  managedApiKeyStates?(): Array<Omit<import("./anthropic-key.js").ManagedAnthropicKey, "key"> & { active: boolean }>;
   setApiKeyEnabled(on: boolean): void;
   clearApiKey(): void;
   // The OpenRouter key. Same rule as above: whether there is one goes out,
@@ -470,6 +472,39 @@ export function createServer(opts: {
      */
     if (path === "/api/anthropic-key" && req.method === "GET") {
       json(res, 200, { ...registry.apiKeyState(), verified: true });
+      return;
+    }
+
+    if (path === "/api/anthropic-keys" && req.method === "GET") {
+      json(res, 200, { credentials: registry.managedApiKeyStates?.() ?? [] });
+      return;
+    }
+
+    if (path === "/api/anthropic-keys" && req.method === "POST") {
+      const input = (await readBody(req))?.credentials;
+      if (!Array.isArray(input) || input.length > 100 || !registry.setManagedApiKeys) {
+        json(res, 400, { error: "credentials must be a list" });
+        return;
+      }
+      const checked = await Promise.all(input.map(async (item: unknown) => {
+        const value = item as Record<string, unknown>;
+        const id = String(value.id ?? "");
+        const key = String(value.key ?? "").trim();
+        const label = String(value.label ?? "Anthropic key");
+        const priorStatus = String(value.status ?? "unchecked");
+        const priorCheckedAt = Number(value.checkedAt ?? 0);
+        if (id === "" || key === "") return null;
+        const verdict = await verify(key);
+        const coolingDown = priorStatus === "exhausted" && Date.now() - priorCheckedAt < 15 * 60_000;
+        return {
+          id, key, label,
+          status: coolingDown ? "exhausted" : verdict === "ok" ? "available" : verdict,
+          checkedAt: coolingDown ? priorCheckedAt : Date.now(),
+        } as import("./anthropic-key.js").ManagedAnthropicKey;
+      }));
+      const credentials = checked.filter((item): item is import("./anthropic-key.js").ManagedAnthropicKey => item !== null);
+      registry.setManagedApiKeys(credentials);
+      json(res, 200, { credentials: registry.managedApiKeyStates?.() ?? [] });
       return;
     }
 

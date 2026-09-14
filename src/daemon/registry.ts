@@ -176,6 +176,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   private managedApiKeys: ManagedAnthropicKey[] = [];
   private activeManagedKeyId: string | null = null;
   private retryPrompts = new Map<string, { text: string; images: StoredAttachment[] }>();
+  private credentialRetries = new Set<string>();
 
   /**
    * The developer's OpenRouter key, for specialists run on anybody other than
@@ -336,7 +337,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    */
   private credentialForSpawn(): string | null | undefined {
     // Nothing of our own to say. Whatever the daemon was started with stands.
-    if (this.apiKey === null) return undefined;
+    if (this.apiKey === null) return this.managedApiKeys.length > 0 ? null : undefined;
     return this.apiKeyOn ? this.apiKey : null;
   }
 
@@ -360,7 +361,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       active.checkedAt = Date.now();
     }
     const next = this.managedApiKeys.find((item) => item.status === "available");
-    if (!next) return false;
+    if (!next) {
+      this.activeManagedKeyId = null;
+      this.apiKey = null;
+      return false;
+    }
     this.activeManagedKeyId = next.id;
     this.setApiKey(next.key);
     return true;
@@ -971,6 +976,16 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       // prompt revives it from the last turn it finished.
       if (entry?.stopping) {
         entry.stopping = false;
+        if (this.credentialRetries.delete(id)) {
+          const retry = this.retryPrompts.get(id);
+          entry.stoppedBecause = undefined;
+          if (retry) {
+            this.revive(id, entry, undefined);
+            entry.session!.send(retry.text, retry.images);
+            this.update(id, "working", "retrying with another credential");
+            return;
+          }
+        }
         const because = entry.stoppedBecause ?? "stopped by you";
         entry.stoppedBecause = undefined;
         // Still holding a message nobody has sent yet, so that is still what
@@ -987,7 +1002,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       }
 
       const retry = this.retryPrompts.get(id);
-      if (entry && retry && !isOpenRouterModel(entry.model) && isUsageLimitError(stderr) && this.rotateManagedApiKey()) {
+      if (entry && retry && runtimeFor(entry.model) === "claude" && !isOpenRouterModel(entry.model) && isUsageLimitError(stderr) && this.rotateManagedApiKey()) {
         this.revive(id, entry, undefined);
         entry.session!.send(retry.text, retry.images);
         this.update(id, "working", "retrying with another credential");
@@ -1023,9 +1038,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     });
 
     session.on("turn-end", async (result: ResultEvent) => {
-      this.retryPrompts.delete(id);
       const entry = this.entries.get(id);
       if (!entry) return;
+      const limited = result.is_error && isUsageLimitError(`${result.subtype} ${result.result ?? ""}`);
+      if (runtimeFor(entry.model) === "claude" && !isOpenRouterModel(entry.model) && limited && this.retryPrompts.has(id) && this.rotateManagedApiKey()) {
+        this.credentialRetries.add(id);
+        return;
+      }
+      this.retryPrompts.delete(id);
 
       const seq = await latestReportSeq(reportsDir);
       const hasNewReport = seq !== null && seq !== entry.row.latestReportSeq;

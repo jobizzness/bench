@@ -45,6 +45,18 @@ function authHeaders(key: string): Record<string, string> {
  */
 export type KeyCheck = "ok" | "refused" | "unreachable";
 
+export interface ManagedAnthropicKey {
+  id: string;
+  key: string;
+  label: string;
+  status: "available" | "exhausted" | "refused" | "unreachable" | "unchecked";
+  checkedAt: number;
+}
+
+export function isUsageLimitError(stderr: string): boolean {
+  return /(?:rate.?limit|usage.?limit|quota|credit balance|billing|overloaded_error|429)/i.test(stderr);
+}
+
 /**
  * Ask the API, as this key, for the cheapest thing it will answer.
  *

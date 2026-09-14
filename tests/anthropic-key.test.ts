@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { keyHint, checkKey } from "../src/daemon/anthropic-key.js";
+import { keyHint, checkKey, isUsageLimitError } from "../src/daemon/anthropic-key.js";
 
 describe("what the cockpit is allowed to show of a key", () => {
   it("shows the last four characters and nothing else", () => {
@@ -53,6 +53,18 @@ describe("checking a key before it is kept", () => {
 
   it("cannot vouch for a key when the API is having a bad day", async () => {
     expect(await checkKey("sk-ant-unknown", answer(500) as unknown as typeof fetch)).toBe("unreachable");
+  });
+});
+
+describe("recognising a credential that cannot serve another turn", () => {
+  it("recognises provider limit and billing failures", () => {
+    expect(isUsageLimitError("HTTP 429 rate_limit_error")).toBe(true);
+    expect(isUsageLimitError("Credit balance is too low")).toBe(true);
+    expect(isUsageLimitError("usage limit reached")).toBe(true);
+  });
+
+  it("does not rotate credentials for an unrelated process failure", () => {
+    expect(isUsageLimitError("worktree does not exist")).toBe(false);
   });
 });
 

@@ -29,6 +29,7 @@ import { NewSessionDialog } from "./NewSessionDialog.js";
 import type { PendingMessage } from "./PendingEntry.js";
 import { Queue } from "./Queue.js";
 import { Progress } from "./Progress.js";
+import { ProfileDialog } from "./ProfileDialog.js";
 import { Roster } from "./Roster.js";
 import { SettingsDialog } from "./SettingsDialog.js";
 import { ModelDialog } from "./ModelDialog.js";
@@ -127,6 +128,7 @@ export function App() {
   const [artifact, setArtifact] = useState<ArtifactRef | null>(null);
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
@@ -435,6 +437,9 @@ export function App() {
                 </button>
               )}
               <button id="new-session" type="button" onClick={() => setCreating(true)}>New</button>
+              <button id="open-profile" type="button" aria-label="Profile" title={firebaseUser.user?.email ?? "Sign in"} onClick={() => setProfileOpen(true)}>
+                {firebaseUser.user?.email?.slice(0, 1).toUpperCase() ?? <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>}
+              </button>
             </div>
           </header>
           {/* `data-settled` plays a one-shot settle (#93) the instant
@@ -638,6 +643,7 @@ export function App() {
           />
         )}
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} activeMachineName={activeMachineName} />
+      <ProfileDialog open={profileOpen} user={firebaseUser.user} onClose={() => setProfileOpen(false)} onSignIn={firebaseUser.signIn} />
 
       {/* Only ever for a specialist that exists. The roster carries the new
           model back, so nothing is held here that the daemon has not agreed
