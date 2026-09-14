@@ -57,6 +57,9 @@ export interface SessionRecord {
    * and asking the CLI to resume one anyway kills it on the spot.
    */
   resumable?: boolean;
+  /** The runtime's own conversation id, when it differs from Bench's
+   * specialist id. Optional because Claude and older records do not need it. */
+  runtimeSessionId?: string;
   /**
    * Whether the specialist got a worktree of its own. When it did not,
    * `worktree` is the project checkout itself and `branch` is whatever the
@@ -197,6 +200,7 @@ export class SessionStore {
       if (!record) return;
       record.resumable = false;
       delete record.context;
+      delete record.runtimeSessionId;
       if (clearCount !== undefined) {
         record.clearCount = clearCount;
       }
@@ -215,6 +219,16 @@ export class SessionStore {
       const record = all.find((r) => r.id === id);
       if (!record || record.resumable) return;
       record.resumable = true;
+      await this.write(all);
+    });
+  }
+
+  async rememberRuntimeSessionId(id: string, runtimeSessionId: string): Promise<void> {
+    return this.change(async () => {
+      const all = await this.all();
+      const record = all.find((r) => r.id === id);
+      if (!record || record.runtimeSessionId === runtimeSessionId) return;
+      record.runtimeSessionId = runtimeSessionId;
       await this.write(all);
     });
   }
@@ -284,6 +298,7 @@ export class SessionStore {
       const all = await this.all();
       const record = all.find((r) => r.id === id);
       if (!record) return;
+      if (record.model !== model) delete record.runtimeSessionId;
       record.model = model;
       await this.write(all);
     });

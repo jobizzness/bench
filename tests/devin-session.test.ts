@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeSession } from "../src/daemon/claude-session.js";
 import { DevinSession } from "../src/daemon/devin-session.js";
+import { SessionStore } from "../src/daemon/store.js";
 
 const ACP_SERVER = `#!/usr/bin/env node
 const mode = ${JSON.stringify("__MODE__")};
@@ -27,6 +28,7 @@ process.stdin.on("data", (chunk) => {
       setup = request.params;
       send({ jsonrpc: "2.0", id: request.id, result: { sessionId: "devin-session" } });
     } else if (request.method === "session/load") {
+      setup = request.params;
       send({ jsonrpc: "2.0", id: request.id, result: null });
     } else if (request.method === "session/prompt") {
       prompts += 1;
@@ -100,6 +102,41 @@ describe("DevinSession", () => {
     expect(inspected.setup).toEqual({ cwd: (session as any).opts.worktree, mcpServers: [] });
     expect(inspected.cwd).toBe((session as any).opts.worktree);
     expect(inspected.text).toContain("hello");
+    session.stop();
+  });
+
+  it("persists Devin's session id before dispatching the first prompt", async () => {
+    const home = await mkdtemp(join(tmpdir(), "bench-devin-store-"));
+    const store = new SessionStore(home);
+    await store.put({
+      id: "bench-session", label: "devin", project: "/project", worktree: "/worktree",
+      branch: "bench/devin", reportsDir: "/reports", model: "devin", port: 3100,
+      createdAt: new Date().toISOString(),
+    });
+    const session = await makeSession("clean", {
+      onSessionId: (sessionId) => store.rememberRuntimeSessionId("bench-session", sessionId),
+    });
+    session.open();
+    await turn(session, "work");
+
+    expect((await store.all())[0].runtimeSessionId).toBe("devin-session");
+    await store.forgetConversation("bench-session");
+    expect((await store.all())[0].runtimeSessionId).toBeUndefined();
+    session.stop();
+  });
+
+  it("loads the persisted Devin session id rather than the Bench id", async () => {
+    const session = await makeSession("inspect", { resumeSessionId: "devin-persisted" });
+    session.open();
+    const result = await turn(session, "continue");
+    const inspected = JSON.parse(result.result);
+
+    expect(inspected.setup).toEqual({
+      sessionId: "devin-persisted",
+      cwd: (session as any).opts.worktree,
+      mcpServers: [],
+    });
+    expect(result.session_id).toBe("devin-persisted");
     session.stop();
   });
 

@@ -20,7 +20,8 @@ export interface DevinSessionOptions {
   cockpitUrl?: string;
   devinBin?: string;
   startTurn?: number;
-  resume?: boolean;
+  resumeSessionId?: string;
+  onSessionId?: (sessionId: string) => void | Promise<void>;
   rules?: () => string;
   nudge?: () => string;
 }
@@ -75,7 +76,7 @@ export class DevinSession extends EventEmitter implements Session {
   constructor(private readonly opts: DevinSessionOptions) {
     super();
     this.turnCount = opts.startTurn ?? 0;
-    this.firstPrompt = !opts.resume;
+    this.firstPrompt = opts.resumeSessionId === undefined;
   }
 
   get turnStartedAt(): string | null {
@@ -187,9 +188,9 @@ export class DevinSession extends EventEmitter implements Session {
         this.stop();
         return;
       }
-      const method = this.opts.resume ? "session/load" : "session/new";
+      const method = this.opts.resumeSessionId ? "session/load" : "session/new";
       this.setupRequestId = this.request(method, {
-        ...(this.opts.resume ? { sessionId: this.opts.id } : {}),
+        ...(this.opts.resumeSessionId ? { sessionId: this.opts.resumeSessionId } : {}),
         cwd: this.opts.worktree,
         mcpServers: [],
       });
@@ -201,21 +202,33 @@ export class DevinSession extends EventEmitter implements Session {
         this.stop();
         return;
       }
-      this.sessionId = this.opts.resume ? this.opts.id : String(message.result?.sessionId ?? "");
-      if (!this.sessionId) {
+      const sessionId = this.opts.resumeSessionId ?? String(message.result?.sessionId ?? "");
+      if (!sessionId) {
         this.lastStderr = (this.lastStderr + "\nACP session setup returned no session id").slice(-STDERR_KEPT);
         this.stop();
         return;
       }
-      this.ready = true;
-      if (this.pending) {
-        const prompt = this.pending;
-        this.pending = null;
-        this.enqueue(prompt);
-      }
+      void this.finishSetup(sessionId);
       return;
     }
     if (message.id === this.promptRequestId) this.endTurn(message);
+  }
+
+  private async finishSetup(sessionId: string): Promise<void> {
+    this.sessionId = sessionId;
+    try {
+      if (!this.opts.resumeSessionId) await this.opts.onSessionId?.(sessionId);
+    } catch (error) {
+      this.lastStderr = (this.lastStderr + `\nCould not persist ACP session id: ${String(error)}`).slice(-STDERR_KEPT);
+      this.stop();
+      return;
+    }
+    this.ready = true;
+    if (this.pending) {
+      const prompt = this.pending;
+      this.pending = null;
+      this.enqueue(prompt);
+    }
   }
 
   private update(value: unknown): void {
