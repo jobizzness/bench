@@ -72,37 +72,60 @@ function compacted(prompts: string[]): string {
 }
 
 /**
- * Devin's `Usage` struct, read off either the `session/prompt` result or a
- * `usage_update` notification.
+ * Devin's `Usage` struct, read off `session/prompt`'s result.
  *
- * Confirmed by driving the real binary (see #115): the result carries
+ * Confirmed by driving the real binary (#115): the result carries
  * `{totalTokens, inputTokens, outputTokens, cachedReadTokens}`. Static
  * analysis of the shipped binary's string table turned up two more sibling
  * fields on the same struct, `thoughtTokens` and `cachedWriteTokens`, kept
  * here as well since they cost nothing to carry when present.
  *
- * `usage_update`'s own payload shape was not directly observed - only that
- * the notification exists and is named `usage_update`. Cognition's
- * `PromptResponse.usage` nests the same struct under a field named `usage`,
- * so that is tried first; the fields are also read flat off the update
- * itself, matching how `tool_call` flattens its own fields rather than
- * nesting them. Neither guess is trusted alone: if both miss, nothing here
- * updates, which is the safe failure - a live count that stalls rather than
- * one that lies.
+ * This is *not* the shape of a `usage_update` notification - see
+ * `usageUpdateFrom` below, which is a different struct entirely and was the
+ * first guess this file got wrong.
  */
-function usageFrom(value: unknown): Record<string, number> | null {
+function resultUsageFrom(value: unknown): Record<string, number> | null {
   if (!value || typeof value !== "object") return null;
-  const candidate = value as Record<string, unknown>;
-  const nested = candidate.usage;
-  const source = nested && typeof nested === "object" ? nested as Record<string, unknown> : candidate;
-  const totalTokens = source.totalTokens;
+  const usage = value as Record<string, unknown>;
+  const totalTokens = usage.totalTokens;
   if (typeof totalTokens !== "number" || !Number.isFinite(totalTokens)) return null;
-  const usage: Record<string, number> = { totalTokens };
+  const out: Record<string, number> = { totalTokens };
   for (const key of ["inputTokens", "outputTokens", "thoughtTokens", "cachedWriteTokens", "cachedReadTokens"]) {
-    const found = source[key];
-    if (typeof found === "number" && Number.isFinite(found)) usage[key] = found;
+    const found = usage[key];
+    if (typeof found === "number" && Number.isFinite(found)) out[key] = found;
   }
-  return usage;
+  return out;
+}
+
+/**
+ * A `usage_update` session/update notification, read off the wire by
+ * driving a real Devin turn (#115 review comment) after the first guess
+ * here - reading a `totalTokens` field, nested or flat - turned out wrong.
+ * The captured payload, verbatim:
+ *
+ * ```json
+ * {"sessionUpdate": "usage_update", "used": 10953, "size": 262000,
+ *  "_meta": {"cognition.ai/inputTokens": 10920, "cognition.ai/outputTokens": 33}}
+ * ```
+ *
+ * `used` is the turn's running token total - on the captured turn it landed
+ * on the exact figure the result's own `totalTokens` reported once the turn
+ * ended, so it is the true count, not an estimate. `size` is the context
+ * window: the pair is exactly the `{used, window}` `Context` wants, read
+ * here rather than left absent as the previous round of this file claimed.
+ *
+ * The `_meta` input/output split was seen on the wire too but is not read:
+ * the result's own `usage` block already carries that split authoritatively
+ * once the turn ends, and nothing here needs a mid-turn version of it. Seen
+ * and set aside, not unseen.
+ */
+function usageUpdateFrom(value: unknown): { used: number; size: number | null } | null {
+  if (!value || typeof value !== "object") return null;
+  const update = value as Record<string, unknown>;
+  const used = update.used;
+  if (typeof used !== "number" || !Number.isFinite(used)) return null;
+  const size = update.size;
+  return { used, size: typeof size === "number" && Number.isFinite(size) ? size : null };
 }
 
 function folded(prompts: Prompt[]): Prompt {
@@ -136,6 +159,10 @@ export class DevinSession extends EventEmitter implements Session {
    * `beginTurn`, exactly as `ClaudeSession.tokens` is - it belongs to one
    * turn's count and carrying it into the next would double it. */
   private tokens = 0;
+  /** How full the conversation is, off the same notification. Kept rather
+   * than cleared by `beginTurn`, exactly as `ClaudeSession.context` is: it
+   * changes once a turn brings new usage, not once a turn starts. */
+  private context: Context | null = null;
 
   constructor(private readonly opts: DevinSessionOptions) {
     super();
@@ -147,19 +174,19 @@ export class DevinSession extends EventEmitter implements Session {
     return this.startedAt === null ? null : new Date(this.startedAt).toISOString();
   }
 
-  // Fed live from `usage_update` session/update notifications and frozen at
-  // the value the `session/prompt` result's own `usage` reports - see
-  // `usageFrom`. This is what the roster's live token count reads.
+  // Fed live from `usage_update` session/update notifications' `used` field
+  // and frozen at the value the `session/prompt` result's own `usage`
+  // reports - see `usageUpdateFrom` and `resultUsageFrom`. This is what the
+  // roster's live token count reads.
   get turnTokens(): number { return this.tokens; }
 
   get turn(): number { return this.turnCount; }
 
-  // Devin's usage carries token counts but no context-window size - nothing
-  // here to compute `used/window` against, unlike Claude's `contextFrom`.
-  // Confirmed absent by reading the shipped binary's own field table for the
-  // `Usage` struct (#115): totalTokens, inputTokens, outputTokens,
-  // thoughtTokens, cachedWriteTokens, cachedReadTokens, and nothing else.
-  get contextUsed(): Context | null { return null; }
+  // `used`/`size` off the same `usage_update` notification - see
+  // `usageUpdateFrom` for the captured payload this is read from. Null until
+  // the first `usage_update` of the session arrives, then kept rather than
+  // cleared per turn: see `context` above for why.
+  get contextUsed(): Context | null { return this.context; }
 
   // These identify OpenRouter requests and have no meaning for Devin.
   get turnAnsweredBy(): string[] { return []; }
@@ -349,11 +376,18 @@ export class DevinSession extends EventEmitter implements Session {
       this.emit("activity", line);
     }
     if (update.sessionUpdate === "usage_update") {
-      const usage = usageFrom(update);
-      if (usage && usage.totalTokens > this.tokens) {
-        this.tokens = usage.totalTokens;
-        this.emit("progress");
+      const usage = usageUpdateFrom(update);
+      if (usage === null) return;
+      let progressed = false;
+      if (usage.used > this.tokens) {
+        this.tokens = usage.used;
+        progressed = true;
       }
+      if (usage.size !== null) {
+        this.context = { used: usage.used, window: usage.size };
+        progressed = true;
+      }
+      if (progressed) this.emit("progress");
     }
   }
 
@@ -417,8 +451,8 @@ export class DevinSession extends EventEmitter implements Session {
     const stopReason = typeof message.result?.stopReason === "string" ? message.result.stopReason : "error";
     const reply = this.reply;
     // The result's own count is authoritative over whatever `usage_update`
-    // last estimated - it replaces rather than merges with the live figure.
-    const usage = usageFrom(message.result?.usage);
+    // last reported - it replaces rather than merges with the live figure.
+    const usage = resultUsageFrom(message.result?.usage);
     if (usage) this.tokens = usage.totalTokens;
     const result: ResultEvent = {
       type: "result",
@@ -427,15 +461,14 @@ export class DevinSession extends EventEmitter implements Session {
       session_id: this.sessionId!,
       result: reply,
       ...(usage ? { usage } : {}),
-      // No dollar or ACU figure was seen on this result. Static analysis of
-      // the shipped binary (#115) found a `cognition.ai/turn_stats` and a
-      // `cognition.ai/billingInformation` extension notification method, and
-      // internal fields named `committed_acu_cost` / `committed_credit_cost`
-      // on what its own strings call `ChatMessageMetadata` - but that struct
-      // reads as Devin's own message-history bookkeeping, and nothing here
-      // confirms either notification actually carries it to an ACP host, or
-      // in what shape. Left unset rather than guessed: see the #115 comment
-      // for what was actually checked.
+      // No dollar or ACU figure is on this wire. Confirmed twice over: static
+      // analysis of the shipped binary (#115) found a `cognition.ai/
+      // turn_stats` extension notification method and internal fields named
+      // `committed_acu_cost` / `committed_credit_cost`, but a real captured
+      // `cognition.ai/turn_stats` payload (#115 review comment) carried only
+      // `responseDimensions` for input/output/cached tokens and an
+      // agent-message count - no ACU, no dollars. Left unset rather than
+      // guessed: see #117, filed for if that ever changes.
     };
     this.running = false;
     this.startedAt = null;

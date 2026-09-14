@@ -43,8 +43,10 @@ process.stdin.on("data", (chunk) => {
       const finish = () => {
         send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "tool_call", title: "Editing file", status: "in_progress" } } });
         if (mode === "usage") {
-          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", usage: { totalTokens: 100, inputTokens: 90, outputTokens: 10 } } } });
-          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", usage: { totalTokens: 250, inputTokens: 200, outputTokens: 50 } } } });
+          // The real wire shape, captured by driving an actual Devin turn (#115
+          // review comment) - flat "used"/"size", not nested "usage.totalTokens".
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", used: 100, size: 262000, _meta: { "cognition.ai/inputTokens": 90, "cognition.ai/outputTokens": 10 } } } });
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", used: 250, size: 262000, _meta: { "cognition.ai/inputTokens": 200, "cognition.ai/outputTokens": 50 } } } });
         }
         send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: answer } } } });
         const result = mode === "usage"
@@ -166,7 +168,7 @@ describe("DevinSession", () => {
     session.stop();
   });
 
-  it("moves turnTokens live off usage_update and carries the result's usage onto the ResultEvent", async () => {
+  it("moves turnTokens live off usage_update's 'used' field and carries the result's usage onto the ResultEvent", async () => {
     const session = await makeSession("usage");
     const progressTokens: number[] = [];
     session.on("progress", () => progressTokens.push(session.turnTokens));
@@ -177,21 +179,35 @@ describe("DevinSession", () => {
     expect(session.turnTokens).toBe(300);
     expect(result.usage).toEqual({ totalTokens: 300, inputTokens: 240, outputTokens: 60, cachedReadTokens: 128 });
     expect(result).not.toHaveProperty("total_cost_usd");
-    expect(session.contextUsed).toBeNull();
     session.stop();
   });
 
-  it("resets turnTokens to zero at the start of the next turn", async () => {
+  it("computes contextUsed from usage_update's used/size, and leaves it alone once a turn ends", async () => {
+    const session = await makeSession("usage");
+    session.open();
+    expect(session.contextUsed).toBeNull();
+    await turn(session, "work");
+
+    // The result carries no context-window size, so contextUsed reflects the
+    // last usage_update of the turn rather than the result's final token
+    // count - that is the only place a window figure is ever on the wire.
+    expect(session.contextUsed).toEqual({ used: 250, window: 262000 });
+    session.stop();
+  });
+
+  it("resets turnTokens, but not contextUsed, at the start of the next turn", async () => {
     const session = await makeSession("usage");
     session.open();
     await turn(session, "first");
     expect(session.turnTokens).toBe(300);
+    expect(session.contextUsed).toEqual({ used: 250, window: 262000 });
 
     const midTurnTokens: number[] = [];
     session.on("progress", () => midTurnTokens.push(session.turnTokens));
     await turn(session, "second");
 
     expect(midTurnTokens).toEqual([100, 250]);
+    expect(session.contextUsed).toEqual({ used: 250, window: 262000 });
     session.stop();
   });
 
