@@ -71,6 +71,40 @@ function compacted(prompts: string[]): string {
   return [intro, ...prompts.map((prompt, index) => `${index + 1}. ${prompt}`)].join("\n\n");
 }
 
+/**
+ * Devin's `Usage` struct, read off either the `session/prompt` result or a
+ * `usage_update` notification.
+ *
+ * Confirmed by driving the real binary (see #115): the result carries
+ * `{totalTokens, inputTokens, outputTokens, cachedReadTokens}`. Static
+ * analysis of the shipped binary's string table turned up two more sibling
+ * fields on the same struct, `thoughtTokens` and `cachedWriteTokens`, kept
+ * here as well since they cost nothing to carry when present.
+ *
+ * `usage_update`'s own payload shape was not directly observed - only that
+ * the notification exists and is named `usage_update`. Cognition's
+ * `PromptResponse.usage` nests the same struct under a field named `usage`,
+ * so that is tried first; the fields are also read flat off the update
+ * itself, matching how `tool_call` flattens its own fields rather than
+ * nesting them. Neither guess is trusted alone: if both miss, nothing here
+ * updates, which is the safe failure - a live count that stalls rather than
+ * one that lies.
+ */
+function usageFrom(value: unknown): Record<string, number> | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  const nested = candidate.usage;
+  const source = nested && typeof nested === "object" ? nested as Record<string, unknown> : candidate;
+  const totalTokens = source.totalTokens;
+  if (typeof totalTokens !== "number" || !Number.isFinite(totalTokens)) return null;
+  const usage: Record<string, number> = { totalTokens };
+  for (const key of ["inputTokens", "outputTokens", "thoughtTokens", "cachedWriteTokens", "cachedReadTokens"]) {
+    const found = source[key];
+    if (typeof found === "number" && Number.isFinite(found)) usage[key] = found;
+  }
+  return usage;
+}
+
 function folded(prompts: Prompt[]): Prompt {
   if (prompts.length === 1) return prompts[0];
   const images = prompts.flatMap((prompt) => prompt.images);
@@ -98,6 +132,10 @@ export class DevinSession extends EventEmitter implements Session {
   private startedAt: number | null = null;
   private turnCount: number;
   private firstPrompt = true;
+  /** The running turn's token count so far, off `usage_update`. Cleared by
+   * `beginTurn`, exactly as `ClaudeSession.tokens` is - it belongs to one
+   * turn's count and carrying it into the next would double it. */
+  private tokens = 0;
 
   constructor(private readonly opts: DevinSessionOptions) {
     super();
@@ -109,12 +147,18 @@ export class DevinSession extends EventEmitter implements Session {
     return this.startedAt === null ? null : new Date(this.startedAt).toISOString();
   }
 
-  // ACP exposes no documented per-turn token feed for Devin.
-  get turnTokens(): number { return 0; }
+  // Fed live from `usage_update` session/update notifications and frozen at
+  // the value the `session/prompt` result's own `usage` reports - see
+  // `usageFrom`. This is what the roster's live token count reads.
+  get turnTokens(): number { return this.tokens; }
 
   get turn(): number { return this.turnCount; }
 
-  // Devin exposes no documented context-window figure Bench can consume.
+  // Devin's usage carries token counts but no context-window size - nothing
+  // here to compute `used/window` against, unlike Claude's `contextFrom`.
+  // Confirmed absent by reading the shipped binary's own field table for the
+  // `Usage` struct (#115): totalTokens, inputTokens, outputTokens,
+  // thoughtTokens, cachedWriteTokens, cachedReadTokens, and nothing else.
   get contextUsed(): Context | null { return null; }
 
   // These identify OpenRouter requests and have no meaning for Devin.
@@ -304,6 +348,13 @@ export class DevinSession extends EventEmitter implements Session {
       const line = [title ?? kind ?? "Tool", status].filter(Boolean).join(" — ");
       this.emit("activity", line);
     }
+    if (update.sessionUpdate === "usage_update") {
+      const usage = usageFrom(update);
+      if (usage && usage.totalTokens > this.tokens) {
+        this.tokens = usage.totalTokens;
+        this.emit("progress");
+      }
+    }
   }
 
   private enqueue(prompt: Prompt): void {
@@ -335,6 +386,7 @@ export class DevinSession extends EventEmitter implements Session {
   private beginTurn(turn: number): void {
     this.turnCount = turn;
     this.startedAt = Date.now();
+    this.tokens = 0;
     mkdirSync(this.opts.reportsDir, { recursive: true });
     writeFileSync(join(this.opts.reportsDir, ".turn"), String(turn));
   }
@@ -364,13 +416,26 @@ export class DevinSession extends EventEmitter implements Session {
   private endTurn(message: RpcMessage): void {
     const stopReason = typeof message.result?.stopReason === "string" ? message.result.stopReason : "error";
     const reply = this.reply;
+    // The result's own count is authoritative over whatever `usage_update`
+    // last estimated - it replaces rather than merges with the live figure.
+    const usage = usageFrom(message.result?.usage);
+    if (usage) this.tokens = usage.totalTokens;
     const result: ResultEvent = {
       type: "result",
       subtype: stopReason,
       is_error: Boolean(message.error) || !CLEAN_STOP_REASONS.has(stopReason),
       session_id: this.sessionId!,
       result: reply,
-      // Devin bills in ACUs and ACP has no documented per-turn dollar cost.
+      ...(usage ? { usage } : {}),
+      // No dollar or ACU figure was seen on this result. Static analysis of
+      // the shipped binary (#115) found a `cognition.ai/turn_stats` and a
+      // `cognition.ai/billingInformation` extension notification method, and
+      // internal fields named `committed_acu_cost` / `committed_credit_cost`
+      // on what its own strings call `ChatMessageMetadata` - but that struct
+      // reads as Devin's own message-history bookkeeping, and nothing here
+      // confirms either notification actually carries it to an ACP host, or
+      // in what shape. Left unset rather than guessed: see the #115 comment
+      // for what was actually checked.
     };
     this.running = false;
     this.startedAt = null;

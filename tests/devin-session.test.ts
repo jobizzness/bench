@@ -42,8 +42,15 @@ process.stdin.on("data", (chunk) => {
         : text + "|received=" + prompts;
       const finish = () => {
         send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "tool_call", title: "Editing file", status: "in_progress" } } });
+        if (mode === "usage") {
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", usage: { totalTokens: 100, inputTokens: 90, outputTokens: 10 } } } });
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "usage_update", usage: { totalTokens: 250, inputTokens: 200, outputTokens: 50 } } } });
+        }
         send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: answer } } } });
-        send({ jsonrpc: "2.0", id: request.id, result: { stopReason: mode === "refusal" ? "refusal" : "end_turn" } });
+        const result = mode === "usage"
+          ? { stopReason: "end_turn", usage: { totalTokens: 300, inputTokens: 240, outputTokens: 60, cachedReadTokens: 128 } }
+          : { stopReason: mode === "refusal" ? "refusal" : "end_turn" };
+        send({ jsonrpc: "2.0", id: request.id, result });
       };
       if (mode === "slow") setTimeout(finish, 150); else finish();
     }
@@ -151,10 +158,40 @@ describe("DevinSession", () => {
     expect(order).toEqual(["reply", "turn-end"]);
     expect(result).toMatchObject({ type: "result", subtype: "end_turn", is_error: false, session_id: "devin-session" });
     expect(result).not.toHaveProperty("total_cost_usd");
+    expect(result).not.toHaveProperty("usage");
     expect(session.contextUsed).toBeNull();
     expect(session.turnTokens).toBe(0);
     expect(session.turnGenerationIds).toEqual([]);
     expect(session.turnAnsweredBy).toEqual([]);
+    session.stop();
+  });
+
+  it("moves turnTokens live off usage_update and carries the result's usage onto the ResultEvent", async () => {
+    const session = await makeSession("usage");
+    const progressTokens: number[] = [];
+    session.on("progress", () => progressTokens.push(session.turnTokens));
+    session.open();
+    const result = await turn(session, "work");
+
+    expect(progressTokens).toEqual([100, 250]);
+    expect(session.turnTokens).toBe(300);
+    expect(result.usage).toEqual({ totalTokens: 300, inputTokens: 240, outputTokens: 60, cachedReadTokens: 128 });
+    expect(result).not.toHaveProperty("total_cost_usd");
+    expect(session.contextUsed).toBeNull();
+    session.stop();
+  });
+
+  it("resets turnTokens to zero at the start of the next turn", async () => {
+    const session = await makeSession("usage");
+    session.open();
+    await turn(session, "first");
+    expect(session.turnTokens).toBe(300);
+
+    const midTurnTokens: number[] = [];
+    session.on("progress", () => midTurnTokens.push(session.turnTokens));
+    await turn(session, "second");
+
+    expect(midTurnTokens).toEqual([100, 250]);
     session.stop();
   });
 
