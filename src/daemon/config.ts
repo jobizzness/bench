@@ -27,10 +27,10 @@ export interface BenchConfig {
    */
   claudeBin?: string;
   /**
-   * The Devin binary to spawn for DevinSession. Only ever set by tests, for
-   * the same reason as `claudeBin` — a test that shells out to the real binary
-   * requires a Devin login and a network, and fails silently on a machine with
-   * neither.
+   * The Devin binary to spawn for DevinSession. Set by tests (via a fake
+   * binary) or by `BENCH_DEVIN_BIN` in the environment (to point at the real
+   * CLI when it is not on PATH). When absent the daemon falls back to `devin`
+   * on PATH, which works if the binary is installed globally.
    */
   devinBin?: string;
   /** Where Bench itself is installed. One of the places a `.env` is looked
@@ -88,5 +88,6 @@ export function loadConfig(): BenchConfig {
     apiKeyParked: readParked(home),
     pluginDir: join(root, "plugin"),
     hookCommand: `node ${join(root, "dist", "daemon", "hooks", "bench-hook.js")}`,
+    devinBin: process.env.BENCH_DEVIN_BIN,
   };
 }

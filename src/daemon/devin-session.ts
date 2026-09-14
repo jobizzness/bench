@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Context } from "../shared/context-window.js";
 import { COST_AWARENESS_BRIEF, DEFAULT_ROLE, ROLE_BRIEF, type Role } from "../shared/roles.js";
@@ -11,6 +12,22 @@ import type { ResultEvent } from "./stream-codec.js";
 const STDERR_KEPT = 4000;
 const CLEAN_STOP_REASONS = new Set(["end_turn"]);
 
+/**
+ * Read the Windsurf/Devin API key that `devin auth login` stores on disk.
+ * The real `devin acp` process ignores local CLI credentials in ACP mode and
+ * requires the host to call `authenticate` — this is what we pass there.
+ */
+function readDevinApiKey(): string | null {
+  try {
+    const xdgData = process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
+    const content = readFileSync(join(xdgData, "devin", "credentials.toml"), "utf8");
+    const match = /^\s*windsurf_api_key\s*=\s*"([^"]+)"/m.exec(content);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export interface DevinSessionOptions {
   id: string;
   worktree: string;
@@ -19,6 +36,14 @@ export interface DevinSessionOptions {
   port?: number;
   cockpitUrl?: string;
   devinBin?: string;
+  /**
+   * The Devin/Windsurf API key to pass in the ACP `authenticate` call.
+   * When absent the session reads it from the credentials file that
+   * `devin auth login` writes (`$XDG_DATA_HOME/devin/credentials.toml`).
+   * Only ever set explicitly by tests that need to control the value
+   * without touching the filesystem.
+   */
+  devinApiKey?: string;
   startTurn?: number;
   resumeSessionId?: string;
   onSessionId?: (sessionId: string) => void | Promise<void>;
@@ -62,6 +87,7 @@ export class DevinSession extends EventEmitter implements Session {
   private nextRequestId = 0;
   private initializeRequestId: number | null = null;
   private setupRequestId: number | null = null;
+  private authenticateRequestId: number | null = null;
   private promptRequestId: number | null = null;
   private sessionId: string | null = null;
   private ready = false;
@@ -188,12 +214,33 @@ export class DevinSession extends EventEmitter implements Session {
         this.stop();
         return;
       }
-      const method = this.opts.resumeSessionId ? "session/load" : "session/new";
-      this.setupRequestId = this.request(method, {
-        ...(this.opts.resumeSessionId ? { sessionId: this.opts.resumeSessionId } : {}),
-        cwd: this.opts.worktree,
-        mcpServers: [],
-      });
+      // If the server advertises auth methods, authenticate before opening a
+      // session. The real binary always requires this; the fake in tests
+      // returns an empty array to skip the step without network access.
+      const authMethods = message.result?.authMethods;
+      if (Array.isArray(authMethods) && authMethods.length > 0) {
+        const apiKey = this.opts.devinApiKey ?? readDevinApiKey();
+        if (!apiKey) {
+          this.lastStderr = (this.lastStderr + "\nDevin ACP requires authentication but no credentials were found. Run `devin auth login` first.").slice(-STDERR_KEPT);
+          this.stop();
+          return;
+        }
+        this.authenticateRequestId = this.request("authenticate", {
+          methodId: "devin-browser",
+          _meta: { api_key: apiKey },
+        });
+      } else {
+        this.startSession();
+      }
+      return;
+    }
+    if (message.id === this.authenticateRequestId) {
+      if (message.error) {
+        this.lastStderr = (this.lastStderr + `\nDevin ACP authentication failed: ${JSON.stringify(message.error)}`).slice(-STDERR_KEPT);
+        this.stop();
+        return;
+      }
+      this.startSession();
       return;
     }
     if (message.id === this.setupRequestId) {
@@ -212,6 +259,15 @@ export class DevinSession extends EventEmitter implements Session {
       return;
     }
     if (message.id === this.promptRequestId) this.endTurn(message);
+  }
+
+  private startSession(): void {
+    const method = this.opts.resumeSessionId ? "session/load" : "session/new";
+    this.setupRequestId = this.request(method, {
+      ...(this.opts.resumeSessionId ? { sessionId: this.opts.resumeSessionId } : {}),
+      cwd: this.opts.worktree,
+      mcpServers: [],
+    });
   }
 
   private async finishSetup(sessionId: string): Promise<void> {
