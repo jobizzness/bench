@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
-import { MODELS, REASONING_EFFORT_NOTE } from "../../shared/models.js";
+import { MODELS, DEVIN_MODEL, REASONING_EFFORT_NOTE } from "../../shared/models.js";
 import { costOfTurn, dollars, multipleLabel, multipleOf, type Price } from "../../shared/cost.js";
 import { AutoRouters, isAutoRouter } from "./AutoRouters.js";
 import { ModelRow, shortName, windowLabel, type Listed } from "./ModelRow.js";
@@ -417,6 +417,28 @@ export function ModelDialog({
               <span>{model.resolves}</span>
             </button>
           ))}
+        </div>
+      </section>
+
+      <section className="model-house" data-house="devin">
+        <h3>Devin</h3>
+        <p className="field-note" data-house-note="devin">
+          Runs on the Devin agent installed on this machine. Requires{" "}
+          <code>devin auth login</code> once. No API key, no per-turn charge in Bench.
+        </p>
+        <div className="model-options">
+          <button
+            type="button"
+            className="model-option"
+            data-model={DEVIN_MODEL}
+            data-current={current === DEVIN_MODEL}
+            aria-current={current === DEVIN_MODEL}
+            disabled={busy}
+            onClick={() => void choose(DEVIN_MODEL)}
+          >
+            <b>Devin</b>
+            <span>local agent</span>
+          </button>
         </div>
       </section>
 

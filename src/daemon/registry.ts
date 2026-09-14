@@ -7,7 +7,8 @@ import { createServer, type SessionRegistryLike } from "./server.js";
 import { createWorktree, currentBranch, excludeBenchDir, inspectWorktree, removeWorktree } from "./worktree.js";
 import { bootstrapWorktree, BootstrapError } from "./bootstrap.js";
 import { ClaudeSession } from "./claude-session.js";
-import type { Session } from "./session.js";
+import { DevinSession } from "./devin-session.js";
+import { runtimeFor, type Session } from "./session.js";
 import { existsSync } from "node:fs";
 import { latestReportSeq, findReport, latestTurn } from "./reports.js";
 import { SessionStore } from "./store.js";
@@ -20,7 +21,7 @@ import { asRole, isRole, type Role } from "../shared/roles.js";
 import { modelForRole } from "../shared/role-models.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
-import { keyHint } from "./anthropic-key.js";
+import { isUsageLimitError, keyHint, type ManagedAnthropicKey } from "./anthropic-key.js";
 import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
 import { describeOrigin, type Origin } from "./env-file.js";
 import { writeParked } from "./key-park.js";
@@ -68,6 +69,10 @@ interface Entry {
   isolated: boolean;
   /** Whether the CLI has a conversation to resume. See SessionRecord. */
   resumable: boolean;
+  /** The runtime's own session id, for runtimes that assign their own. Used
+   * by DevinSession to call `session/load` on revive rather than `session/new`
+   * with a fresh id. Undefined for Claude sessions. */
+  runtimeSessionId?: string;
   /** Turns already taken, read from disk when the roster is restored. */
   turnsTaken: number;
   /** The developer ended this turn, so the exit is a decision not a crash. */
@@ -168,6 +173,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * forgets the key makes you paste it again every time.
    */
   private apiKeyOn = true;
+  private managedApiKeys: ManagedAnthropicKey[] = [];
+  private activeManagedKeyId: string | null = null;
+  private retryPrompts = new Map<string, { text: string; images: StoredAttachment[] }>();
 
   /**
    * The developer's OpenRouter key, for specialists run on anybody other than
@@ -330,6 +338,32 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // Nothing of our own to say. Whatever the daemon was started with stands.
     if (this.apiKey === null) return undefined;
     return this.apiKeyOn ? this.apiKey : null;
+  }
+
+  setManagedApiKeys(keys: ManagedAnthropicKey[]): void {
+    this.managedApiKeys = keys;
+    const current = keys.find((item) => item.id === this.activeManagedKeyId && item.status === "available");
+    const next = current ?? keys.find((item) => item.status === "available");
+    this.activeManagedKeyId = next?.id ?? null;
+    if (next) this.setApiKey(next.key);
+    else if (this.managedApiKeys.length > 0) this.clearApiKey();
+  }
+
+  managedApiKeyStates(): Array<Omit<ManagedAnthropicKey, "key"> & { active: boolean }> {
+    return this.managedApiKeys.map(({ key: _key, ...item }) => ({ ...item, active: item.id === this.activeManagedKeyId }));
+  }
+
+  private rotateManagedApiKey(): boolean {
+    const active = this.managedApiKeys.find((item) => item.id === this.activeManagedKeyId);
+    if (active) {
+      active.status = "exhausted";
+      active.checkedAt = Date.now();
+    }
+    const next = this.managedApiKeys.find((item) => item.status === "available");
+    if (!next) return false;
+    this.activeManagedKeyId = next.id;
+    this.setApiKey(next.key);
+    return true;
   }
 
   setApiKey(key: string): void {
@@ -733,6 +767,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // resume. Guessing false is safe for the process and expensive for
         // the developer - it silently drops everything the specialist knows.
         resumable: rec.resumable ?? thread.length > 0,
+        runtimeSessionId: rec.runtimeSessionId,
         model: rec.model,
         port: rec.port,
         createdBy: rec.createdBy ?? null,
@@ -826,6 +861,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     role: Role;
     port: number;
     resume?: boolean;
+    /** The ACP session id to resume, for runtimes that assign their own.
+     * Passed to DevinSession as `resumeSessionId`; ignored by ClaudeSession. */
+    resumeSessionId?: string;
     clearCount?: number;
     startTurn?: number;
     /** Set for an OpenRouter model, already resolved. */
@@ -834,30 +872,45 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     const entry = this.entries.get(id)!;
     const reportsDir = entry.reportsDir;
 
-    const session = new ClaudeSession({
-      id,
-      label: opts.label,
-      worktree: opts.worktree,
-      reportsDir,
-      hookCommand: this.config.hookCommand,
-      pluginDir: this.config.pluginDir,
-      model: opts.model,
-      role: opts.role,
-      port: opts.port,
-      resume: opts.resume,
-      clearCount: opts.clearCount,
-      cockpitUrl: `http://127.0.0.1:${this.config.port}`,
-      claudeBin: this.config.claudeBin,
-      startTurn: opts.startTurn,
-      rules: () => houseRules(this.settings),
-      nudge: () => this.nudgeTextFor(id),
-      // Through the three-state getter, not off the field: a parked key must
-      // reach the process as both variables cleared rather than as silence,
-      // or an inherited credential stands and the switch in Settings is a
-      // control that moves and changes nothing.
-      apiKey: () => this.credentialForSpawn(),
-      via: opts.via,
-    });
+    const session = runtimeFor(opts.model) === "devin"
+      ? new DevinSession({
+          id,
+          worktree: opts.worktree,
+          reportsDir,
+          role: opts.role,
+          port: opts.port,
+          cockpitUrl: `http://127.0.0.1:${this.config.port}`,
+          devinBin: this.config.devinBin,
+          startTurn: opts.startTurn,
+          resumeSessionId: opts.resumeSessionId,
+          rules: () => houseRules(this.settings),
+          nudge: () => this.nudgeTextFor(id),
+          onSessionId: (sid) => this.store.rememberRuntimeSessionId(id, sid),
+        })
+      : new ClaudeSession({
+          id,
+          label: opts.label,
+          worktree: opts.worktree,
+          reportsDir,
+          hookCommand: this.config.hookCommand,
+          pluginDir: this.config.pluginDir,
+          model: opts.model,
+          role: opts.role,
+          port: opts.port,
+          resume: opts.resume,
+          clearCount: opts.clearCount,
+          cockpitUrl: `http://127.0.0.1:${this.config.port}`,
+          claudeBin: this.config.claudeBin,
+          startTurn: opts.startTurn,
+          rules: () => houseRules(this.settings),
+          nudge: () => this.nudgeTextFor(id),
+          // Through the three-state getter, not off the field: a parked key must
+          // reach the process as both variables cleared rather than as silence,
+          // or an inherited credential stands and the switch in Settings is a
+          // control that moves and changes nothing.
+          apiKey: () => this.credentialForSpawn(),
+          via: opts.via,
+        });
 
     const syncProgress = () => {
       const entry = this.entries.get(id);
@@ -933,6 +986,14 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         return;
       }
 
+      const retry = this.retryPrompts.get(id);
+      if (entry && retry && !isOpenRouterModel(entry.model) && isUsageLimitError(stderr) && this.rotateManagedApiKey()) {
+        this.revive(id, entry, undefined);
+        entry.session!.send(retry.text, retry.images);
+        this.update(id, "working", "retrying with another credential");
+        return;
+      }
+
       // The CLI's own words first: it refuses with a plain sentence, and that
       // sentence is the difference between a developer who knows what to do
       // and one looking at "process exited".
@@ -962,6 +1023,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     });
 
     session.on("turn-end", async (result: ResultEvent) => {
+      this.retryPrompts.delete(id);
       const entry = this.entries.get(id);
       if (!entry) return;
 
@@ -1265,6 +1327,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       // resume one that does not prints "No conversation found with session
       // ID" and exits before the prompt is ever read.
       resume: entry.resumable,
+      // For runtimes that assign their own session id (Devin), pass it so
+      // `session/load` uses the exact same id the runtime knows about.
+      resumeSessionId: entry.resumable ? entry.runtimeSessionId : undefined,
       clearCount: entry.clearCount,
       // Pick up the numbering where it stopped, or this turn writes over
       // the last one's report.
@@ -1380,6 +1445,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.row.answeredReportSeq = entry.row.latestReportSeq;
     // The trail describes the turn in flight, so it starts empty.
     entry.row.activity = [];
+    this.retryPrompts.set(id, { text: promptText, images });
 
     if (entry.session) {
       entry.session.send(promptText, images);

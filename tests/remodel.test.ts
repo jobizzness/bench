@@ -67,6 +67,15 @@ describe("moving a specialist to another model", () => {
     expect(registry.list().find((r) => r.id === id)!.model).toBe("opus");
   });
 
+  it("accepts devin without needing an OpenRouter key — it is a local runtime", async () => {
+    // This is the failure mode #108 exists to prevent: a Devin id shaped
+    // `devin/something` would be treated as proxied and throw before starting.
+    // A bare `devin` id has no slash, so viaFor returns undefined immediately.
+    const { registry, id } = await setup();
+    await registry.setModel(id, "devin");
+    expect(registry.list().find((r) => r.id === id)!.model).toBe("devin");
+  });
+
   it("says nothing and does nothing when it is already on that model", async () => {
     const { registry, id } = await setup();
     await registry.setModel(id, "opus");

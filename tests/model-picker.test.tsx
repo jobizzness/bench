@@ -222,4 +222,24 @@ describe("the model picker", () => {
     expect(ui.$$("#model-dialog .model-option").length).toBe(4);
     expect(ui.$("#model-dialog-error")!.textContent).toContain("Anthropic's models still work");
   });
+
+  it("shows Devin under its own heading, not folded under a vendor", async () => {
+    // Devin has no vendor prefix and is not in the OpenRouter catalogue.
+    // It must appear in a dedicated section, not inside the catalogue list.
+    await openPicker({ ...one, models: [] });
+    const section = ui.$("[data-house='devin']");
+    expect(section).not.toBe(null);
+    const button = section!.querySelector("[data-model='devin']");
+    expect(button).not.toBe(null);
+    // Devin needs no OpenRouter key — it must be enabled regardless of key state.
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("can pick Devin without an OpenRouter key", async () => {
+    // Devin is a local runtime. Picking it must not require any key.
+    await openPicker({ ...one, models: [] });
+    await ui.click(ui.$("[data-model='devin']"));
+    const posted = ui.sent.find((s) => s.url.includes("/model"));
+    expect(posted!.body).toEqual({ model: "devin" });
+  });
 });

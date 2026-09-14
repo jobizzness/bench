@@ -26,6 +26,13 @@ export interface BenchConfig {
    * installed, that spawn fails as an unhandled error rather than a test.
    */
   claudeBin?: string;
+  /**
+   * The Devin binary to spawn for DevinSession. Only ever set by tests, for
+   * the same reason as `claudeBin` — a test that shells out to the real binary
+   * requires a Devin login and a network, and fails silently on a machine with
+   * neither.
+   */
+  devinBin?: string;
   /** Where Bench itself is installed. One of the places a `.env` is looked
    * for, so a checkout's own file is read even when the daemon was started
    * from somewhere else. */

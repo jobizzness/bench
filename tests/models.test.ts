@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   MODELS,
+  DEVIN_MODEL,
   modelLabel,
   runningModelLabel,
   isProxied,
@@ -94,5 +95,25 @@ describe("what a specialist is actually running on", () => {
     // Should not happen - a model that answers for itself has nothing to
     // report there - but a stale field must not lie about what is pinned.
     expect(runningModelLabel("haiku", ["haiku"])).toBe("Haiku 4.5");
+  });
+});
+
+describe("devin as a third-kind model id", () => {
+  it("is accepted by isModelId", () => {
+    expect(isModelId(DEVIN_MODEL)).toBe(true);
+  });
+
+  it("is not proxied through OpenRouter — a slash decides that, and devin has none", () => {
+    expect(isProxied(DEVIN_MODEL)).toBe(false);
+  });
+
+  it("has a human-readable label", () => {
+    expect(modelLabel(DEVIN_MODEL)).toBe("Devin");
+  });
+
+  it("is not in MODELS — that array is Anthropic aliases only", () => {
+    // Adding it there would pass it to `claude --model`, which does not
+    // understand it and would silently fall back to some other model.
+    expect(MODELS.some((m) => m.id === DEVIN_MODEL)).toBe(false);
   });
 });

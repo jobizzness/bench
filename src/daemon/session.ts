@@ -1,5 +1,6 @@
 import type { EventEmitter } from "node:events";
 import type { Context } from "../shared/context-window.js";
+import { DEVIN_MODEL } from "../shared/models.js";
 import type { Attachment } from "../shared/types.js";
 import type { ResultEvent } from "./stream-codec.js";
 
@@ -31,4 +32,15 @@ export interface Session extends EventEmitter {
   emit(event: "exit", code: number | null, stderr: string): boolean;
   emit(event: "reply", text: string): boolean;
   emit(event: "turn-end", result: ResultEvent): boolean;
+}
+
+/**
+ * Which session runtime a model id requires.
+ *
+ * Exactly one caller: `attach` in `registry.ts`, which constructs the right
+ * Session implementation based on the return value. Keeping the choice here
+ * means `registry.ts` never has to import both runtimes and compare ids.
+ */
+export function runtimeFor(model: string): "claude" | "devin" {
+  return model === DEVIN_MODEL ? "devin" : "claude";
 }

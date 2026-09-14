@@ -3,7 +3,7 @@ import { isAutoRouter } from "./auto-routers.js";
 /**
  * The models a specialist can be run on.
  *
- * Two kinds, told apart by a slash.
+ * Three kinds.
  *
  * Anthropic's are the aliases `claude --model` takes, not pinned model names:
  * an alias follows the latest release, which is what you want a bench of
@@ -12,11 +12,17 @@ import { isAutoRouter } from "./auto-routers.js";
  * know - it was read out of the CLI, by running each one. These go straight
  * to Anthropic on whatever login the machine already has.
  *
- * Everything else is an OpenRouter id - `google/gemini-3.7-flash` - and is
- * not listed here at all. That list is fetched from OpenRouter, because a
+ * OpenRouter ids contain a slash (`google/gemini-3.7-flash`) and are not
+ * listed here at all. That list is fetched from OpenRouter, because a
  * hand-maintained one is a list that goes stale silently: this file once
  * named Gemini models that no longer existed while the ones people wanted
  * were missing, and nothing about it looked wrong. See daemon/openrouter.ts.
+ *
+ * A third kind: local runtimes. These are bare ids with no slash, and they
+ * are not in MODELS — they are neither Anthropic aliases nor OpenRouter ids.
+ * `DEVIN_MODEL` ("devin") is the first. `isModelId` accepts them explicitly;
+ * `isProxied` correctly returns false for them; `modelLabel` gives them a
+ * human name.
  */
 export interface Model {
   /** What is passed to `claude --model`. */
@@ -25,6 +31,15 @@ export interface Model {
   /** What the alias resolved to when this list was last checked. */
   resolves: string;
 }
+
+/**
+ * The id for the Devin local runtime.
+ *
+ * Not in MODELS — it is neither an Anthropic alias nor an OpenRouter id. A
+ * bare id with no slash, so `isProxied` correctly returns false and
+ * `viaFor` returns undefined without needing an OpenRouter key.
+ */
+export const DEVIN_MODEL = "devin";
 
 export const MODELS: readonly Model[] = [
   { id: "opus", label: "Opus 5", resolves: "claude-opus-5" },
@@ -61,7 +76,7 @@ export const REASONING_EFFORT_NOTE =
  */
 export function isModelId(value: unknown): value is string {
   if (typeof value !== "string" || value === "") return false;
-  return MODELS.some((m) => m.id === value) || value.includes("/");
+  return MODELS.some((m) => m.id === value) || value === DEVIN_MODEL || value.includes("/");
 }
 
 /** Whether the model is reached through OpenRouter rather than direct. */
@@ -80,6 +95,7 @@ export function isProxied(id: string): boolean {
  * heading.
  */
 export function modelLabel(id: string): string {
+  if (id === DEVIN_MODEL) return "Devin";
   const known = MODELS.find((m) => m.id === id);
   if (known) return known.label;
   const slash = id.indexOf("/");
