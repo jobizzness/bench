@@ -71,6 +71,77 @@ function compacted(prompts: string[]): string {
   return [intro, ...prompts.map((prompt, index) => `${index + 1}. ${prompt}`)].join("\n\n");
 }
 
+/**
+ * Devin's `Usage` struct, read off `session/prompt`'s result.
+ *
+ * Confirmed by driving the real binary (#115): the result carries
+ * `{totalTokens, inputTokens, outputTokens, cachedReadTokens}`. Static
+ * analysis of the shipped binary's string table turned up two more sibling
+ * fields on the same struct, `thoughtTokens` and `cachedWriteTokens`, kept
+ * here as well since they cost nothing to carry when present.
+ *
+ * This is the conversation's cumulative totals as of the moment the turn
+ * ended, not the turn's own - a two-turn capture on #115 showed turn two's
+ * `totalTokens` was the whole conversation so far (11762), not what turn two
+ * itself spent (45). Carried onto the `ResultEvent` labelled as exactly
+ * that: see `endTurn`. `turnTokens` below does the subtraction this field
+ * does not.
+ *
+ * This is *not* the shape of a `usage_update` notification - see
+ * `usageUpdateFrom` below, which is a different struct entirely and was the
+ * first guess this file got wrong.
+ */
+function resultUsageFrom(value: unknown): Record<string, number> | null {
+  if (!value || typeof value !== "object") return null;
+  const usage = value as Record<string, unknown>;
+  const totalTokens = usage.totalTokens;
+  if (typeof totalTokens !== "number" || !Number.isFinite(totalTokens)) return null;
+  const out: Record<string, number> = { totalTokens };
+  for (const key of ["inputTokens", "outputTokens", "thoughtTokens", "cachedWriteTokens", "cachedReadTokens"]) {
+    const found = usage[key];
+    if (typeof found === "number" && Number.isFinite(found)) out[key] = found;
+  }
+  return out;
+}
+
+/**
+ * A `usage_update` session/update notification, read off the wire by
+ * driving a real Devin turn (#115 review comment) after the first guess
+ * here - reading a `totalTokens` field, nested or flat - turned out wrong.
+ * The captured payload, verbatim:
+ *
+ * ```json
+ * {"sessionUpdate": "usage_update", "used": 10953, "size": 262000,
+ *  "_meta": {"cognition.ai/inputTokens": 10920, "cognition.ai/outputTokens": 33}}
+ * ```
+ *
+ * `used` is **the conversation's cumulative occupancy, not the turn's own
+ * spend** - confirmed wrong the other way on the first round, by a second,
+ * multi-turn capture on #115: across five tool calls in one turn `used`
+ * moved ~700 (not a sum over those five requests), and it did not reset at
+ * the next turn's boundary - turn two opened where turn one's last update
+ * left off. `size` is the context window; the pair is exactly the
+ * `{used, window}` `Context` wants and is read as-is, unadjusted, into
+ * `contextUsed` - that reading was right from the start. `turnTokens`,
+ * below, is what subtracts a per-turn baseline from `used`; this function
+ * only reports what is actually on the wire.
+ *
+ * The `_meta` input/output split was seen on the wire too but is not read:
+ * a second capture confirmed those are the *last request's* figures, not a
+ * sum over the turn, so there is no per-turn total hiding in `_meta` either -
+ * the result's own `usage` block already carries the authoritative
+ * conversation-cumulative split once the turn ends, and nothing here needs a
+ * mid-turn version of it. Seen and set aside, not unseen.
+ */
+function usageUpdateFrom(value: unknown): { used: number; size: number | null } | null {
+  if (!value || typeof value !== "object") return null;
+  const update = value as Record<string, unknown>;
+  const used = update.used;
+  if (typeof used !== "number" || !Number.isFinite(used)) return null;
+  const size = update.size;
+  return { used, size: typeof size === "number" && Number.isFinite(size) ? size : null };
+}
+
 function folded(prompts: Prompt[]): Prompt {
   if (prompts.length === 1) return prompts[0];
   const images = prompts.flatMap((prompt) => prompt.images);
@@ -98,6 +169,33 @@ export class DevinSession extends EventEmitter implements Session {
   private startedAt: number | null = null;
   private turnCount: number;
   private firstPrompt = true;
+  /** This turn's own token spend - `used` minus `turnStartUsed`, never
+   * `used` itself, which is the whole conversation. Cleared by `beginTurn`,
+   * exactly as `ClaudeSession.tokens` is - it belongs to one turn's count
+   * and carrying it into the next would double it. */
+  private tokens = 0;
+  /** How full the conversation is, off the same notification. Kept rather
+   * than cleared by `beginTurn`, exactly as `ClaudeSession.context` is: it
+   * changes once a turn brings new usage, not once a turn starts. */
+  private context: Context | null = null;
+  /**
+   * `used` as of the moment this turn began - the baseline `turnTokens`
+   * subtracts from every `used` this turn reports, so a turn's own spend
+   * doesn't read as the conversation's total. Set in `beginTurn` from
+   * `this.context.used`, the last cumulative figure known.
+   *
+   * `null` when no baseline is known yet: a session resumed from a prior
+   * process starts with no memory of what `used` was before this instance's
+   * first `usage_update` arrives, so its first turn cannot honestly compute
+   * a delta - `used` itself might already be the whole prior conversation.
+   * A fresh, un-resumed session has no such gap; its baseline is 0, a real
+   * fact (a new conversation starts empty), not a guess. While the baseline
+   * is unknown, `turnTokens` simply does not move for that one turn rather
+   * than report the conversation's size wearing a turn counter's label -
+   * see #115 round 3. The turn after resolves it: by the next `beginTurn`,
+   * `this.context.used` is set from this turn's own notifications.
+   */
+  private turnStartUsed: number | null = null;
 
   constructor(private readonly opts: DevinSessionOptions) {
     super();
@@ -109,13 +207,21 @@ export class DevinSession extends EventEmitter implements Session {
     return this.startedAt === null ? null : new Date(this.startedAt).toISOString();
   }
 
-  // ACP exposes no documented per-turn token feed for Devin.
-  get turnTokens(): number { return 0; }
+  // This turn's own spend: `used` minus the baseline `used` was at when the
+  // turn began (`turnStartUsed`), fed live from `usage_update` and frozen at
+  // the same subtraction against the result's own cumulative `totalTokens`
+  // when the turn ends. Never `used` itself - that is the whole
+  // conversation, confirmed by a two-turn capture on #115 round 3. This is
+  // what the roster's live token count reads.
+  get turnTokens(): number { return this.tokens; }
 
   get turn(): number { return this.turnCount; }
 
-  // Devin exposes no documented context-window figure Bench can consume.
-  get contextUsed(): Context | null { return null; }
+  // `used`/`size` off the same `usage_update` notification - see
+  // `usageUpdateFrom` for the captured payload this is read from. Null until
+  // the first `usage_update` of the session arrives, then kept rather than
+  // cleared per turn: see `context` above for why.
+  get contextUsed(): Context | null { return this.context; }
 
   // These identify OpenRouter requests and have no meaning for Devin.
   get turnAnsweredBy(): string[] { return []; }
@@ -304,6 +410,27 @@ export class DevinSession extends EventEmitter implements Session {
       const line = [title ?? kind ?? "Tool", status].filter(Boolean).join(" — ");
       this.emit("activity", line);
     }
+    if (update.sessionUpdate === "usage_update") {
+      const usage = usageUpdateFrom(update);
+      if (usage === null) return;
+      let progressed = false;
+      // Only when a baseline for this turn is known - see `turnStartUsed`.
+      // Without one, `used` is indistinguishable from the whole
+      // conversation, and reporting it as this turn's spend is the exact
+      // defect #115 round 3 found.
+      if (this.turnStartUsed !== null) {
+        const spent = Math.max(0, usage.used - this.turnStartUsed);
+        if (spent > this.tokens) {
+          this.tokens = spent;
+          progressed = true;
+        }
+      }
+      if (usage.size !== null) {
+        this.context = { used: usage.used, window: usage.size };
+        progressed = true;
+      }
+      if (progressed) this.emit("progress");
+    }
   }
 
   private enqueue(prompt: Prompt): void {
@@ -335,6 +462,14 @@ export class DevinSession extends EventEmitter implements Session {
   private beginTurn(turn: number): void {
     this.turnCount = turn;
     this.startedAt = Date.now();
+    this.tokens = 0;
+    // `this.context.used` is the last cumulative figure this instance has
+    // actually seen - accurate as a baseline whether it came from this
+    // turn's predecessor or an earlier one. Only genuinely unknown on a
+    // resumed session's first turn, before any `usage_update` of this
+    // instance's own has arrived - see `turnStartUsed`. A fresh session has
+    // no prior conversation to misreport, so 0 is correct, not a guess.
+    this.turnStartUsed = this.context?.used ?? (this.opts.resumeSessionId ? null : 0);
     mkdirSync(this.opts.reportsDir, { recursive: true });
     writeFileSync(join(this.opts.reportsDir, ".turn"), String(turn));
   }
@@ -364,13 +499,29 @@ export class DevinSession extends EventEmitter implements Session {
   private endTurn(message: RpcMessage): void {
     const stopReason = typeof message.result?.stopReason === "string" ? message.result.stopReason : "error";
     const reply = this.reply;
+    // The result's own cumulative count is authoritative over whatever
+    // `usage_update` last reported, but it is still the whole conversation,
+    // not this turn - subtract the same baseline `turnTokens` has been
+    // subtracting all turn, so the frozen figure agrees with the live one.
+    const usage = resultUsageFrom(message.result?.usage);
+    if (usage && this.turnStartUsed !== null) {
+      this.tokens = Math.max(0, usage.totalTokens - this.turnStartUsed);
+    }
     const result: ResultEvent = {
       type: "result",
       subtype: stopReason,
       is_error: Boolean(message.error) || !CLEAN_STOP_REASONS.has(stopReason),
       session_id: this.sessionId!,
       result: reply,
-      // Devin bills in ACUs and ACP has no documented per-turn dollar cost.
+      ...(usage ? { usage } : {}),
+      // No dollar or ACU figure is on this wire. Confirmed twice over: static
+      // analysis of the shipped binary (#115) found a `cognition.ai/
+      // turn_stats` extension notification method and internal fields named
+      // `committed_acu_cost` / `committed_credit_cost`, but a real captured
+      // `cognition.ai/turn_stats` payload (#115 review comment) carried only
+      // `responseDimensions` for input/output/cached tokens and an
+      // agent-message count - no ACU, no dollars. Left unset rather than
+      // guessed: see #117, filed for if that ever changes.
     };
     this.running = false;
     this.startedAt = null;

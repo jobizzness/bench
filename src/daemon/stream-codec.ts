@@ -10,6 +10,16 @@ export interface ResultEvent {
   result?: string;
   total_cost_usd?: number;
   permission_denials?: unknown[];
+  /**
+   * Devin's own usage block off `session/prompt`'s result - `totalTokens`,
+   * `inputTokens`, `outputTokens`, `cachedReadTokens`, camelCase. Not
+   * Claude's `usage.iterations` shape, so `shapeFrom`/`costFrom` below do not
+   * read it and a Devin turn is correctly never priced or recorded by them -
+   * carried here only so the true count travels with the event rather than
+   * living solely on `DevinSession.turnTokens`, which forgets it the moment
+   * the next turn begins.
+   */
+  usage?: Record<string, number>;
 }
 
 /**
