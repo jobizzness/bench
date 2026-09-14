@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionRegistry } from "../src/daemon/registry.js";
 import { SessionStore } from "../src/daemon/store.js";
+import { waitFor } from "./helpers/wait-for.js";
 
 async function setup() {
   const home = await mkdtemp(join(tmpdir(), "bench-home-"));
@@ -85,5 +86,66 @@ describe("moving a specialist to another model", () => {
   it("has never heard of a specialist that is not there", async () => {
     const { registry } = await setup();
     await expect(registry.setModel("nobody", "haiku")).rejects.toThrow(/no such specialist/);
+  });
+});
+
+describe("moving a specialist across a runtime boundary (#113)", () => {
+  it("clears resumable and the runtime session id going from devin to a Claude model", async () => {
+    const { registry, store, id } = await setup();
+    await registry.setModel(id, "devin");
+
+    // A finished Devin turn: something to resume, on Devin's own id.
+    const entry = (registry as any).entries.get(id);
+    entry.resumable = true;
+    entry.runtimeSessionId = "devin-conversation-1";
+
+    await registry.setModel(id, "sonnet");
+
+    expect(entry.resumable).toBe(false);
+    expect(entry.runtimeSessionId).toBeUndefined();
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.resumable === false ? true : null),
+      "resumable cleared on disk",
+    );
+    const onDisk = (await store.all()).find((r) => r.id === id)!;
+    expect(onDisk.resumable).toBe(false);
+    expect(onDisk.runtimeSessionId).toBeUndefined();
+  });
+
+  it("clears resumable going from a Claude model to devin", async () => {
+    const { registry, store, id } = await setup();
+
+    // A finished Claude turn: something to resume, no runtime session id -
+    // Claude resumes off the bench id, not one of its own.
+    const entry = (registry as any).entries.get(id);
+    entry.resumable = true;
+
+    await registry.setModel(id, "devin");
+
+    expect(entry.resumable).toBe(false);
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.resumable === false ? true : null),
+      "resumable cleared on disk",
+    );
+    expect((await store.all()).find((r) => r.id === id)!.resumable).toBe(false);
+  });
+
+  it("keeps resumable when the model change stays within a runtime", async () => {
+    // opus -> sonnet is still Claude on both sides, so the transcript the CLI
+    // holds is still one the new process can resume - this is the behaviour
+    // setModel's doc comment promises and #113 must not regress it.
+    const { registry, store, id } = await setup();
+    await store.markResumable(id);
+    const entry = (registry as any).entries.get(id);
+    entry.resumable = true;
+
+    await registry.setModel(id, "sonnet");
+
+    expect(entry.resumable).toBe(true);
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.model === "sonnet" ? true : null),
+      "model written to disk",
+    );
+    expect((await store.all()).find((r) => r.id === id)!.resumable).toBe(true);
   });
 });
