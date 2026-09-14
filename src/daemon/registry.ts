@@ -337,17 +337,37 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    */
   private credentialForSpawn(): string | null | undefined {
     // Nothing of our own to say. Whatever the daemon was started with stands.
-    if (this.apiKey === null) return this.managedApiKeys.length > 0 ? null : undefined;
+    //
+    // Including when every managed key is spent: `null` here would clear the
+    // child's credential variables outright, which is not "I have no key to
+    // offer" but "be certain you have none" - and that spawns a process that
+    // cannot authenticate and says only that it failed. Falling back to the
+    // daemon's own login is what an absent key has always meant, and it is
+    // the difference between a bench that keeps working on the machine's
+    // account and one that stops dead with nothing to read.
+    if (this.apiKey === null) return undefined;
     return this.apiKeyOn ? this.apiKey : null;
   }
 
+  /**
+   * Load the developer's managed keys, and pick the one to spend.
+   *
+   * A key is passed over only when it is known not to work. "Could not be
+   * checked" is not that: the check is one HTTPS request against a provider
+   * that rate-limits, made for every key at once, every time the profile
+   * dialog syncs - so an inconclusive verdict is the common case on a slow
+   * network, not evidence about the key. Treating it as failure would drop
+   * every specialist on the bench and leave nothing to revive them with,
+   * which is a far worse answer than trying a key that may well be fine.
+   */
   setManagedApiKeys(keys: ManagedAnthropicKey[]): void {
     this.managedApiKeys = keys;
-    const current = keys.find((item) => item.id === this.activeManagedKeyId && item.status === "available");
-    const next = current ?? keys.find((item) => item.status === "available");
+    const usable = (item: ManagedAnthropicKey) => item.status !== "exhausted" && item.status !== "refused";
+    const current = keys.find((item) => item.id === this.activeManagedKeyId && usable(item));
+    const next = current ?? keys.find((item) => item.status === "available") ?? keys.find(usable);
     this.activeManagedKeyId = next?.id ?? null;
     if (next) this.setApiKey(next.key);
-    else if (this.managedApiKeys.length > 0) this.clearApiKey();
+    else if (keys.length > 0) this.clearApiKey();
   }
 
   managedApiKeyStates(): Array<Omit<ManagedAnthropicKey, "key"> & { active: boolean }> {

@@ -1377,6 +1377,88 @@ describe("the developer's own API key", () => {
     });
 
     /**
+     * The reported bug: every specialist on the bench stopped, saying only
+     * "the Anthropic key changed", and the next prompt failed with nothing to
+     * read.
+     *
+     * The profile dialog re-checks every managed key on every sync, all at
+     * once, against a provider that rate-limits. One inconclusive verdict
+     * used to be enough: no key was "available", so the active credential was
+     * cleared, which dropped every running process - and the revive that
+     * followed was spawned with both Anthropic variables deliberately
+     * stripped, so it could not authenticate and said so in no useful way.
+     */
+    describe("managed credentials that could not be checked", () => {
+      const ONE = "sk-ant-api03-managed-one-0000";
+      const managed = (status: string, id = "one", key = ONE) =>
+        ({ id, key, label: "Primary", status, checkedAt: Date.now() }) as any;
+
+      it("keeps spending a key whose re-check was merely inconclusive", async () => {
+        const { config } = await setup();
+        const registry = new SessionRegistry({ ...config } as any);
+
+        registry.setManagedApiKeys([managed("available")]);
+        expect(registry.getApiKey()).toBe(ONE);
+
+        // The same key, checked again on a slow network.
+        registry.setManagedApiKeys([managed("unreachable")]);
+        expect(registry.getApiKey()).toBe(ONE);
+        expect(registry.managedApiKeyStates()[0].active).toBe(true);
+      });
+
+      it("still passes over a key the provider actually refused", async () => {
+        const { config } = await setup();
+        const registry = new SessionRegistry({ ...config } as any);
+        const TWO = "sk-ant-api03-managed-two-1111";
+
+        registry.setManagedApiKeys([managed("refused"), managed("available", "two", TWO)]);
+
+        expect(registry.getApiKey()).toBe(TWO);
+        expect(registry.managedApiKeyStates().find((k) => k.id === "two")!.active).toBe(true);
+      });
+
+      /**
+       * With every managed key spent there is nothing of the developer's own
+       * to hand over - which is "no opinion", not "be certain you have none".
+       * Stripping the variables takes the machine's own login away too, and a
+       * specialist that cannot authenticate is a worse answer than one
+       * spending the account the daemon was started with.
+       */
+      it("falls back to the machine's own login rather than stripping it", async () => {
+        const { home, project, worktree, id, reportsDir, config } = await setup();
+        await new SessionStore(home).put({
+          id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+          model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+        });
+        const registry = new SessionRegistry({
+          ...config, claudeBin: await fakeCli(CREDENTIAL_CLI),
+        } as any);
+        await registry.restore();
+
+        // Loaded, then spent: what the rotation leaves behind when the last
+        // key reports a usage limit.
+        registry.setManagedApiKeys([managed("exhausted")]);
+        expect(registry.getApiKey()).toBeNull();
+
+        const inherited = "sk-ant-api03-the-machines-own-2222";
+        const had = process.env.ANTHROPIC_API_KEY;
+        process.env.ANTHROPIC_API_KEY = inherited;
+        try {
+          registry.send(id, "off you go");
+          const threadPath = registry.get(id)!.threadPath;
+          const reply = await waitFor(
+            async () => (await readThread(threadPath)).find((e) => e.kind === "reply")?.body ?? null,
+            "the specialist to answer",
+          );
+          expect(reply).toBe(`key:${inherited}`);
+        } finally {
+          if (had === undefined) delete process.env.ANTHROPIC_API_KEY;
+          else process.env.ANTHROPIC_API_KEY = had;
+        }
+      });
+    });
+
+    /**
      * The switch is the developer saying where their money goes. A daemon
      * restart is not them changing their mind.
      */
