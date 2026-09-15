@@ -10,3 +10,6 @@ dist/
 
 # The hosting deploy cache, which is a local record of what was uploaded
 .firebase/
+
+# Built output of the VS Code extension
+editor/vscode/out/

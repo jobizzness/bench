@@ -1,0 +1,36 @@
+{
+  "name": "bench-follow",
+  "displayName": "Bench",
+  "description": "Opens the file a Bench specialist just wrote.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "jobizzness",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "bench.toggleFollow",
+        "title": "Bench: Pause or resume following edits"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.2"
+  }
+}

@@ -48,6 +48,11 @@ subagents, web search. Bench supervises it; it does not replace it.
   picks pre-filled, so only the questions it genuinely cannot guess block it.
 - **Progress you can read.** A live trail derived from tool calls — `Bash pnpm
   test`, `Edit src/registry.ts` — beside the specialist's own checklist.
+- **Watch it write, if you want to.** The same tool calls, kept whole, go down
+  `/events` as edit notices. A VS Code extension in `editor/vscode/` opens
+  each file a specialist writes — including one inside its worktree, which
+  lives under the folder you already have open. It takes focus every time, so
+  it is made for a second monitor; the status bar pauses it.
 - **Any model, not only Claude's.** Anthropic's aliases go straight to
   Anthropic on the login you already have. Everything else goes through an
   OpenRouter key you supply, and is billed there. The picker offers the models
