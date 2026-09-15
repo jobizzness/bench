@@ -41,6 +41,7 @@ vi.mock("firebase/firestore", () => ({
 
 const { useRoster } = await import("../src/client/components/useRoster.js");
 const { encode } = await import("../src/shared/remote-codec.js");
+const { routeSession, getSessionMachine } = await import("../src/client/api.js");
 
 function emitCollection(path: string, docs: Array<{ id: string; data: Record<string, unknown> }>) {
   listeners.get(path)?.({ docs: docs.map((d) => ({ id: d.id, data: () => d.data })) });
@@ -230,3 +231,87 @@ describe("wakingMachines", () => {
     expect(latest?.wakingMachines).toEqual([]);
   });
 });
+
+describe("routing latch (#126)", () => {
+  /**
+   * Regression for #126. When a session appeared in the remote roster it
+   * was added to `sessionMachine` in api.ts; when it later disappeared
+   * the entry was never removed, so `authFetch` continued routing every
+   * request for that session through Firestore instead of the local socket.
+   * The fix: `useRemoteRoster` now diffs its previous `rows` on every
+   * update and calls `routeSession(id, null)` for any id that dropped off.
+   */
+  it("un-routes a session that drops off the remote roster", async () => {
+    currentUser.value = { uid: "u1" };
+    mount();
+    await act(async () => {});
+
+    // A remote machine appears with one session.
+    emitCollection("users/u1/machines", [{ id: "m2", data: { name: "desktop", lastSeen: Date.now() } }]);
+    await act(async () => {});
+    emitDoc("users/u1/machines/m2/mirror/roster", {
+      payload: encode([{ id: "s-remote", broadcast: true } as any]),
+    });
+    await act(async () => {});
+
+    // Session is now routed to m2.
+    expect(getSessionMachine("s-remote")).toEqual({ uid: "u1", machineId: "m2" });
+
+    // The session disappears from the mirror (specialist finished, etc.).
+    emitDoc("users/u1/machines/m2/mirror/roster", { payload: encode([]) });
+    await act(async () => {});
+
+    // Routing entry must have been cleared - next request goes direct.
+    expect(getSessionMachine("s-remote")).toBeNull();
+  });
+
+  it("does not clear a session that moved to a different machine", async () => {
+    currentUser.value = { uid: "u1" };
+    mount();
+    await act(async () => {});
+
+    emitCollection("users/u1/machines", [
+      { id: "m2", data: { name: "desktop", lastSeen: Date.now() } },
+      { id: "m3", data: { name: "laptop", lastSeen: Date.now() } },
+    ]);
+    await act(async () => {});
+
+    // Session starts on m2.
+    emitDoc("users/u1/machines/m2/mirror/roster", {
+      payload: encode([{ id: "s-move", broadcast: true } as any]),
+    });
+    await act(async () => {});
+    expect(getSessionMachine("s-move")).toEqual({ uid: "u1", machineId: "m2" });
+
+    // Session appears on m3 and vanishes from m2 in the same update cycle.
+    emitDoc("users/u1/machines/m3/mirror/roster", {
+      payload: encode([{ id: "s-move", broadcast: true } as any]),
+    });
+    emitDoc("users/u1/machines/m2/mirror/roster", { payload: encode([]) });
+    await act(async () => {});
+
+    // Must be routed to m3, not cleared to null.
+    expect(getSessionMachine("s-move")).toEqual({ uid: "u1", machineId: "m3" });
+  });
+
+  it("never routes a session through Firestore if present on local roster", async () => {
+    currentUser.value = { uid: "u1" };
+    mount();
+    await act(async () => {});
+
+    // Remote machine mirrors a session id "s-local".
+    emitCollection("users/u1/machines", [{ id: "m2", data: { name: "desktop", lastSeen: Date.now() } }]);
+    await act(async () => {});
+    emitDoc("users/u1/machines/m2/mirror/roster", {
+      payload: encode([{ id: "s-local", broadcast: true } as any]),
+    });
+    await act(async () => {});
+
+    // Now pretend s-local is also on local roster (e.g. delivered over local socket).
+    // Marking it on local socket must unroute it so requests go direct to 127.0.0.1.
+    routeSession("s-local", null);
+    expect(getSessionMachine("s-local")).toBeNull();
+  });
+});
+
+
