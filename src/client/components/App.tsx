@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { endpoint, isRemote, postJson } from "../api.js";
+import { endpoint, isRemote, postJson, routeSession } from "../api.js";
 import { isProxied } from "../../shared/models.js";
 import { tap, tapBurst, tapFailed } from "../haptics.js";
 import { launchSendMark, launchSendMarkBurst } from "./flySendMark.js";
@@ -240,6 +240,7 @@ export function App() {
   /** The sheet's send. Answers plus whatever was written under them. */
   async function answerIntake() {
     if (!row || !decision || !bar || bar.blocked) return;
+    if (!row.machine) routeSession(row.id, null);
     setError(null);
 
     await postJson(`/api/sessions/${row.id}/answer`, {
@@ -254,6 +255,7 @@ export function App() {
 
   async function submit() {
     if (!row) return;
+    if (!row.machine) routeSession(row.id, null);
     const said = text.trim();
     setError(null);
 

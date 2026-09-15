@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { authFetch, isRemote, postJson } from "../api.js";
+import { authFetch, isRemote, postJson, routeSession } from "../api.js";
 import { asRole, DEFAULT_ROLE, ROLES, ROLE_NOTE, type Role } from "../../shared/roles.js";
 import { isProxied, modelLabel } from "../../shared/models.js";
 import { ROLE_MODELS } from "../../shared/role-models.js";
@@ -122,7 +122,10 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
       // you. Leaving the old specialist on the stage meant finding the new
       // one in the roster yourself before you could say a word to it.
       const { id } = await res.json();
-      if (id) select(String(id));
+      if (id) {
+        routeSession(String(id), null);
+        select(String(id));
+      }
       onClose();
     } finally {
       setBusy(false);
