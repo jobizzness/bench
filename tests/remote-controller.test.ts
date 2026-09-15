@@ -3,7 +3,7 @@ import { mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RemoteController } from "../src/daemon/remote/controller.js";
-import { loadIdentity } from "../src/daemon/remote/identity-file.js";
+import { loadIdentity, saveIdentity } from "../src/daemon/remote/identity-file.js";
 
 const EXCHANGE_OK = { id_token: "id-1", refresh_token: "rt-1", expires_in: "3600", user_id: "u1" };
 
@@ -200,6 +200,74 @@ describe("a revoked refresh token", () => {
     await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
     expect(exchanges).toBe(after);
     vi.useRealTimers();
+  });
+});
+
+describe("a network failure while resuming at boot", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** `fakeBackend`, except securetoken can be taken off the network - the
+   * daemon booting before Wi-Fi is back, or into one of its drops. */
+  function flakyBackend() {
+    const backend = fakeBackend();
+    const net = { online: false, exchanges: 0 };
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      if (url.includes("securetoken")) {
+        net.exchanges += 1;
+        if (!net.online) throw new TypeError("fetch failed");
+      }
+      return (backend.fetchImpl as unknown as (u: string, i?: RequestInit) => Promise<Response>)(url, init);
+    }) as unknown as typeof fetch;
+    return { fetchImpl, net };
+  }
+
+  it("keeps trying, and connects once securetoken answers, without a restart", async () => {
+    vi.useFakeTimers();
+    const dir = await home();
+    saveIdentity(dir, { uid: "u1", refreshToken: "rt-0", machineId: "m1" });
+    const { fetchImpl, net } = flakyBackend();
+    const remote = controller(dir, fetchImpl);
+
+    await remote.resume();
+    expect(remote.state().connected).toBe(false);
+    expect(remote.state().error).toMatch(/could not reach securetoken/);
+
+    net.online = true;
+    await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+    expect(remote.state().connected).toBe(true);
+    expect(remote.state().machineId).toBe("m1");
+  });
+
+  it("stops trying once remote is turned off", async () => {
+    vi.useFakeTimers();
+    const dir = await home();
+    saveIdentity(dir, { uid: "u1", refreshToken: "rt-0", machineId: "m1" });
+    const { fetchImpl, net } = flakyBackend();
+    const remote = controller(dir, fetchImpl);
+
+    await remote.resume();
+    await remote.disconnect();
+    const after = net.exchanges;
+    net.online = true;
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+    expect(net.exchanges).toBe(after);
+    expect(remote.state().connected).toBe(false);
+  });
+
+  it("does not retry a refresh token Google rejected - that one needs a sign-in, not patience", async () => {
+    vi.useFakeTimers();
+    const dir = await home();
+    saveIdentity(dir, { uid: "u1", refreshToken: "dead", machineId: "m1" });
+    const { fetchImpl, net } = flakyBackend();
+    net.online = true;
+    const remote = controller(dir, fetchImpl);
+
+    await remote.resume();
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+    expect(net.exchanges).toBe(1);
+    expect(remote.state().error).toBe("remote is off, sign in again");
   });
 });
 

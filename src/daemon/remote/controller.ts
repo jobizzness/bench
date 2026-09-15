@@ -17,6 +17,12 @@ export type { RemoteState } from "../../shared/remote.js";
  * gets an answer inside a couple of minutes. */
 const HEARTBEAT_MS = 90_000;
 
+/** How long a boot-time resume that could not reach Google waits before
+ * trying again. The refresher's own retry only exists once a first exchange
+ * has landed, so without this a daemon that boots into a network drop keeps
+ * remote off for its whole life. */
+const RESUME_RETRY_MS = 30_000;
+
 export interface RemoteControllerLike {
   state(): RemoteState;
   connect(refreshToken: string, uid: string, email?: string): Promise<RemoteState>;
@@ -71,6 +77,7 @@ export class RemoteController implements RemoteControllerLike {
   private error: string | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private bridge: RemoteBridge | null = null;
+  private resumeTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly hostnameValue: string;
   private readonly platformValue: string;
@@ -102,7 +109,20 @@ export class RemoteController implements RemoteControllerLike {
     try {
       await this.establish(identity);
     } catch (error) {
+      const firstFailure = this.error === null;
       this.error = describeFailure(error);
+      // A rejected token needs a sign-in, not another attempt. Anything else
+      // is the network, which says nothing about the identity on file.
+      if (!(error instanceof RefreshRejected)) {
+        if (firstFailure) {
+          process.stderr.write(`bench: remote could not connect, retrying every ${RESUME_RETRY_MS / 1000}s: ${String(error)}\n`);
+        }
+        this.resumeTimer = setTimeout(() => {
+          this.resumeTimer = null;
+          void this.resume();
+        }, RESUME_RETRY_MS);
+        this.resumeTimer.unref?.();
+      }
     }
   }
 
@@ -151,6 +171,8 @@ export class RemoteController implements RemoteControllerLike {
    * saving from a dead token, but a revocation is not "forget me", so it
    * leaves the file for a diagnostic and lets the next sign-in overwrite it). */
   private teardown(): void {
+    if (this.resumeTimer) clearTimeout(this.resumeTimer);
+    this.resumeTimer = null;
     this.refresher?.stop();
     this.refresher = null;
     this.client = null;

@@ -18,6 +18,14 @@ export interface RemoteResult {
 }
 
 /**
+ * How long the phone waits for a machine to answer before saying it did not.
+ * Longer than the slowest legitimate reply: an idle daemon notices a new
+ * viewer on its 60s presence poll, then runs commands on its 2s tick (see
+ * `bridge.ts`). Anything past this is a daemon that is not listening at all.
+ */
+export const COMMAND_TIMEOUT_MS = 90_000;
+
+/**
  * One request-and-reply over Firestore: write `commands/{id}`, listen for
  * `results/{id}`, delete the result once read - the phone's half of "both
  * documents are then deleted" (the daemon deletes the command; see
@@ -32,22 +40,31 @@ export function sendCommand(
   const resultRef = doc(database, `users/${uid}/machines/${machineId}/results/${id}`);
 
   return new Promise<RemoteResult>((resolve, reject) => {
+    const deadline = setTimeout(() => {
+      unsubscribe();
+      // Withdrawn rather than left waiting: the developer is about to be told
+      // this failed, so a daemon that wakes later must not quietly do it.
+      void deleteDoc(commandRef).catch(() => {});
+      reject(new Error(`this machine did not answer in ${COMMAND_TIMEOUT_MS / 1000}s - is its daemon running with remote on?`));
+    }, COMMAND_TIMEOUT_MS);
+
     const unsubscribe = onSnapshot(resultRef, (snapshot) => {
       if (!snapshot.exists()) return;
       const data = snapshot.data() as { status: number; contentType: string; body: string };
+      clearTimeout(deadline);
       unsubscribe();
       void deleteDoc(resultRef).catch(() => {
         // Nothing the caller needs to know - an orphaned result is cleaned
         // up defensively by `bench remote off`, and by the next `wipe()`.
       });
       resolve({ status: Number(data.status), contentType: String(data.contentType), text: decode(data.body) });
-    }, (error) => { unsubscribe(); reject(error); });
+    }, (error) => { clearTimeout(deadline); unsubscribe(); reject(error); });
 
     void setDoc(commandRef, {
       method,
       path,
       body: body === undefined ? "" : encode(body),
       at: Date.now(),
-    }).catch((error: unknown) => { unsubscribe(); reject(error); });
+    }).catch((error: unknown) => { clearTimeout(deadline); unsubscribe(); reject(error); });
   });
 }
