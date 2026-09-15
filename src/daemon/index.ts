@@ -16,6 +16,11 @@ import { FIREBASE_WEB_CONFIG } from "../shared/firebase-config.js";
 import { checkKey } from "./anthropic-key.js";
 import { fetchUsage } from "./usage.js";
 import { KeySync } from "./key-sync.js";
+import { widenConnectAttempts } from "./network.js";
+
+// Before anything reaches out: every key check, usage read and Firestore
+// call below goes through the same connect path - see network.ts.
+widenConnectAttempts();
 
 const config = loadConfig();
 
