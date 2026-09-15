@@ -25,7 +25,7 @@ import { modelForRole } from "../shared/role-models.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
 import { isOauthToken, isUsageLimitError, limitResetsAt, type ManagedKey } from "./anthropic-key.js";
-import { fullestPercent, type Usage } from "../shared/usage.js";
+import { fullestPercent, type Usage, type UsageWindow } from "../shared/usage.js";
 import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
 import { isModelId, modelLabel } from "../shared/models.js";
 import type { AttachmentRef, EditEvent, RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
@@ -165,6 +165,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   private activeManagedKeyId: string | null = null;
   private retryPrompts = new Map<string, { text: string; images: StoredAttachment[] }>();
   private credentialRetries = new Set<string>();
+  /** The key each specialist's current process was spawned with - so what
+   * its stream reports about a key lands on that key, even after the bench
+   * has moved the rest of the roster onto another. */
+  private spawnedWith = new Map<string, string | undefined>();
 
   /**
    * The developer's OpenRouter key, for specialists run on anybody other than
@@ -292,7 +296,16 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * which is a far worse answer than trying a key that may well be fine.
    */
   setManagedApiKeys(keys: ManagedKey[]): void {
-    this.managedApiKeys = keys;
+    // A re-check that could not say what a key has spent is not news that it
+    // has spent nothing - for a setup-token it never can. Keep what the last
+    // turn on that same key reported.
+    const before = new Map(this.managedApiKeys.map((item) => [item.id, item]));
+    this.managedApiKeys = keys.map((item) => {
+      const prior = before.get(item.id);
+      return item.usage === undefined && prior?.usage !== undefined && prior.key === item.key
+        ? { ...item, usage: prior.usage }
+        : item;
+    });
     const next = this.pickManagedKey();
     this.activeManagedKeyId = next?.id ?? null;
     this.applyApiKey(next?.key ?? null);
@@ -362,6 +375,25 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     this.activeManagedKeyId = next?.id ?? null;
     this.applyApiKey(next?.key ?? null);
     return next !== undefined;
+  }
+
+  /**
+   * What a specialist's own stream says the key it was spawned with has
+   * spent.
+   *
+   * A refusal marks the key spent until the time it names. Moving off it is
+   * left to the turn that was refused, which rotates and retries in one step
+   * - moving here as well would rotate twice, the second time off the key
+   * just moved onto.
+   */
+  private recordKeyUsage(key: string | undefined, limits: { status: string; resetsAt: string | null; windows: UsageWindow[] }): void {
+    const item = this.managedApiKeys.find((candidate) => candidate.key === key);
+    if (!item) return;
+    if (limits.windows.length > 0) item.usage = limits.windows;
+    if (limits.status === "rejected") {
+      item.status = "exhausted";
+      item.resetsAt = limits.resetsAt ?? item.resetsAt ?? null;
+    }
   }
 
   /**
@@ -898,7 +930,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           nudge: () => this.nudgeTextFor(id),
           // Through the getter, not off the field: the key is read at spawn,
           // and undefined there means "inherit the daemon's own login".
-          apiKey: () => this.credentialForSpawn(),
+          apiKey: () => {
+            const key = this.credentialForSpawn();
+            this.spawnedWith.set(id, key);
+            return key;
+          },
           via: opts.via,
         });
 
@@ -944,6 +980,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         path: touch.path,
         at: new Date().toISOString(),
       } satisfies EditEvent);
+    });
+
+    session.on("rate-limit", (limits: { status: string; resetsAt: string | null; windows: UsageWindow[] }) => {
+      this.recordKeyUsage(this.spawnedWith.get(id), limits);
     });
 
     session.on("exit", (code: number | null, stderr: string) => {

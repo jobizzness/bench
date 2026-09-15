@@ -1317,6 +1317,82 @@ describe("the developer's API keys", () => {
         expect(Date.parse(resetsAt) - Date.now()).toBeLessThanOrEqual(24 * 3_600_000);
       });
 
+      it("records what a specialist's own stream says its key has spent", async () => {
+        // A setup-token cannot be asked for its usage, but every turn run on
+        // it reports it. The numbers belong to the key that specialist was
+        // spawned with, and to no other.
+        const RATE_LIMITED_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "rate_limit_event", uuid: "u", session_id: "sess-restore",
+      rate_limit_info: { status: "allowed", resetsAt: 1789519800, unifiedWindows: {
+        five_hour: { utilization: 0.17, resetsAt: 1789519800 },
+        seven_day: { utilization: 0.31, resetsAt: 1789941600 },
+      } },
+    }) + "\\n");
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false, session_id: "sess-restore", result: "ok",
+    }) + "\\n");
+  }
+});
+`;
+        const { home, project, worktree, id, reportsDir, config } = await setup();
+        await new SessionStore(home).put({
+          id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+          model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+        });
+        const registry = new SessionRegistry({ ...config, claudeBin: await fakeCli(RATE_LIMITED_CLI) } as any);
+        await registry.restore();
+        registry.setManagedApiKeys([managed("available"), managed("available", "two", "sk-ant-api03-managed-two-1111")]);
+
+        registry.send(id, "off you go");
+        const usage = await waitFor(
+          async () => registry.managedApiKeyStates().find((k) => k.id === "one")?.usage ?? null,
+          "the key's usage to arrive",
+        );
+
+        expect(usage).toEqual([
+          { key: "five_hour", label: "5-hour", percent: 17, resetsAt: new Date(1789519800_000).toISOString() },
+          { key: "seven_day", label: "7-day", percent: 31, resetsAt: new Date(1789941600_000).toISOString() },
+        ]);
+        expect(registry.managedApiKeyStates().find((k) => k.id === "two")!.usage).toBeUndefined();
+      });
+
+      it("keeps what a key last reported when a re-check brings no numbers", async () => {
+        // A setup-token's re-check can confirm it works but never what it
+        // has spent, so a re-sync that arrives empty-handed must not wipe the
+        // numbers the last turn reported.
+        const { config } = await setup();
+        const registry = new SessionRegistry({ ...config } as any);
+        const windows = [{ key: "five_hour", label: "5-hour", percent: 40, resetsAt: null }];
+
+        registry.setManagedApiKeys([{ ...managed("available"), usage: windows }]);
+        registry.setManagedApiKeys([managed("available")]);
+
+        expect(registry.managedApiKeyStates()[0].usage).toEqual(windows);
+      });
+
+      it("marks a key spent the moment its stream says it is refused", async () => {
+        const { config } = await setup();
+        const registry = new SessionRegistry({ ...config } as any);
+        const at = new Date(Date.now() + 3_600_000).toISOString();
+
+        registry.setManagedApiKeys([managed("available"), managed("available", "two", "sk-ant-api03-managed-two-1111")]);
+        (registry as any).recordKeyUsage(ONE, {
+          status: "rejected", resetsAt: at,
+          windows: [{ key: "five_hour", label: "5-hour", percent: 100, resetsAt: at }],
+        });
+
+        expect(registry.managedApiKeyStates().find((k) => k.id === "one")).toMatchObject({ status: "exhausted", resetsAt: at });
+      });
+
       it("lets go of the key when the last one is spent", async () => {
         const { config } = await setup();
         const registry = new SessionRegistry({ ...config } as any);

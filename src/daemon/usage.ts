@@ -13,32 +13,11 @@
 
 import { readFileSync } from "node:fs";
 import { isOauthToken } from "./anthropic-key.js";
-import type { Usage, UsageWindow } from "../shared/usage.js";
+import { windowLabel, type Usage, type UsageWindow } from "../shared/usage.js";
 
 export type { Usage, UsageWindow } from "../shared/usage.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
-
-/**
- * The windows we already have a short name for.
- *
- * A map rather than a rule, because "5-hour" and "7-day Opus" are what a
- * developer calls them, and no rule derives that from `seven_day_opus`.
- */
-const KNOWN: Record<string, string> = {
-  five_hour: "5-hour",
-  seven_day: "7-day",
-  seven_day_opus: "7-day Opus",
-  seven_day_sonnet: "7-day Sonnet",
-  seven_day_oauth_apps: "7-day apps",
-};
-
-/** A name for a window nobody here has heard of. Plain, but readable, and it
- * arrives on its own the day a new model gets a window of its own. */
-function label(key: string): string {
-  return KNOWN[key]
-    ?? key.replace(/^five_hour/, "5-hour").replace(/^seven_day/, "7-day").replace(/_/g, " ");
-}
 
 /**
  * Every window in an answer, in the order the answer gave them.
@@ -59,7 +38,7 @@ export function windowsFrom(body: unknown): UsageWindow[] {
 
     windows.push({
       key,
-      label: label(key),
+      label: windowLabel(key),
       // Overage can carry a window past its own limit. The bar stops at full;
       // the number printed beside it is the one that says what happened.
       percent: Math.min(100, Math.max(0, Math.round(held.utilization))),

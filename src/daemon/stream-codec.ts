@@ -1,6 +1,7 @@
 import type { Context } from "../shared/context-window.js";
 import { turnTokens, type TurnShape } from "../shared/cost.js";
 import type { Attachment } from "../shared/types.js";
+import { windowLabel, type UsageWindow } from "../shared/usage.js";
 
 export interface ResultEvent {
   type: "result";
@@ -280,6 +281,50 @@ export function answeringModelFrom(event: ClaudeEvent): string | null {
 
   const named = model.trim();
   return named === "" || named === SYNTHETIC ? null : named;
+}
+
+/** What a key has spent, as the turn spending it reported. */
+export interface RateLimit {
+  /** "allowed", "allowed_warning" or "rejected" - the last is a key that
+   * will not serve another request until `resetsAt`. */
+  status: string;
+  resetsAt: string | null;
+  windows: UsageWindow[];
+}
+
+/**
+ * The CLI's own report of the key it is running on, off a
+ * `rate_limit_event`.
+ *
+ * The one place a setup-token's usage is ever visible: the usage endpoint
+ * wants a scope `claude setup-token` does not grant, but every turn run on
+ * one reports its windows anyway. Utilization arrives as a fraction - 0.31
+ * is the 31% the usage endpoint says of the same week - and past 1 when a
+ * window ran over its cap, which the bar stops at full.
+ */
+export function rateLimitFrom(event: ClaudeEvent): RateLimit | null {
+  if (event.type !== "rate_limit_event") return null;
+  const info = (event as GenericEvent).rate_limit_info as
+    { status?: unknown; resetsAt?: unknown; unifiedWindows?: unknown } | undefined;
+  if (typeof info !== "object" || info === null || typeof info.status !== "string") return null;
+
+  const when = (seconds: unknown): string | null =>
+    typeof seconds === "number" && Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null;
+
+  const windows: UsageWindow[] = [];
+  if (typeof info.unifiedWindows === "object" && info.unifiedWindows !== null) {
+    for (const [key, value] of Object.entries(info.unifiedWindows as Record<string, unknown>)) {
+      const held = value as { utilization?: unknown; resetsAt?: unknown } | null;
+      if (typeof held?.utilization !== "number" || !Number.isFinite(held.utilization)) continue;
+      windows.push({
+        key,
+        label: windowLabel(key),
+        percent: Math.min(100, Math.max(0, Math.round(held.utilization * 100))),
+        resetsAt: when(held.resetsAt),
+      });
+    }
+  }
+  return { status: info.status, resetsAt: when(info.resetsAt), windows };
 }
 
 export function isResultEvent(event: ClaudeEvent): event is ResultEvent {

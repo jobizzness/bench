@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   LineDecoder, userMessageLine, isResultEvent, activityLine, replyText, contextFrom,
-  generationIdFrom, answeringModelFrom, fileTouch,
+  generationIdFrom, answeringModelFrom, fileTouch, rateLimitFrom,
 } from "./stream-codec.js";
 import type { Context } from "../shared/context-window.js";
 import type { Attachment } from "../shared/types.js";
@@ -494,6 +494,11 @@ export class ClaudeSession extends EventEmitter implements Session {
       if (generation) this.generationIds.add(generation);
       const answerer = answeringModelFrom(event);
       if (answerer) this.answeredBy.add(answerer);
+
+      // What the key this process spends has left, reported by the turn
+      // spending it - the only report a setup-token ever gives.
+      const limits = rateLimitFrom(event);
+      if (limits) this.emit("rate-limit", limits);
 
       // The CLI reports its own running estimate; no need to count tokens.
       if (event.type === "system" && event.subtype === "thinking_tokens") {

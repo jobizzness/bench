@@ -19,6 +19,29 @@ export interface UsageWindow {
   resetsAt: string | null;
 }
 
+/**
+ * The windows we already have a short name for.
+ *
+ * A map rather than a rule, because "5-hour" and "7-day Opus" are what a
+ * developer calls them, and no rule derives that from `seven_day_opus`.
+ */
+const KNOWN: Record<string, string> = {
+  five_hour: "5-hour",
+  seven_day: "7-day",
+  seven_day_opus: "7-day Opus",
+  seven_day_sonnet: "7-day Sonnet",
+  seven_day_oauth_apps: "7-day apps",
+};
+
+/** A window's short name. Plain, but readable, for one nobody here has heard
+ * of - it arrives on its own the day a new model gets a window of its own.
+ * Shared because the usage endpoint and a specialist's own stream name the
+ * same windows, and one bar must not be labelled two ways. */
+export function windowLabel(key: string): string {
+  return KNOWN[key]
+    ?? key.replace(/^five_hour/, "5-hour").replace(/^seven_day/, "7-day").replace(/_/g, " ");
+}
+
 export type Usage =
   | { available: true; windows: UsageWindow[] }
   /** Why there is nothing to draw. "none" is having no credential to ask
