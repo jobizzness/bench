@@ -39,6 +39,19 @@ folder. `npm run package` builds a `.vsix` instead.
 Bench's root `pnpm install` deliberately does not cover this — it is a separate
 package so the main checkout never grows `@types/vscode`.
 
+## Being pointed at a project
+
+Bench's roster has an **editor** button on each project header. Pressing it
+narrows this window to that project — the sidebar, the badge and which files
+open all follow it. It does not launch anything; you open VS Code yourself.
+
+Untargeted, the window follows every folder it has open, which is the right
+default when that is one project. **Bench: Follow every open folder again**
+undoes a narrowing.
+
+If no editor is connected the button says **no editor** rather than pretending
+it worked.
+
 ## Configuration
 
 None. It reads the token from `$BENCH_HOME/token` (default `~/.bench/token`)

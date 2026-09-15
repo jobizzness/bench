@@ -168,6 +168,53 @@ decision about who may reach the machine; it is never a reason for an editor
 already on that machine to look elsewhere. The token is the whole of the
 daemon's authentication and reaching that port is reaching a shell.
 
+## Pointing a window at a project
+
+*Issue [#129](https://github.com/jobizzness/bench/issues/129).*
+
+A button in the cockpit's project header narrows an already-open VS Code
+window to that project. It **does not launch anything** — the developer opens
+VS Code themselves; this only says which project the window is for.
+
+That decision is what settled the mechanism. Launching would have needed a
+`vscode://` deep link; retargeting a running window needs a socket, and the
+extension is already holding one.
+
+```
+cockpit  --POST /api/editor/target--> daemon  --{type:"target"}--> every editor socket
+         <--{ delivered: n }--------
+```
+
+An editor says it is one with `?as=editor` on the `/events` socket. It gets
+everything a cockpit gets — it wants the roster for its sidebar — and is
+additionally reachable by this route.
+
+**`delivered` is the point of the response.** The developer opens VS Code
+themselves, so "nothing was listening" is an ordinary state, not an error. A
+button that drew the same tick either way would be lying about the only
+outcome worth knowing, so the button reports *pointed*, *no editor* or
+*failed* and holds that for a few seconds.
+
+**Every editor is sent the target**, because the daemon cannot know which
+window the developer was looking at. `targetFolder()` is how a window decides
+whether it is the one being talked to: it takes the target if the project is a
+folder it has open, or contains one. Otherwise it ignores it.
+
+### A binding and the folders it replaces
+
+| Bound | The window follows |
+|---|---|
+| nothing | every folder it has open — the default, and right for one window on one project |
+| a project | that project alone |
+
+This governs the sidebar, the badge and which edits open — all three read
+`following()` rather than the raw workspace folders.
+
+Held in memory, not persisted: it survives a daemon restart, which is what
+matters, and a window reopened tomorrow should not still be narrowed by a
+button someone pressed today. **Bench: Follow every open folder again** clears
+it — a narrowing that only the cockpit could undo would be a trap.
+
 ## What it does not catch
 
 - **Writes made through the shell.** `sed -i`, `>` redirects, `git checkout`.

@@ -27,9 +27,14 @@ export function tokenPath(env: BenchEnv, homeDir: string): string {
  * to, which is a decision about who may reach this machine; it is never a
  * reason for an editor on this machine to go looking somewhere else. Reaching
  * that port is reaching a shell, so the extension only ever talks to itself.
+ *
+ * `as=editor` is how the daemon tells an editor from a cockpit on the one
+ * socket. It changes nothing about what arrives - an editor gets the roster
+ * too - but it is what makes the cockpit's targeting button reachable, and
+ * what lets the daemon answer honestly when nothing is listening (#129).
  */
 export function eventsUrl(env: BenchEnv, token: string): string {
-  return `${host(env, "ws")}/events?token=${encodeURIComponent(token)}`;
+  return `${host(env, "ws")}/events?token=${encodeURIComponent(token)}&as=editor`;
 }
 
 /** Where the daemon's HTTP routes are, for the sidebar's diffs. Same port,

@@ -26,6 +26,8 @@ export class FollowStatus {
   private readonly item: vscode.StatusBarItem;
   private state: FollowState = "connecting";
   private following = true;
+  /** The project the cockpit pointed this window at, if it did. */
+  private project: string | null = null;
 
   constructor(command: string) {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -44,6 +46,12 @@ export class FollowStatus {
     this.render();
   }
 
+  /** Null puts the window back to following everything it has open. */
+  setProject(project: string | null): void {
+    this.project = project;
+    this.render();
+  }
+
   dispose(): void {
     this.item.dispose();
   }
@@ -51,10 +59,16 @@ export class FollowStatus {
   private render(): void {
     if (!this.following) {
       this.item.text = "$(eye-closed) Bench";
-      this.item.tooltip = "Paused. Still connected; files will not open.";
+      this.item.tooltip = this.scoped("Paused. Still connected; files will not open.");
       return;
     }
     this.item.text = TEXT[this.state];
-    this.item.tooltip = TOOLTIP[this.state];
+    this.item.tooltip = this.scoped(TOOLTIP[this.state]);
+  }
+
+  /** A window that has been narrowed has to say so, or "nothing opened"
+   * becomes unanswerable all over again. */
+  private scoped(text: string): string {
+    return this.project === null ? text : `${text}\nFollowing ${this.project} only.`;
   }
 }

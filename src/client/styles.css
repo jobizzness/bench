@@ -726,6 +726,34 @@ button, input, textarea, select { font: inherit; color: inherit; }
   .hide-project:hover { color: var(--text); }
 }
 
+/* Same treatment as `hide`: hidden until the row is hovered, because a
+   control that is always there is one you read past every time. It stays
+   visible while it has something to report - the answer is the point. */
+.target-editor {
+  font: inherit;
+  color: var(--faint);
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-left: 0.6rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms var(--ease), color 120ms var(--ease);
+}
+.target-editor:focus-visible { opacity: 1; }
+.target-editor:disabled { cursor: default; }
+/* Pressed and answered. Held visible so the answer is not something you have
+   to keep hovering to read - especially "no editor", which is the one the
+   developer needs to act on. */
+.target-editor:not([data-outcome="idle"]) { opacity: 1; }
+.target-editor[data-outcome="sent"] { color: var(--ok, var(--text)); }
+.target-editor[data-outcome="nobody"],
+.target-editor[data-outcome="failed"] { color: var(--wants); }
+@media (hover: hover) {
+  .group > summary:hover .target-editor { opacity: 1; }
+  .target-editor:hover { color: var(--text); }
+}
+
 .group .count { margin-left: auto; letter-spacing: 0.08em; }
 .group .count[data-waiting="true"] {
   color: var(--wants);

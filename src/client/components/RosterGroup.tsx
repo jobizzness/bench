@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { RosterRow } from "../../shared/types.js";
 import { wantsAttention } from "../waiting.js";
 import { projectName } from "../format.js";
+import { TargetEditor } from "./TargetEditor.js";
 import { inOrder, rememberOrder, savedOrder } from "../order.js";
 import { hideProject } from "../hidden.js";
 import { Row } from "./Row.js";
@@ -90,6 +91,7 @@ export function RosterGroup({ project, rows, selectedId, open, onFold }: {
         >
           hide
         </button>
+        <TargetEditor project={project} />
         <span className="count" data-waiting={waiting > 0}>
           {waiting > 0 ? `${waiting} waiting` : String(rows.length)}
         </span>

@@ -50,8 +50,16 @@ export class BenchTree implements vscode.TreeDataProvider<Node> {
     this.changed.fire(undefined);
   }
 
-  /** A specialist wrote a file, so whatever it has open may be stale. */
+  /**
+   * Redraw from what we already know - a specialist wrote a file, or this
+   * window was pointed at a different project.
+   *
+   * Recomputes the badge as well as the rows, because narrowing the window's
+   * scope changes who counts as waiting *here* without any new roster
+   * arriving to say so.
+   */
   refresh(): void {
+    this.onWaiting(waitingCount(this.rows, this.folders()));
     this.changed.fire(undefined);
   }
 

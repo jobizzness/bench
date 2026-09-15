@@ -13,6 +13,10 @@ export interface FollowOptions {
   /** The roster, as the daemon pushes it. The badge and the sidebar read it
    * from here rather than opening a second socket for it. */
   onRoster?: (rows: RosterRow[]) => void;
+  /** The cockpit pointing this window at a project (#129). Sent to every
+   * connected editor, so it is the window's own job to decide whether it is
+   * the one being talked to. */
+  onTarget?: (project: string) => void;
   retryMs?: number;
 }
 
@@ -92,6 +96,14 @@ export class EditFollower {
     } catch {
       // The roster is the only other thing on this socket and it is large; a
       // frame we cannot read is not worth taking the extension host down for.
+      return;
+    }
+
+    if (frame.type === "target") {
+      // Like the roster, not gated on `following`: pausing stops files
+      // opening, it does not stop the window being told what it is for.
+      const project = (frame as { project?: string }).project;
+      if (typeof project === "string" && project !== "") this.options.onTarget?.(project);
       return;
     }
 

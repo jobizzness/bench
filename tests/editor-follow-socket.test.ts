@@ -192,6 +192,33 @@ describe("following a daemon's edits", () => {
     await new Promise<void>((r) => again.close(() => r()));
   });
 
+  /**
+   * The cockpit's button, arriving (#129). Not gated on `following` for the
+   * same reason the roster is not: pausing stops files opening, it does not
+   * stop the window being told what it is for.
+   */
+  it("passes on a target, paused or not", async () => {
+    const d = await daemon();
+    const targets: string[] = [];
+    const f = new EditFollower({
+      url: () => d.url,
+      open: () => {},
+      onState: () => {},
+      onTarget: (project) => targets.push(project),
+      retryMs: 20,
+    });
+    stop = () => f.stop();
+    f.start();
+
+    await waitFor(() => d.sockets.length || null, "the follower to connect");
+    f.following = false;
+    d.sockets[0].send(JSON.stringify({ type: "target", project: "/var/www/bench" }));
+
+    await waitFor(() => targets.length || null, "the target to arrive");
+    expect(targets).toEqual(["/var/www/bench"]);
+    await d.close();
+  });
+
   it("reports having no token rather than connecting to nothing", async () => {
     const { f, states } = follower(null);
     f.start();

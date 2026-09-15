@@ -16,16 +16,19 @@ describe("finding the daemon", () => {
     expect(tokenPath({ BENCH_HOME: "/tmp/other" }, "/home/dev")).toBe("/tmp/other/token");
   });
 
-  it("uses the default port", () => {
-    expect(eventsUrl({}, "abc")).toBe("ws://127.0.0.1:7420/events?token=abc");
+  /** `as=editor` is how the daemon tells an editor from a cockpit on the
+   * one socket, so it knows who to send a target to (#129). */
+  it("uses the default port, and says what it is", () => {
+    expect(eventsUrl({}, "abc")).toBe("ws://127.0.0.1:7420/events?token=abc&as=editor");
   });
 
   it("follows BENCH_PORT", () => {
-    expect(eventsUrl({ BENCH_PORT: "9001" }, "abc")).toBe("ws://127.0.0.1:9001/events?token=abc");
+    expect(eventsUrl({ BENCH_PORT: "9001" }, "abc"))
+      .toBe("ws://127.0.0.1:9001/events?token=abc&as=editor");
   });
 
   it("escapes a token that would otherwise break the query string", () => {
-    expect(eventsUrl({}, "a b&c")).toBe("ws://127.0.0.1:7420/events?token=a%20b%26c");
+    expect(eventsUrl({}, "a b&c")).toBe("ws://127.0.0.1:7420/events?token=a%20b%26c&as=editor");
   });
 
   /**
@@ -35,7 +38,7 @@ describe("finding the daemon", () => {
    */
   it("always talks to loopback, whatever the environment says", () => {
     expect(eventsUrl({ BENCH_HOST: "0.0.0.0" } as Record<string, string>, "abc"))
-      .toBe("ws://127.0.0.1:7420/events?token=abc");
+      .toBe("ws://127.0.0.1:7420/events?token=abc&as=editor");
   });
 });
 

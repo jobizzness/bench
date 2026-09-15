@@ -43,6 +43,10 @@
       {
         "command": "bench.openDiff",
         "title": "Bench: Open changes for this file"
+      },
+      {
+        "command": "bench.clearTarget",
+        "title": "Bench: Follow every open folder again"
       }
     ],
     "menus": {

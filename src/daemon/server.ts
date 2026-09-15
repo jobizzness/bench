@@ -2,7 +2,7 @@ import { createServer as createHttpServer, type IncomingMessage, type Server as 
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, type WebSocket } from "ws";
 import type { BenchConfig } from "./config.js";
 import { findReport } from "./reports.js";
 import { readPlan } from "./plan.js";
@@ -328,6 +328,16 @@ export function createServer(opts: {
    * A request that fails should fail. The daemon supervising six agents
    * should not.
    */
+  /**
+   * The editor extensions currently connected, as opposed to cockpits.
+   *
+   * Both speak `/events`; an editor says so with `?as=editor` on connect.
+   * Kept here rather than derived from `wss.clients` because the route that
+   * targets them runs inside `handle` below, which is closed over before the
+   * socket server exists.
+   */
+  const editors = new Set<WebSocket>();
+
   const server = createHttpServer((req, res) => {
     void handle(req, res).catch((error) => {
       process.stderr.write(`bench: ${req.method} ${req.url} failed: ${String(error)}\n`);
@@ -1021,6 +1031,30 @@ export function createServer(opts: {
       return;
     }
 
+    /**
+     * Point whatever editors are listening at a project (#129).
+     *
+     * Answers with how many were actually told. The cockpit needs that: the
+     * developer opens VS Code themselves, so "no editor is listening" is a
+     * normal state rather than an error, and a button that drew a tick
+     * either way would be lying about the one case that matters.
+     */
+    if (path === "/api/editor/target" && req.method === "POST") {
+      const body = await readBody(req);
+      const project = typeof body.project === "string" ? body.project.trim() : "";
+      if (project === "") { json(res, 400, { error: "project is required" }); return; }
+
+      const frame = JSON.stringify({ type: "target", project });
+      let delivered = 0;
+      for (const socket of editors) {
+        if (socket.readyState !== socket.OPEN) continue;
+        socket.send(frame);
+        delivered++;
+      }
+      json(res, 200, { delivered });
+      return;
+    }
+
     // What a specialist has changed, for the editor's sidebar (#128). Two
     // routes rather than one: the list is asked for often and is small, the
     // blobs are asked for only when a diff is opened.
@@ -1152,6 +1186,10 @@ export function createServer(opts: {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     if (url.searchParams.get("token") !== config.token) { socket.close(1008, "unauthorized"); return; }
 
+    // An editor gets everything a cockpit does - it wants the roster for its
+    // sidebar - and is additionally reachable by the targeting route above.
+    if (url.searchParams.get("as") === "editor") editors.add(socket);
+
     const send = () => socket.send(JSON.stringify({ type: "roster", rows: registry.list() }));
     send();
     registry.on("roster", send);
@@ -1164,6 +1202,7 @@ export function createServer(opts: {
     registry.on("edit", sendEdit);
 
     socket.on("close", () => {
+      editors.delete(socket);
       const bus = registry as unknown as { off(e: string, l: (...args: any[]) => void): void };
       bus.off?.("roster", send);
       bus.off?.("edit", sendEdit);

@@ -49,6 +49,10 @@ export interface Fixtures {
   /** Make POST .../message never land at all - what the optimistic entry
    * looks like while genuinely still in flight. */
   messageHangs?: boolean;
+  /** How many editors the daemon says it delivered a target to (#129).
+   * Undefined behaves as one connected editor; 0 is the case the button has
+   * to report rather than draw a tick for. */
+  editorsTargeted?: number;
   /** House rules already on the daemon when the page opens. */
   settings?: { codingStyle: string; workflowRules: string; reviewModel?: string };
   /** What GitHub says about the project the drawer is opened on. */
@@ -244,6 +248,14 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
         json: async () => (models === "unreachable"
           ? { error: "OpenRouter answered 500 for its model list" }
           : { models: models ?? [] }),
+      };
+    }
+
+    if (init?.method === "POST" && url.includes("/api/editor/target")) {
+      sent.push({ url, body: JSON.parse(String(init.body)) });
+      return {
+        ok: true, status: 200,
+        json: async () => ({ delivered: fixtures.editorsTargeted ?? 1 }),
       };
     }
 
