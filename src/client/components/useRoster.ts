@@ -315,36 +315,38 @@ export function useRoster(watching: string | null = null): Roster {
   const local = useLocalRoster();
   const remote = useRemoteRoster(watching);
 
-  const localIds = useMemo(() => new Set(local.rows.map((r) => r.id)), [local.rows]);
-
-  const rows = useMemo(() => {
-    if (remote.rows.length === 0) return local.rows;
-    return [...local.rows, ...remote.rows.filter((r) => !localIds.has(r.id))];
-  }, [local.rows, remote.rows, localIds]);
-
-  /**
-   * Sync routing table (`sessionMachine` in `api.ts`).
-   * Any session in `local.rows` is local -> `routeSession(id, null)`.
-   * Any session in `remote.rows` that is NOT in `localIds` -> `routeSession(id, { uid, machineId })`.
-   * Any previously routed session that dropped off -> `routeSession(id, null)`.
-   */
   const routedIds = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const nextRoutedIds = new Set<string>();
-    for (const r of remote.rows) {
-      if (!localIds.has(r.id) && r.machine && remote.uid) {
-        routeSession(r.id, { uid: remote.uid, machineId: r.machine.id });
-        nextRoutedIds.add(r.id);
+  const rows = useMemo(() => {
+    const localIds = new Set(local.rows.map((r) => r.id));
+    const currentIds = new Set<string>();
+
+    // Synchronously enforce local routing for all local socket sessions
+    for (const r of local.rows) {
+      routeSession(r.id, null);
+      currentIds.add(r.id);
+    }
+
+    // Synchronously route remote sessions that are not on local
+    if (remote.rows.length > 0) {
+      for (const r of remote.rows) {
+        if (!localIds.has(r.id) && r.machine && remote.uid) {
+          routeSession(r.id, { uid: remote.uid, machineId: r.machine.id });
+          currentIds.add(r.id);
+        }
       }
     }
+
+    // Un-route any previously routed sessions that dropped off
     for (const id of routedIds.current) {
-      if (!nextRoutedIds.has(id)) routeSession(id, null);
+      if (!currentIds.has(id)) {
+        routeSession(id, null);
+      }
     }
-    for (const id of localIds) {
-      routeSession(id, null);
-    }
-    routedIds.current = nextRoutedIds;
-  }, [localIds, remote.rows, remote.uid]);
+    routedIds.current = currentIds;
+
+    if (remote.rows.length === 0) return local.rows;
+    return [...local.rows, ...remote.rows.filter((r) => !localIds.has(r.id))];
+  }, [local.rows, remote.rows, remote.uid]);
 
   const newIds = useNewRosterIds(rows);
 
