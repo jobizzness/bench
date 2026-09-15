@@ -60,8 +60,16 @@ export interface ManagedKey {
   resetsAt?: string | null;
 }
 
+/**
+ * Whether a failure means this credential cannot serve another turn.
+ *
+ * A setup-token's window filling does not come back as an HTTP status: the
+ * CLI ends the turn on a sentence of its own - "You've hit your session limit
+ * · resets 8:30pm" - which carries none of the API's words. Those sentences
+ * are matched on the openings the CLI itself uses to recognise them.
+ */
 export function isUsageLimitError(stderr: string): boolean {
-  return /(?:rate.?limit|usage.?limit|quota|credit balance|billing|overloaded_error|429)/i.test(stderr);
+  return /(?:rate.?limit|usage.?limit|quota|credit balance|billing|overloaded_error|429|you['’]ve (?:hit|reached) your|out of (?:extra )?usage)/i.test(stderr);
 }
 
 /**

@@ -63,6 +63,17 @@ describe("recognising a credential that cannot serve another turn", () => {
     expect(isUsageLimitError("usage limit reached")).toBe(true);
   });
 
+  it("recognises the CLI's own subscription-limit sentences", () => {
+    // What a specialist on a setup-token actually says when its window fills.
+    // None of these carry "usage limit" or "429", so the key in use was never
+    // rotated off - the turn just ended on the sentence.
+    expect(isUsageLimitError("success You've hit your session limit · resets 8:30pm (Africa/Banjul)")).toBe(true);
+    expect(isUsageLimitError("You’ve hit your weekly limit · resets Sep 20, 10pm")).toBe(true);
+    expect(isUsageLimitError("You've reached your Fable limit.")).toBe(true);
+    expect(isUsageLimitError("You're out of extra usage")).toBe(true);
+    expect(isUsageLimitError("You're out of usage credits")).toBe(true);
+  });
+
   it("does not rotate credentials for an unrelated process failure", () => {
     expect(isUsageLimitError("worktree does not exist")).toBe(false);
   });
