@@ -241,6 +241,29 @@ process.stderr.write("Error: Session ID sess-restore is already in use\\n");
 process.exit(1);
 `;
 
+/** Refuses a `--resume`, exactly as the real CLI does for an id it never
+ * heard of, but answers normally on `--session-id` - a fresh conversation. */
+const STALE_RESUME_CLI = `#!/usr/bin/env node
+if (process.argv.includes("--resume")) {
+  process.stderr.write("No conversation found with session ID: sess-restore\\n");
+  process.exit(1);
+}
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "sess-restore", result: "ok",
+    }) + "\\n");
+  }
+});
+`;
+
 const REPLYING_CLI = `#!/usr/bin/env node
 process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
 let carry = "";
@@ -429,6 +452,44 @@ describe("reviving a specialist after a restart", () => {
       async () => ((await store.all()).find((r) => r.id === id)?.resumable === true ? true : null),
       "resumable to be written to disk",
     );
+  });
+
+  it("heals a record that claims a conversation the runtime never heard of, instead of crashing forever (#113)", async () => {
+    // The shape a runtime crossing left behind before this record was
+    // cleared at the boundary: `resumable` true, no runtime session id
+    // (Claude never sets one), and no transcript anywhere the CLI can find
+    // one - the exact state the live record #113 exists for was stuck in.
+    // Left alone this collides with "already in use" above: neither self-heal
+    // fires, because `--resume` is what was asked for and the CLI's refusal
+    // here is not a collision - it is proof there is nothing to resume.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    const store = new SessionStore(home);
+    await store.put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z", resumable: true,
+    });
+    const registry = new SessionRegistry({
+      ...config, claudeBin: await fakeCli(STALE_RESUME_CLI),
+    } as any);
+    await registry.restore();
+
+    registry.send(id, "still there?");
+
+    await waitFor(
+      () => (registry.list().find((r) => r.id === id)?.detail === "replied" ? true : null),
+      "the healed retry to answer",
+    );
+
+    const row = registry.list().find((r) => r.id === id)!;
+    expect(row.status).not.toBe("crashed");
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.runtimeSessionId === undefined ? true : null),
+      "the stale runtime session id to be cleared on disk",
+    );
+    expect((await store.all()).find((r) => r.id === id)?.runtimeSessionId).toBeUndefined();
+    // A turn just finished on the fresh conversation, so this is true again -
+    // just no longer a lie about the conversation the record used to point at.
+    expect((registry as any).entries.get(id).resumable).toBe(true);
   });
 
   it("resumes one that has, so it remembers what it was doing", async () => {
