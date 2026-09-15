@@ -1,9 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtemp, mkdir, writeFile, chmod, readdir, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, chmod } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readParked } from "../src/daemon/key-park.js";
 import { waitFor } from "./helpers/wait-for.js";
 import { SessionRegistry } from "../src/daemon/registry.js";
 import { SessionStore } from "../src/daemon/store.js";
@@ -729,7 +728,7 @@ describe("what an OpenRouter turn really cost", () => {
       claudeBin: await fakeCli(cli),
     } as any);
     await registry.restore();
-    registry.setRouterKey("sk-or-test");
+    registry.setManagedRouterKeys([{ id: "r", key: "sk-or-test", label: "Router", status: "available", checkedAt: Date.now() }]);
     return { home, id, registry };
   }
 
@@ -1111,162 +1110,27 @@ describe("a specialist whose process has gone", () => {
   });
 });
 
-describe("the developer's own API key", () => {
-  const KEY = "sk-ant-api03-typed-into-the-cockpit-4f2a";
+describe("the developer's API keys", () => {
+  const KEY = "sk-ant-api03-managed-primary-4f2a";
 
-  it("is nothing at all until one is set", async () => {
+  it("is nothing at all until a profile syncs one down", async () => {
     const { config } = await setup();
 
-    expect(new SessionRegistry(config as any).apiKeyState()).toEqual({ present: false, hint: "", enabled: true, origin: "", searched: [] });
+    expect(new SessionRegistry(config as any).getApiKey()).toBeNull();
   });
 
   /**
-   * A key nobody typed defaults to off. Bench finding one in the environment
-   * is not the developer choosing to spend it - that choice happens in
-   * Settings, and until it does specialists keep using this machine's own
-   * login.
-   */
-  it("starts switched off when it is only found, never typed", async () => {
-    const { config } = await setup();
-    const registry = new SessionRegistry({
-      ...config,
-      credentials: {
-        anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
-        router: null,
-        searched: ["/w/.env"],
-      },
-    } as any);
-
-    expect(registry.apiKeyState()).toEqual({
-      present: true, hint: "…4f2a", enabled: false,
-      origin: "from ANTHROPIC_API_KEY in /w/.env", searched: ["/w/.env"],
-    });
-    expect(registry.getApiKey()).toBeNull();
-  });
-
-  it("is in use the moment it is typed in, unlike one only found", async () => {
-    const { config } = await setup();
-    const registry = new SessionRegistry({
-      ...config,
-      credentials: {
-        anthropic: { key: "sk-ant-api03-found-in-the-env-0000", origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
-        router: null,
-        searched: ["/w/.env"],
-      },
-    } as any);
-    expect(registry.getApiKey()).toBeNull();
-
-    registry.setApiKey(KEY);
-
-    expect(registry.apiKeyState().enabled).toBe(true);
-    expect(registry.getApiKey()).toBe(KEY);
-  });
-
-  it("shows only its last four characters once set", async () => {
-    const { config } = await setup();
-    const registry = new SessionRegistry(config as any);
-
-    registry.setApiKey(KEY);
-
-    expect(registry.apiKeyState()).toEqual({ present: true, hint: "…4f2a", enabled: true, origin: "typed here", searched: [] });
-    expect(registry.getApiKey()).toBe(KEY);
-  });
-
-  it("goes back to nothing when it is cleared", async () => {
-    const { config } = await setup();
-    const registry = new SessionRegistry(config as any);
-    registry.setApiKey(KEY);
-
-    registry.clearApiKey();
-
-    expect(registry.apiKeyState()).toEqual({ present: false, hint: "", enabled: true, origin: "", searched: [] });
-    expect(registry.getApiKey()).toBeNull();
-  });
-
-  it("is in use the moment it is set", async () => {
-    const { config } = await setup();
-    const registry = new SessionRegistry(config as any);
-
-    registry.setApiKey(KEY);
-
-    expect(registry.apiKeyState().enabled).toBe(true);
-  });
-
-  it("stops being handed out while it is switched off, without being forgotten", async () => {
-    // Parked, not removed. A developer switching between their own key and
-    // the machine's login should not have to paste the key again each time.
-    const { config } = await setup();
-    const registry = new SessionRegistry(config as any);
-    registry.setApiKey(KEY);
-
-    registry.setApiKeyEnabled(false);
-
-    expect(registry.getApiKey()).toBeNull();
-    expect(registry.apiKeyState()).toEqual({ present: true, hint: "…4f2a", enabled: false, origin: "typed here", searched: [] });
-  });
-
-  it("hands it out again when it is switched back on", async () => {
-    const { config } = await setup();
-    const registry = new SessionRegistry(config as any);
-    registry.setApiKey(KEY);
-    registry.setApiKeyEnabled(false);
-
-    registry.setApiKeyEnabled(true);
-
-    expect(registry.getApiKey()).toBe(KEY);
-  });
-
-  it("takes a newly saved key as one to use, whatever the last one was", async () => {
-    // Saving a key is asking for it to be used. Inheriting "off" from a key
-    // that is gone would be a key that silently does nothing.
-    const { config } = await setup();
-    const registry = new SessionRegistry(config as any);
-    registry.setApiKey(KEY);
-    registry.setApiKeyEnabled(false);
-
-    registry.setApiKey("sk-ant-api03-another-key-9c1d");
-
-    expect(registry.apiKeyState().enabled).toBe(true);
-    expect(registry.getApiKey()).toBe("sk-ant-api03-another-key-9c1d");
-  });
-
-  it("is switched on again once a parked key is thrown away", async () => {
-    const { config } = await setup();
-    const registry = new SessionRegistry(config as any);
-    registry.setApiKey(KEY);
-    registry.setApiKeyEnabled(false);
-
-    registry.clearApiKey();
-
-    expect(registry.apiKeyState()).toEqual({ present: false, hint: "", enabled: true, origin: "", searched: [] });
-  });
-
-  it("is forgotten when the daemon restarts", async () => {
-    // Session-only, deliberately. A key kept in a file is one you forget you
-    // set, and the bench it overrides already has a working login.
-    const { home, config } = await setup();
-    new SessionRegistry(config as any).setApiKey(KEY);
-
-    const restarted = new SessionRegistry(config as any);
-    await restarted.restore();
-
-    expect(restarted.apiKeyState().present).toBe(false);
-    for (const file of await readdir(home)) {
-      expect(await readFile(join(home, file), "utf8")).not.toContain(KEY);
-    }
-  });
-
-  /**
-   * What the toggle is for.
+   * What a managed key is for.
    *
-   * Parking the key is how a developer says "bill this to the subscription
-   * this machine is already logged in as, not to my key" - so it has to
-   * reach the process. It did not: the spawn read the key straight off the
-   * field and went around the switch, which made the toggle a control that
-   * moved and changed nothing.
+   * A credential reaches a process in its environment and an environment is
+   * fixed at spawn - so it has to be in hand before the specialist starts,
+   * and changing it means letting the running process go.
    */
   describe("reaching the specialist it is spawned for", () => {
-    async function spawned(park: boolean): Promise<string> {
+    const managed = (key: string, status = "available", id = "one", label = "Primary") =>
+      ({ id, key, label, status, checkedAt: Date.now() }) as any;
+
+    async function spawned(): Promise<string> {
       const { home, project, worktree, id, reportsDir, config } = await setup();
       await new SessionStore(home).put({
         id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
@@ -1276,8 +1140,7 @@ describe("the developer's own API key", () => {
         ...config, claudeBin: await fakeCli(CREDENTIAL_CLI),
       } as any);
       await registry.restore();
-      registry.setApiKey(KEY);
-      if (park) registry.setApiKeyEnabled(false);
+      registry.setManagedApiKeys([managed(KEY)]);
 
       registry.send(id, "off you go");
 
@@ -1292,12 +1155,8 @@ describe("the developer's own API key", () => {
       throw new Error("the specialist never answered");
     }
 
-    it("hands the key over while it is switched on", async () => {
-      expect(await spawned(false)).toBe(`key:${KEY}`);
-    });
-
-    it("hands over nothing while it is parked, leaving the machine's login alone", async () => {
-      expect(await spawned(true)).toBe("key:none");
+    it("hands the key over", async () => {
+      expect(await spawned()).toBe(`key:${KEY}`);
     });
 
     /**
@@ -1321,13 +1180,13 @@ describe("the developer's own API key", () => {
       const replies = async () =>
         (await readThread(threadPath)).filter((e) => e.kind === "reply").map((e) => e.body);
 
-      registry.setApiKey("sk-ant-api03-account-a");
+      registry.setManagedApiKeys([managed("sk-ant-api03-account-a")]);
       registry.send(id, "off you go");
       await waitFor(async () => (await replies()).length === 1 || null, "the first account to answer");
       expect((await replies())[0]).toBe("key:sk-ant-api03-account-a");
 
       // The developer changes accounts while the tab sits there, idle.
-      registry.setApiKey("sk-ant-api03-account-b");
+      registry.setManagedApiKeys([managed("sk-ant-api03-account-b", "available", "two")]);
       await waitFor(
         () => (registry.get(id)!.alive === false ? "gone" : null),
         "the process holding the old account to go",
@@ -1338,103 +1197,6 @@ describe("the developer's own API key", () => {
       registry.send(id, "and again");
       await waitFor(async () => (await replies()).length === 2 || null, "the second account to answer");
       expect((await replies())[1]).toBe("key:sk-ant-api03-account-b");
-    });
-
-    /**
-     * A key found rather than typed defaults to parked - nobody chose to
-     * spend it yet, it just happened to be sitting in the environment.
-     */
-    it("does not hand over a key that was found in a .env until it is switched on", async () => {
-      const { home, project, worktree, id, reportsDir, config } = await setup();
-      await new SessionStore(home).put({
-        id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
-        model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
-      });
-      const registry = new SessionRegistry({
-        ...config,
-        claudeBin: await fakeCli(CREDENTIAL_CLI),
-        credentials: {
-          anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
-          router: null,
-          searched: ["/w/.env"],
-        },
-      } as any);
-      await registry.restore();
-
-      expect(registry.apiKeyState().enabled).toBe(false);
-
-      registry.send(id, "off you go");
-
-      const threadPath = registry.get(id)!.threadPath;
-      for (let tries = 0; tries < 60; tries++) {
-        await new Promise((r) => setTimeout(r, 50));
-        const reply = (await readThread(threadPath)).find((e) => e.kind === "reply");
-        if (reply) {
-          expect(reply.body).toBe("key:none");
-          return;
-        }
-      }
-      throw new Error("the specialist never answered");
-    });
-
-    /**
-     * A key Bench found for itself has to travel the same road once the
-     * developer has actually switched it on in Settings.
-     *
-     * Seeding a field that nothing reads would look right in Settings and do
-     * nothing at all, which is the shape of the bug the switch above already
-     * had once.
-     */
-    it("hands over a key that was found in a .env, once it is switched on", async () => {
-      const { home, project, worktree, id, reportsDir, config } = await setup();
-      await new SessionStore(home).put({
-        id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
-        model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
-      });
-      const registry = new SessionRegistry({
-        ...config,
-        // What loadConfig() would hand a daemon whose developer had already
-        // turned this on in Settings on some earlier run.
-        apiKeyParked: false,
-        claudeBin: await fakeCli(CREDENTIAL_CLI),
-        credentials: {
-          anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
-          router: null,
-          searched: ["/w/.env"],
-        },
-      } as any);
-      await registry.restore();
-
-      registry.send(id, "off you go");
-
-      const threadPath = registry.get(id)!.threadPath;
-      for (let tries = 0; tries < 60; tries++) {
-        await new Promise((r) => setTimeout(r, 50));
-        const reply = (await readThread(threadPath)).find((e) => e.kind === "reply");
-        if (reply) {
-          expect(reply.body).toBe(`key:${KEY}`);
-          return;
-        }
-      }
-      throw new Error("the specialist never answered");
-    });
-
-    it("says where a found key came from, and lets a typed one replace it", async () => {
-      const { config } = await setup();
-      const registry = new SessionRegistry({
-        ...config,
-        credentials: {
-          anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
-          router: null,
-          searched: ["/w/.env"],
-        },
-      } as any);
-
-      expect(registry.apiKeyState().origin).toBe("from ANTHROPIC_API_KEY in /w/.env");
-
-      registry.setApiKey("sk-ant-api03-typed-over-the-file-9999");
-      expect(registry.apiKeyState().origin).toBe("typed here");
-      expect(registry.getApiKey()).toBe("sk-ant-api03-typed-over-the-file-9999");
     });
 
     /**
@@ -1517,91 +1279,101 @@ describe("the developer's own API key", () => {
           else process.env.ANTHROPIC_API_KEY = had;
         }
       });
-    });
 
-    /**
-     * The switch is the developer saying where their money goes. A daemon
-     * restart is not them changing their mind.
-     */
-    describe("the parked switch, across a restart", () => {
-      it("comes back parked when it was left parked", async () => {
-        const { home, config } = await setup();
-        const credentials = {
-          anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
-          router: null,
-          searched: ["/w/.env"],
-        };
+      it("rotates onto a key whose check was inconclusive when nothing is known good", async () => {
+        // "Could not be checked" is not "dead", and with nothing else known
+        // good it is the best key there is to try.
+        const { config } = await setup();
+        const registry = new SessionRegistry({ ...config } as any);
+        const TWO = "sk-ant-api03-managed-two-1111";
 
-        const before = new SessionRegistry({ ...config, credentials } as any);
-        before.setApiKeyEnabled(false);
-        // The write is fire-and-forget, so wait for it to land.
-        await waitFor(() => readParked(home) === true, "the flag to be written down");
+        registry.setManagedApiKeys([managed("available"), managed("unreachable", "two", TWO)]);
+        expect(registry.getApiKey()).toBe(ONE);
 
-        // What loadConfig() would hand the next daemon.
-        const after = new SessionRegistry({
-          ...config, credentials, apiKeyParked: readParked(home),
-        } as any);
-
-        expect(after.apiKeyState().present).toBe(true);
-        expect(after.apiKeyState().enabled).toBe(false);
-        // The whole point: it is not being spent.
-        expect(after.getApiKey()).toBeNull();
+        expect((registry as any).rotateManagedApiKey()).toBe(true);
+        expect(registry.getApiKey()).toBe(TWO);
+        const states = registry.managedApiKeyStates();
+        expect(states.find((k) => k.id === "one")!.status).toBe("exhausted");
+        expect(states.find((k) => k.id === "two")!.active).toBe(true);
       });
 
-      it("comes back in use when it was left in use", async () => {
-        const { home, config } = await setup();
+      it("lets go of the key when the last one is spent", async () => {
+        const { config } = await setup();
         const registry = new SessionRegistry({ ...config } as any);
 
-        registry.setApiKeyEnabled(false);
-        await waitFor(() => readParked(home) === true, "the flag to be written down");
-        registry.setApiKeyEnabled(true);
-        await waitFor(() => (readParked(home) === false ? "written" : null), "the flag to be written down");
+        registry.setManagedApiKeys([managed("available")]);
 
-        expect(readParked(home)).toBe(false);
+        expect((registry as any).rotateManagedApiKey()).toBe(false);
+        expect(registry.getApiKey()).toBeNull();
+        expect(registry.managedApiKeyStates().some((k) => k.active)).toBe(false);
       });
 
-      it("un-parks itself when a new key is typed in", async () => {
-        // Saving a key is asking for it to be used. Finding the one you just
-        // typed switched off is a fault you go looking for.
-        const { home, config } = await setup();
-        const registry = new SessionRegistry({ ...config, apiKeyParked: true } as any);
-        expect(registry.apiKeyState().enabled).toBe(false);
+      it("prefers the available key with the most headroom, and sticks with it", async () => {
+        // Between two keys that both work, the fuller window loses - but a
+        // key already in use is not dropped over a few percent: churn
+        // between two half-full windows is worth nothing.
+        const { config } = await setup();
+        const registry = new SessionRegistry({ ...config } as any);
+        const FULL = "sk-ant-oat01-mostly-full-0000";
+        const EMPTY = "sk-ant-oat01-mostly-empty-1111";
+        const usage = (percent: number) => [{ key: "five_hour", label: "5-hour", percent, resetsAt: null }];
 
-        registry.setApiKey(KEY);
+        registry.setManagedApiKeys([
+          { ...managed("available", "one", FULL), usage: usage(80) },
+          { ...managed("available", "two", EMPTY), usage: usage(20) },
+        ]);
+        expect(registry.getApiKey()).toBe(EMPTY);
 
-        expect(registry.getApiKey()).toBe(KEY);
-        await waitFor(() => (readParked(home) === false ? "written" : null), "the flag to be written down");
+        // Re-synced with the numbers swapped, the key in use stays in use.
+        registry.setManagedApiKeys([
+          { ...managed("available", "one", FULL), usage: usage(20) },
+          { ...managed("available", "two", EMPTY), usage: usage(85) },
+        ]);
+        expect(registry.getApiKey()).toBe(EMPTY);
       });
 
-      it("un-parks itself when the key is thrown away", async () => {
-        // Removing a key is not parking one. The next key given to this bench
-        // is one the developer wants spent.
-        const { home, config } = await setup();
-        const registry = new SessionRegistry({ ...config, apiKeyParked: true } as any);
+      it("moves off a key whose window filled up, without a turn failing first", async () => {
+        const { config } = await setup();
+        const registry = new SessionRegistry({ ...config } as any);
+        const FULL = "sk-ant-oat01-now-full-0000";
+        const EMPTY = "sk-ant-oat01-still-empty-1111";
+        const resetsAt = new Date(Date.now() + 3_600_000).toISOString();
+        const usage = {
+          [FULL]: { available: true, windows: [{ key: "five_hour", label: "5-hour", percent: 100, resetsAt }] },
+          [EMPTY]: { available: true, windows: [{ key: "five_hour", label: "5-hour", percent: 30, resetsAt }] },
+        } as Record<string, any>;
 
-        registry.clearApiKey();
+        registry.setManagedApiKeys([
+          { ...managed("available", "one", FULL), checkedAt: 0 },
+          { ...managed("available", "two", EMPTY), checkedAt: 0 },
+        ]);
+        expect(registry.getApiKey()).toBe(FULL);
 
-        await waitFor(() => (readParked(home) === false ? "written" : null), "the flag to be written down");
+        await registry.refreshManagedUsage(async (key) => usage[key] ?? { available: false, reason: "unreachable" });
+
+        expect(registry.getApiKey()).toBe(EMPTY);
+        const states = registry.managedApiKeyStates();
+        expect(states.find((k) => k.id === "one")).toMatchObject({ status: "exhausted", resetsAt });
+        expect(states.find((k) => k.id === "two")!.active).toBe(true);
       });
-    });
 
-    it("stays gone when a found key is removed, rather than reappearing", async () => {
-      // A Remove button that puts the key straight back is a button that does
-      // nothing. A restart is how the developer says the opposite.
-      const { config } = await setup();
-      const registry = new SessionRegistry({
-        ...config,
-        credentials: {
-          anthropic: { key: KEY, origin: { from: "file", name: "ANTHROPIC_API_KEY", path: "/w/.env" } },
-          router: null,
-          searched: ["/w/.env"],
-        },
-      } as any);
+      it("picks the first usable OpenRouter key and never returns it", async () => {
+        const { config } = await setup();
+        const registry = new SessionRegistry({ ...config } as any);
 
-      registry.clearApiKey();
+        registry.setManagedRouterKeys([
+          { id: "x", key: "sk-or-refused", label: "Dead", status: "refused", checkedAt: Date.now() },
+          { id: "y", key: "sk-or-live", label: "Live", status: "available", checkedAt: Date.now() },
+        ] as any);
 
-      expect(registry.getApiKey()).toBeNull();
-      expect(registry.apiKeyState().present).toBe(false);
+        expect(registry.getRouterKey()).toBe("sk-or-live");
+        const states = registry.managedRouterKeyStates();
+        expect(states.every((k) => !("key" in k))).toBe(true);
+        expect(states.find((k) => k.id === "y")!.active).toBe(true);
+
+        registry.setManagedRouterKeys([]);
+        expect(registry.getRouterKey()).toBeNull();
+      });
     });
   });
 });

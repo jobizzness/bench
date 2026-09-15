@@ -2,11 +2,44 @@ import { useEffect, useState } from "react";
 import {
   getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, type User,
 } from "firebase/auth";
+import { authFetch, postJson } from "../api.js";
 import { firebaseApp } from "../firebase-app.js";
+import type { RemoteState } from "../../shared/remote.js";
 
 export interface FirebaseUser {
   uid: string;
   email: string | null;
+}
+
+/**
+ * Hand this daemon the same Google identity "Turn on remote" would - it is
+ * what lets the daemon keep the profile's keys synced while no cockpit is
+ * open. Best-effort: a hosted or phone cockpit has no daemon to answer, and
+ * signing in still worked.
+ */
+async function handIdentityToDaemon(user: User): Promise<void> {
+  try {
+    await postJson("/api/remote/identity", {
+      refreshToken: user.refreshToken,
+      uid: user.uid,
+      email: user.email,
+    });
+  } catch {
+    return;
+  }
+}
+
+/** A signed-in browser on a daemon that does not hold the identity yet -
+ * a daemon restarted since the sign-in, or one the sign-in predates. */
+async function handIdentityIfDaemonLacksIt(user: User): Promise<void> {
+  try {
+    const res = await authFetch("/api/remote");
+    if (!res.ok) return;
+    const state = await res.json() as RemoteState;
+    if (!state.connected) await handIdentityToDaemon(user);
+  } catch {
+    return;
+  }
 }
 
 /**
@@ -35,12 +68,14 @@ export function useFirebaseUser(): {
   useEffect(() => onAuthStateChanged(getAuth(firebaseApp()), (next) => {
     setUser(next);
     setLoading(false);
+    if (next) void handIdentityIfDaemonLacksIt(next);
   }), []);
 
   const signIn = async () => {
     setError("");
     try {
-      await signInWithPopup(getAuth(firebaseApp()), new GoogleAuthProvider());
+      const credential = await signInWithPopup(getAuth(firebaseApp()), new GoogleAuthProvider());
+      await handIdentityToDaemon(credential.user);
     } catch {
       // Closing the popup without finishing is the common case, not an error
       // worth naming more precisely than this - same wording as `useRemote.ts`.

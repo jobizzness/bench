@@ -2,8 +2,6 @@ import { homedir } from "node:os";
 import { loadToken } from "./token.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { findCredentials, type Found } from "./env-file.js";
-import { readParked } from "./key-park.js";
 
 export interface BenchConfig {
   home: string;
@@ -33,32 +31,8 @@ export interface BenchConfig {
    * on PATH, which works if the binary is installed globally.
    */
   devinBin?: string;
-  /** Where Bench itself is installed. One of the places a `.env` is looked
-   * for, so a checkout's own file is read even when the daemon was started
-   * from somewhere else. */
+  /** Where Bench itself is installed. */
   installRoot: string;
-  /**
-   * The keys Bench found for itself before anything asked for one.
-   *
-   * Resolved here rather than in the registry because this is the file that
-   * is allowed to read the world - and because a registry that reads the
-   * real environment in its constructor is a registry whose tests depend on
-   * whichever machine runs them. A config without this field is a bench that
-   * found nothing, which is exactly what a test wants.
-   */
-  credentials?: { anthropic: Found | null; router: Found | null; searched: string[] };
-  /**
-   * Whether the developer had explicitly parked, or explicitly un-parked,
-   * their Anthropic key when this daemon last stopped.
-   *
-   * Read here for the same reason the keys are: a registry that reads the
-   * disk in its constructor is a registry whose tests depend on the machine
-   * running them. Absent means nobody has ever said either way - the
-   * registry, not this file, decides what that defaults to, because the
-   * default differs for a key typed into Settings and one Bench found for
-   * itself.
-   */
-  apiKeyParked?: boolean;
 }
 
 export function loadConfig(): BenchConfig {
@@ -78,14 +52,6 @@ export function loadConfig(): BenchConfig {
     projectsRoot: process.env.BENCH_PROJECTS_ROOT ?? "/var/www",
     token: loadToken(home),
     installRoot: root,
-    // Read, never merged into `process.env`: a `.env` holds more than Bench
-    // understands, and this daemon's environment is spread into every
-    // specialist it spawns.
-    credentials: findCredentials({ home, installRoot: root }),
-    // The switch means "bill this to the machine's own login". It used to be
-    // forgotten on restart, which stopped being harmless the moment the key
-    // itself started coming back.
-    apiKeyParked: readParked(home),
     pluginDir: join(root, "plugin"),
     hookCommand: `node ${join(root, "dist", "daemon", "hooks", "bench-hook.js")}`,
     devinBin: process.env.BENCH_DEVIN_BIN,

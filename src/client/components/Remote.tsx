@@ -77,7 +77,8 @@ export function Remote({ open }: { open: boolean }) {
         Signs this daemon in with your Google account so it can be reached
         from other devices signed into the same one. Nothing is shared with
         anyone else, and nothing leaves this machine until a specialist is
-        broadcast.
+        broadcast. Signing in on Profile turns this on too, and turning it
+        off signs you out.
       </p>
     </section>
   );

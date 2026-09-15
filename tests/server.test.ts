@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { createServer, formatIntake } from "../src/daemon/server.js";
-import { keyHint, type KeyCheck } from "../src/daemon/anthropic-key.js";
+import { type KeyCheck, type ManagedKey } from "../src/daemon/anthropic-key.js";
 import type { Usage } from "../src/daemon/usage.js";
 import type { Credit } from "../src/shared/credit.js";
 import type { IntakeAnswer, RosterRow } from "../src/shared/types.js";
@@ -35,20 +35,16 @@ class StubRegistry extends EventEmitter {
   modelFor(role: string) { return this.settings.roleModels[role] ?? "qwen/qwen3-coder-flash"; }
   settings = { codingStyle: "", workflowRules: "", reviewModel: "sonnet", roleModels: {} as Record<string, string> };
   getSettings() { return this.settings; }
-  key: string | null = null;
-  keyOn = true;
-  apiKeyState() {
-    return this.key === null
-      ? { present: false, hint: "", enabled: this.keyOn }
-      : { present: true, hint: keyHint(this.key), enabled: this.keyOn };
-  }
-  getApiKey() { return this.keyOn ? this.key : null; }
-  setApiKey(key: string) { this.key = key; this.keyOn = true; }
-  managedKeys: Array<{ id: string; key: string; label: string; status: "available" | "exhausted" | "refused" | "unreachable" | "unchecked"; checkedAt: number }> = [];
-  setManagedApiKeys(keys: typeof this.managedKeys) { this.managedKeys = keys; }
+  managedKeys: ManagedKey[] = [];
+  setManagedApiKeys(keys: ManagedKey[]) { this.managedKeys = keys; }
   managedApiKeyStates() { return this.managedKeys.map(({ key: _key, ...item }, index) => ({ ...item, active: index === 0 })); }
-  setApiKeyEnabled(on: boolean) { this.keyOn = on; }
-  clearApiKey() { this.key = null; this.keyOn = true; }
+  async refreshManagedUsage(fetchUsage: (key: string) => Promise<unknown>) { this.usageAsked?.(fetchUsage); }
+  /** Set by tests that want to see which keys a refresh was asked about. */
+  usageAsked?: (fetchUsage: (key: string) => Promise<unknown>) => void;
+  getApiKey() { return this.managedKeys.find((item) => item.status === "available")?.key ?? null; }
+  managedRouterKeys: ManagedKey[] = [];
+  setManagedRouterKeys(keys: ManagedKey[]) { this.managedRouterKeys = keys; }
+  managedRouterKeyStates() { return this.managedRouterKeys.map(({ key: _key, ...item }, index) => ({ ...item, active: index === 0 })); }
   threadPathValue = "";
   aliveValue = true;
   revivableValue = false;
@@ -107,16 +103,6 @@ class StubRegistry extends EventEmitter {
   declined: string[] = [];
   decline(id: string) { this.declined.push(id); }
 
-  /** The OpenRouter key. Held the same way the Anthropic one is, and reported
-   * the same way: whether there is one, never which one. */
-  routerKey: string | null = null;
-  routerKeyState() {
-    return this.routerKey === null
-      ? { present: false, hint: "" }
-      : { present: true, hint: keyHint(this.routerKey) };
-  }
-  setRouterKey(key: string) { this.routerKey = key; }
-  clearRouterKey() { this.routerKey = null; }
   catalogueError: string | null = null;
   models = [
     { id: "google/gemini-3.7-flash", name: "Google: Gemini 3.7 Flash", vendor: "google", contextLength: 1048576 },
@@ -138,6 +124,9 @@ let verdict: KeyCheck = "ok";
 /** The same, for OpenRouter. */
 let routerVerdict: KeyCheck = "ok";
 let usage: Usage = { available: false, reason: "none" };
+/** What the usage endpoint says per key, for tests that need more than one
+ * answer. Keyed on the key itself; absent means "could not ask". */
+let keyUsage: Record<string, Usage> = {};
 /** The same, for the OpenRouter credit meter. */
 let credit: Credit = { available: false, reason: "none" };
 
@@ -176,6 +165,7 @@ beforeAll(async () => {
     clientDir,
     checkKey: async () => verdict,
     checkRouterKey: async () => routerVerdict,
+    keyUsage: async (key) => keyUsage[key] ?? { available: false, reason: "unreachable" },
     usage: async () => usage,
     credit: async () => credit,
   });
@@ -743,83 +733,15 @@ describe("who reviews", () => {
   });
 });
 
-describe("the developer's own API key", () => {
+describe("the developer's API keys", () => {
   const KEY = "sk-ant-api03-typed-into-the-cockpit-4f2a";
 
-  const put = (body: unknown) =>
-    fetch(`${base}/api/anthropic-key`, { method: "POST", ...auth, body: JSON.stringify(body) });
-
-  beforeEach(() => { verdict = "ok"; registry.key = null; registry.keyOn = true; registry.managedKeys = []; });
-
-  it("says there is no key when none has been given", async () => {
-    const res = await fetch(`${base}/api/anthropic-key`, auth);
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ present: false, hint: "", enabled: true, verified: true });
-  });
-
-  it("keeps a key the API vouches for", async () => {
-    const res = await put({ key: KEY });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ present: true, hint: "…4f2a", enabled: true, verified: true });
-    expect(registry.getApiKey()).toBe(KEY);
-  });
-
-  it("never says the key back, only which one it is", async () => {
-    // It goes to the daemon and does not come out. Anything that can read
-    // the cockpit could otherwise read the key.
-    registry.key = KEY;
-
-    const body = await (await fetch(`${base}/api/anthropic-key`, auth)).text();
-
-    expect(body).not.toContain(KEY);
-    expect(body).toContain("…4f2a");
-  });
-
-  it("refuses a key the API turns away", async () => {
-    // Refusing here is the whole point: the CLI retries a bad key ten times
-    // before it gives up, so a typo kept now is a specialist that hangs.
-    verdict = "refused";
-
-    const res = await put({ key: "sk-ant-wrong" });
-
-    expect(res.status).toBe(400);
-    expect(registry.getApiKey()).toBeNull();
-  });
-
-  it("keeps a key it could not check, and admits it did not", async () => {
-    verdict = "unreachable";
-
-    const res = await put({ key: KEY });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ present: true, hint: "…4f2a", enabled: true, verified: false });
-    expect(registry.getApiKey()).toBe(KEY);
-  });
-
-  it("refuses an empty key rather than storing one", async () => {
-    const res = await put({ key: "   " });
-
-    expect(res.status).toBe(400);
-    expect(registry.getApiKey()).toBeNull();
-  });
-
-  it("forgets the key when asked to", async () => {
-    registry.key = KEY;
-
-    const res = await fetch(`${base}/api/anthropic-key`, { method: "DELETE", ...auth });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ present: false, hint: "", enabled: true, verified: true });
-    expect(registry.getApiKey()).toBeNull();
-  });
-
-  it("takes no key at all from someone without the token", async () => {
-    const res = await fetch(`${base}/api/anthropic-key`, { method: "POST", body: JSON.stringify({ key: KEY }) });
-
-    expect(res.status).toBe(401);
-    expect(registry.getApiKey()).toBeNull();
+  beforeEach(() => {
+    verdict = "ok";
+    routerVerdict = "ok";
+    keyUsage = {};
+    registry.managedKeys = [];
+    registry.managedRouterKeys = [];
   });
 
   it("checks and loads several managed credentials without returning their secrets", async () => {
@@ -845,6 +767,114 @@ describe("the developer's own API key", () => {
     });
 
     expect(registry.managedKeys[0]).toMatchObject({ id: "one", status: "exhausted", checkedAt });
+  });
+
+  it("lets nobody without the token load credentials", async () => {
+    const res = await fetch(`${base}/api/anthropic-keys`, {
+      method: "POST", body: JSON.stringify({ credentials: [{ id: "one", key: KEY }] }),
+    });
+
+    expect(res.status).toBe(401);
+    expect(registry.managedKeys).toHaveLength(0);
+  });
+
+  it("refuses a body that is not a list of credentials", async () => {
+    const res = await fetch(`${base}/api/anthropic-keys`, {
+      method: "POST", ...auth, body: JSON.stringify({ credentials: { id: "one" } }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(registry.managedKeys).toHaveLength(0);
+  });
+
+  it("checks and loads the OpenRouter keys the same way, through their own route", async () => {
+    const first = "sk-or-v1-primary";
+    const second = "sk-or-v1-backup";
+    const res = await fetch(`${base}/api/openrouter/keys`, {
+      method: "POST", ...auth,
+      body: JSON.stringify({ credentials: [{ id: "one", key: first, label: "Main" }, { id: "two", key: second, label: "Spare" }] }),
+    });
+    const text = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(registry.managedRouterKeys).toHaveLength(2);
+    expect(registry.managedRouterKeys.every((item) => item.status === "available")).toBe(true);
+    expect(text).not.toContain(first);
+    expect(text).not.toContain(second);
+  });
+
+  it("reports the OpenRouter keys back as states, never secrets", async () => {
+    registry.managedRouterKeys = [{ id: "r", key: "sk-or-v1-secret", label: "Main", status: "available", checkedAt: 1 }];
+
+    const res = await fetch(`${base}/api/openrouter/keys`, auth);
+    const text = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(text).not.toContain("sk-or-v1-secret");
+    expect(JSON.parse(text).credentials[0]).toMatchObject({ id: "r", active: true });
+  });
+
+  it("lets nobody without the token touch the OpenRouter keys", async () => {
+    const res = await fetch(`${base}/api/openrouter/keys`, {
+      method: "POST", body: JSON.stringify({ credentials: [{ id: "one", key: "sk-or-v1-x" }] }),
+    });
+
+    expect(res.status).toBe(401);
+    expect(registry.managedRouterKeys).toHaveLength(0);
+  });
+
+  it("refuses an OpenRouter body that is not a list", async () => {
+    const res = await fetch(`${base}/api/openrouter/keys`, {
+      method: "POST", ...auth, body: JSON.stringify({ credentials: "nope" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(registry.managedRouterKeys).toHaveLength(0);
+  });
+
+  it("loads usage for a setup-token and marks one at its limit exhausted", async () => {
+    // The key check alone cannot see a full window - the API still answers
+    // it. Usage is what says a key is spent, so a second key with headroom
+    // is the one that takes over.
+    const SPENT = "sk-ant-oat01-spent-token";
+    const HEADROOM = "sk-ant-oat01-headroom-token";
+    const resetsAt = new Date(Date.now() + 3_600_000).toISOString();
+    keyUsage = {
+      [SPENT]: { available: true, windows: [{ key: "five_hour", label: "5-hour", percent: 100, resetsAt }] },
+      [HEADROOM]: { available: true, windows: [{ key: "five_hour", label: "5-hour", percent: 30, resetsAt }] },
+    };
+
+    const res = await fetch(`${base}/api/anthropic-keys`, {
+      method: "POST", ...auth,
+      body: JSON.stringify({ credentials: [
+        { id: "spent", key: SPENT, label: "Full" },
+        { id: "room", key: HEADROOM, label: "Room" },
+      ] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.managedKeys[0]).toMatchObject({ id: "spent", status: "exhausted", resetsAt });
+    expect(registry.managedKeys[1]).toMatchObject({ id: "room", status: "available", usage: [{ percent: 30 }] });
+    expect(registry.getApiKey()).toBe(HEADROOM);
+  });
+
+  it("keeps an exhausted key cooling until its window resets", async () => {
+    const checkedAt = Date.now() - 60 * 60_000;
+    const future = new Date(Date.now() + 60_000).toISOString();
+
+    await fetch(`${base}/api/anthropic-keys`, {
+      method: "POST", ...auth,
+      body: JSON.stringify({ credentials: [{ id: "one", key: KEY, label: "P", status: "exhausted", checkedAt, resetsAt: future }] }),
+    });
+    expect(registry.managedKeys[0]).toMatchObject({ status: "exhausted", checkedAt, resetsAt: future });
+
+    // Past its reset, the key is checked again rather than trusted stale.
+    const past = new Date(Date.now() - 60_000).toISOString();
+    await fetch(`${base}/api/anthropic-keys`, {
+      method: "POST", ...auth,
+      body: JSON.stringify({ credentials: [{ id: "one", key: KEY, label: "P", status: "exhausted", checkedAt, resetsAt: past }] }),
+    });
+    expect(registry.managedKeys[0].status).toBe("available");
   });
 });
 
@@ -960,137 +990,6 @@ describe("what an OpenRouter key has spent", () => {
   });
 });
 
-describe("parking the key without throwing it away", () => {
-  const KEY = "sk-ant-api03-typed-into-the-cockpit-4f2a";
-  const set = (enabled: boolean) =>
-    fetch(`${base}/api/anthropic-key/enabled`, { method: "POST", ...auth, body: JSON.stringify({ enabled }) });
-
-  beforeEach(() => { registry.key = KEY; registry.keyOn = true; });
-
-  it("stops handing the key out, and says so", async () => {
-    const res = await set(false);
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ present: true, hint: "…4f2a", enabled: false, verified: true });
-    expect(registry.getApiKey()).toBeNull();
-  });
-
-  it("keeps the key itself, so it need not be typed again", async () => {
-    await set(false);
-
-    expect(registry.key).toBe(KEY);
-  });
-
-  it("hands it out again when switched back on", async () => {
-    await set(false);
-
-    await set(true);
-
-    expect(registry.getApiKey()).toBe(KEY);
-  });
-
-  it("refuses anything that is not an answer to the question", async () => {
-    const res = await fetch(`${base}/api/anthropic-key/enabled`, {
-      method: "POST", ...auth, body: JSON.stringify({ enabled: "yes please" }),
-    });
-
-    expect(res.status).toBe(400);
-    expect(registry.getApiKey()).toBe(KEY);
-  });
-
-  it("lets nobody without the token park the key", async () => {
-    const res = await fetch(`${base}/api/anthropic-key/enabled`, {
-      method: "POST", body: JSON.stringify({ enabled: false }),
-    });
-
-    expect(res.status).toBe(401);
-    expect(registry.getApiKey()).toBe(KEY);
-  });
-});
-
-/**
- * The developer's OpenRouter key.
- *
- * Same three routes and same rules as the Anthropic key: it goes up and never
- * comes back down, a refusal is caught before the key is kept, and an
- * unreachable service is not a reason to refuse one.
- */
-describe("the OpenRouter key", () => {
-  beforeEach(() => {
-    registry.routerKey = null;
-    registry.catalogueError = null;
-    routerVerdict = "ok";
-  });
-
-  it("says whether there is one, and never what it is", async () => {
-    registry.routerKey = "sk-or-v1-supersecret";
-    const body = await (await fetch(`${base}/api/openrouter/key`, auth)).json();
-
-    expect(body.present).toBe(true);
-    expect(JSON.stringify(body)).not.toContain("supersecret");
-  });
-
-  it("keeps a key OpenRouter answered for", async () => {
-    const res = await fetch(`${base}/api/openrouter/key`, {
-      method: "POST", ...auth, body: JSON.stringify({ key: "sk-or-v1-good" }),
-    });
-
-    expect(res.status).toBe(200);
-    expect((await res.json()).verified).toBe(true);
-    expect(registry.routerKey).toBe("sk-or-v1-good");
-  });
-
-  it("refuses a key OpenRouter turned away, rather than keeping it", async () => {
-    // Said now rather than discovered later: the CLI retries a rejected key
-    // with a doubling delay, so a typo kept here looks like a hang.
-    routerVerdict = "refused";
-    const res = await fetch(`${base}/api/openrouter/key`, {
-      method: "POST", ...auth, body: JSON.stringify({ key: "sk-or-v1-typo" }),
-    });
-
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toContain("OpenRouter");
-    expect(registry.routerKey).toBe(null);
-  });
-
-  it("keeps an unproven key when OpenRouter could not be reached", async () => {
-    routerVerdict = "unreachable";
-    const res = await fetch(`${base}/api/openrouter/key`, {
-      method: "POST", ...auth, body: JSON.stringify({ key: "sk-or-v1-maybe" }),
-    });
-
-    expect(res.status).toBe(200);
-    expect((await res.json()).verified).toBe(false);
-    expect(registry.routerKey).toBe("sk-or-v1-maybe");
-  });
-
-  it("refuses an empty key", async () => {
-    const res = await fetch(`${base}/api/openrouter/key`, {
-      method: "POST", ...auth, body: JSON.stringify({ key: "   " }),
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it("lets go of a key when asked", async () => {
-    registry.routerKey = "sk-or-v1-old";
-    const res = await fetch(`${base}/api/openrouter/key`, { method: "DELETE", ...auth });
-
-    expect(res.status).toBe(200);
-    expect(registry.routerKey).toBe(null);
-  });
-
-  it("lets nobody without the token set or read it", async () => {
-    const read = await fetch(`${base}/api/openrouter/key`);
-    const write = await fetch(`${base}/api/openrouter/key`, {
-      method: "POST", body: JSON.stringify({ key: "k" }),
-    });
-
-    expect(read.status).toBe(401);
-    expect(write.status).toBe(401);
-    expect(registry.routerKey).toBe(null);
-  });
-});
-
 describe("the model catalogue", () => {
   beforeEach(() => { registry.catalogueError = null; });
 
@@ -1127,7 +1026,7 @@ describe("refusing to create a specialist", () => {
     const registryThatRefuses = registry as any;
     const before = registryThatRefuses.create;
     registryThatRefuses.create = async () => {
-      throw new Error("no OpenRouter key - add one in Settings to run a specialist on this model");
+      throw new Error("no OpenRouter key - add one in your profile to run a specialist on this model");
     };
     try {
       const res = await fetch(`${base}/api/sessions`, {
@@ -1167,13 +1066,13 @@ describe("what a specialist runs on", () => {
   });
 
   it("carries back the reason it could not be", async () => {
-    registry.remodelError = "no OpenRouter key - add one in Settings";
+    registry.remodelError = "no OpenRouter key - add one in your profile";
     const res = await fetch(`${base}/api/sessions/s1/model`, {
       method: "POST", ...auth, body: JSON.stringify({ model: "google/gemini-3.7-flash" }),
     });
 
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe("no OpenRouter key - add one in Settings");
+    expect((await res.json()).error).toBe("no OpenRouter key - add one in your profile");
   });
 
   it("has never heard of a specialist that is not there", async () => {

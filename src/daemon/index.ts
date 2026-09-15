@@ -13,6 +13,9 @@ import { cockpitUrls, isLoopback } from "./urls.js";
 import { RemoteController } from "./remote/controller.js";
 import type { LocalCaller } from "./remote/command-runner.js";
 import { FIREBASE_WEB_CONFIG } from "../shared/firebase-config.js";
+import { checkKey } from "./anthropic-key.js";
+import { fetchUsage } from "./usage.js";
+import { KeySync } from "./key-sync.js";
 
 const config = loadConfig();
 
@@ -52,6 +55,12 @@ const callLocal: LocalCaller = async (method, path, body) => {
 // Exists whether or not remote has ever been turned on - it is only a file
 // read away from doing anything, and `resume()` below is that read. A daemon
 // with no `~/.bench/firebase.json` behaves exactly as if this were absent.
+// The profile's Anthropic keys, kept current while the daemon runs - the
+// cockpit's POST is the instant path on save, this is the one that works
+// with no cockpit open. It lives and dies with the Google identity remote
+// establishes, which is also what profile sign-in hands over.
+const keySync = new KeySync({ registry, check: checkKey, usageOf: fetchUsage });
+
 const remote = new RemoteController({
   home: config.home,
   apiKey: FIREBASE_WEB_CONFIG.apiKey,
@@ -59,6 +68,7 @@ const remote = new RemoteController({
   version,
   listBroadcast: () => registry.list().filter((row) => row.broadcast),
   callLocal,
+  onClient: (client, uid) => (client && uid ? keySync.start(client, uid) : keySync.stop()),
 });
 
 // Before anything reads or writes this home. A second daemon on one home is

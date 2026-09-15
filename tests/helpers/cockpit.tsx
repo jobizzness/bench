@@ -55,10 +55,7 @@ export interface Fixtures {
   github?: { slug: string | null; items: unknown[] };
   /** Where else this daemon answers. */
   addresses?: { origins: string[]; loopbackOnly: boolean };
-  /** The Anthropic key the daemon is already holding, if any. */
-  apiKey?: { present: boolean; hint: string; enabled?: boolean };
-  /** What the daemon says when a key is offered to it. */
-  keyReply?: { status: number; body: unknown };
+
   /** What the credential behind the bench has spent. Undefined is a daemon
    * with no oauth credential to ask, which is the ordinary case. */
   usage?: unknown;
@@ -80,6 +77,7 @@ export interface Fixtures {
   spend?: ((project?: string) => unknown) | Total | "unreachable";
   /** The OpenRouter key the daemon is already holding, if any. */
   routerKey?: { present: boolean; hint: string };
+
   /** The catalogue the picker fills from. "unreachable" is OpenRouter
    * refusing to answer, which the picker has to open through. */
   models?: Array<{
@@ -185,40 +183,22 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
   (globalThis as any).fetch = async (url: string, init?: RequestInit) => {
     fetched.push(url);
 
-    // Its own branch above the rest: the key has a route per verb, and what
-    // comes back from a save is what the page shows.
-    if (url.includes("/anthropic-key")) {
-      const method = init?.method ?? "GET";
-      if (method !== "GET") sent.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
-      if (method === "DELETE") {
-        return { ok: true, status: 200, json: async () => ({ present: false, hint: "", verified: true }) };
-      }
-      if (method === "POST" && url.includes("/enabled")) {
-        const on = JSON.parse(String(init?.body)).enabled === true;
-        const held = fixtures.apiKey ?? { present: false, hint: "" };
-        return { ok: true, status: 200, json: async () => ({ ...held, enabled: on, verified: true }) };
-      }
-      if (method === "POST") {
-        const reply = fixtures.keyReply;
-        const key = String(JSON.parse(String(init?.body)).key ?? "");
-        return {
-          ok: (reply?.status ?? 200) < 400,
-          status: reply?.status ?? 200,
-          json: async () => reply?.body ?? { present: true, hint: "…" + key.slice(-4), verified: true },
-        };
-      }
-      const held = fixtures.apiKey ?? { present: false, hint: "" };
-      return { ok: true, status: 200, json: async () => ({ enabled: true, ...held, verified: true }) };
-    }
-
-    // What the picker asks for when it opens: whether a key is held, and the
-    // catalogue it would reach. Above the POST branch because the key route
-    // takes one too.
-    if (url.includes("/api/openrouter/key")) {
+    // What the picker asks for when it opens: whether a usable key is held,
+    // and the catalogue it would reach. A held key is reported the way the
+    // daemon reports it - as a state with `active`, never the key itself.
+    if (url.includes("/api/openrouter/keys")) {
       const method = init?.method ?? "GET";
       if (method !== "GET") sent.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
       const held = fixtures.routerKey ?? { present: false, hint: "" };
-      return { ok: true, status: 200, json: async () => ({ ...held, verified: true }) };
+      const credentials = held.present
+        ? [{ id: "r", label: "OpenRouter key", status: "available", checkedAt: 1, active: true }]
+        : [];
+      return { ok: true, status: 200, json: async () => ({ credentials }) };
+    }
+    if (url.includes("/api/anthropic-keys")) {
+      const method = init?.method ?? "GET";
+      if (method !== "GET") sent.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      return { ok: true, status: 200, json: async () => ({ credentials: [] }) };
     }
 
     // Its own branch above the rest, the same reason the key has one: three

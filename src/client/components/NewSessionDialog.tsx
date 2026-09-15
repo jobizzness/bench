@@ -201,7 +201,7 @@ export function NewSessionDialog({ open, onClose, onNeedKey }: {
         {isProxied(model) && (
           <p className="field-note" id="f-model-note">
             Runs through OpenRouter, and is billed there rather than to
-            Anthropic. Needs an OpenRouter key in Settings.
+            Anthropic. Needs an OpenRouter key in your profile.
           </p>
         )}
 

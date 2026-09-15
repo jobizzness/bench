@@ -6,8 +6,6 @@ import { RoleModels } from "./RoleModels.js";
 import { ServerLocation } from "./ServerLocation.js";
 import { HiddenProjects } from "./HiddenProjects.js";
 import { ThemePicker } from "./ThemePicker.js";
-import { AnthropicKey } from "./AnthropicKey.js";
-import { OpenRouterKey } from "./OpenRouterKey.js";
 import { Remote } from "./Remote.js";
 
 const PLACEHOLDER = {
@@ -141,9 +139,7 @@ export function SettingsDialog({ open, onClose, activeMachineName }: {
           onChange={(roleModels) => setDraft({ ...draft, roleModels })}
         />
 
-        <AnthropicKey open={open} />
-
-        <OpenRouterKey open={open} />
+        <p className="field-note" id="s-keys-note">API keys live in your profile — open it from the profile button at the top of the roster.</p>
 
         <ThemePicker />
 

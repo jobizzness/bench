@@ -21,10 +21,9 @@ import { asRole, isRole, type Role } from "../shared/roles.js";
 import { modelForRole } from "../shared/role-models.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
-import { isUsageLimitError, keyHint, type ManagedAnthropicKey } from "./anthropic-key.js";
+import { isOauthToken, isUsageLimitError, type ManagedKey } from "./anthropic-key.js";
+import { fullestPercent, type Usage } from "../shared/usage.js";
 import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
-import { describeOrigin, type Origin } from "./env-file.js";
-import { writeParked } from "./key-park.js";
 import { isModelId, modelLabel } from "../shared/models.js";
 import type { AttachmentRef, RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
 import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
@@ -154,26 +153,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    */
   private settings: Settings = NO_SETTINGS;
   /**
-   * The developer's own Anthropic key, when they have given one.
-   *
-   * In memory and nowhere else. It overrides a login the daemon already has,
-   * and an override that survives a restart is one you stop knowing about -
-   * so it lasts exactly as long as the daemon that was told it.
+   * The Anthropic key specialists are spawned with: the active managed key
+   * from the developer's profile. In memory and nowhere else - it is synced
+   * down from the profile on every save and is gone when the daemon is.
    */
   private apiKey: string | null = null;
-  /** Where that key came from, so the cockpit can say rather than only show
-   * its last four characters. */
-  private apiKeyOrigin: Origin = { from: "settings" };
-
-  /**
-   * Whether that key is the one being handed out.
-   *
-   * Off is parked, not gone: switching between your own key and the machine's
-   * login is a thing you do several times in an afternoon, and a switch that
-   * forgets the key makes you paste it again every time.
-   */
-  private apiKeyOn = true;
-  private managedApiKeys: ManagedAnthropicKey[] = [];
+  private managedApiKeys: ManagedKey[] = [];
   private activeManagedKeyId: string | null = null;
   private retryPrompts = new Map<string, { text: string; images: StoredAttachment[] }>();
   private credentialRetries = new Set<string>();
@@ -184,12 +169,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * follows: an override kept in a file is one you forget you set.
    */
   private routerKey: string | null = null;
-  private routerKeyOrigin: Origin = { from: "settings" };
-
-  /** The `.env` files that were looked in at startup, in the order they were
-   * consulted. Reported so "Bench is not reading my file" is a question with
-   * an answer. */
-  private envSearched: string[] = [];
+  private managedRouterKeys: ManagedKey[] = [];
+  private activeManagedRouterKeyId: string | null = null;
 
   /** The catalogue, once fetched. OpenRouter serves several hundred models
    * and the list changes rarely, so it is read once and kept rather than
@@ -201,32 +182,6 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     this.store = new SessionStore(config.home);
     this.turns = new TurnLog(config.home);
     this.ledger = new Ledger(config.home);
-
-    // Both keys, if the developer already wrote them down somewhere. Found
-    // by loadConfig(), which is the file allowed to read the world - so a
-    // registry built for a test finds nothing, rather than whatever happens
-    // to be exported on the machine running it.
-    const found = config.credentials;
-    if (found !== undefined) {
-      this.envSearched = found.searched;
-      if (found.anthropic) {
-        this.apiKey = found.anthropic.key;
-        this.apiKeyOrigin = found.anthropic.origin;
-      }
-      if (found.router) {
-        this.routerKey = found.router.key;
-        this.routerKeyOrigin = found.router.origin;
-      }
-    }
-
-    // The developer's own answer to "should this key be spent", from the
-    // last time they gave one - an explicit answer always wins, parked or
-    // not. Nobody has ever said the first time a key turns up this way: a
-    // key typed into Settings turns itself on the moment it is saved, so
-    // there is nothing to default here, but a key Bench found for itself in
-    // the environment or a `.env` was never a choice the developer made, and
-    // starts parked until they say otherwise in Settings.
-    this.apiKeyOn = config.apiKeyParked === undefined ? this.apiKey === null : !config.apiKeyParked;
   }
 
   /**
@@ -240,7 +195,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   private async viaFor(model: string): Promise<{ key: string; contextLength?: number | null } | undefined> {
     if (!isOpenRouterModel(model)) return undefined;
     if (this.routerKey === null) {
-      throw new Error("no OpenRouter key - add one in Settings to run a specialist on this model");
+      throw new Error("no OpenRouter key - add one in your profile to run a specialist on this model");
     }
     // The window this model actually has. Best effort: if the catalogue
     // cannot be reached the specialist still starts, on the CLI's own
@@ -300,53 +255,26 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     return this.settings;
   }
 
-  /** What may be said about the key: that there is one, and which one. Never
-   * the key - it goes to the daemon and does not come back. */
-  apiKeyState(): { present: boolean; hint: string; enabled: boolean; origin: string; searched: string[] } {
-    return this.apiKey === null
-      ? { present: false, hint: "", enabled: this.apiKeyOn, origin: "", searched: this.envSearched }
-      : {
-        present: true,
-        hint: keyHint(this.apiKey),
-        enabled: this.apiKeyOn,
-        // Where it came from, in words. A key that appears by itself is a
-        // key nobody can account for, and the last four characters are not
-        // an answer to "which key is that".
-        origin: describeOrigin(this.apiKeyOrigin),
-        searched: this.envSearched,
-      };
-  }
-
-  /** The key to authenticate with, which is nothing at all while it is
-   * switched off - callers should see a parked key exactly as they see no
-   * key, and fall back to whatever the machine already has. */
+  /** The key to authenticate with. Null when there is no managed key, in
+   * which case a spawned specialist inherits whatever the daemon has - the
+   * machine's own login. */
   getApiKey(): string | null {
-    return this.apiKeyOn ? this.apiKey : null;
+    return this.apiKey;
   }
 
   /**
-   * The credential to spawn a specialist with, as the three answers the
-   * session needs and `getApiKey` cannot give.
+   * The credential to spawn a specialist with.
    *
-   * `getApiKey` returns null for both "no key" and "key parked", because its
-   * caller - the usage panel - has no use for the difference. The spawn does:
-   * a parked key has to reach the child as both variables cleared, or a
-   * credential this daemon merely inherited from its own environment is still
-   * there and still spending the old account, and the switch in Settings is a
-   * control that moves and changes nothing.
+   * `undefined`, not `null`, when there is no key of our own: `null` would
+   * clear the child's credential variables outright, which is not "I have no
+   * key to offer" but "be certain you have none" - and that spawns a process
+   * that cannot authenticate and says only that it failed. Falling back to
+   * the daemon's own login is what an absent key has always meant, and it is
+   * the difference between a bench that keeps working on the machine's
+   * account and one that stops dead with nothing to read.
    */
-  private credentialForSpawn(): string | null | undefined {
-    // Nothing of our own to say. Whatever the daemon was started with stands.
-    //
-    // Including when every managed key is spent: `null` here would clear the
-    // child's credential variables outright, which is not "I have no key to
-    // offer" but "be certain you have none" - and that spawns a process that
-    // cannot authenticate and says only that it failed. Falling back to the
-    // daemon's own login is what an absent key has always meant, and it is
-    // the difference between a bench that keeps working on the machine's
-    // account and one that stops dead with nothing to read.
-    if (this.apiKey === null) return undefined;
-    return this.apiKeyOn ? this.apiKey : null;
+  private credentialForSpawn(): string | undefined {
+    return this.apiKey ?? undefined;
   }
 
   /**
@@ -360,18 +288,56 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * every specialist on the bench and leave nothing to revive them with,
    * which is a far worse answer than trying a key that may well be fine.
    */
-  setManagedApiKeys(keys: ManagedAnthropicKey[]): void {
+  setManagedApiKeys(keys: ManagedKey[]): void {
     this.managedApiKeys = keys;
-    const usable = (item: ManagedAnthropicKey) => item.status !== "exhausted" && item.status !== "refused";
-    const current = keys.find((item) => item.id === this.activeManagedKeyId && usable(item));
-    const next = current ?? keys.find((item) => item.status === "available") ?? keys.find(usable);
+    const next = this.pickManagedKey();
     this.activeManagedKeyId = next?.id ?? null;
-    if (next) this.setApiKey(next.key);
-    else if (keys.length > 0) this.clearApiKey();
+    this.applyApiKey(next?.key ?? null);
   }
 
-  managedApiKeyStates(): Array<Omit<ManagedAnthropicKey, "key"> & { active: boolean }> {
+  /**
+   * Which managed key to spend, given what is known about each.
+   *
+   * The key already in use while it is still usable - churn between two
+   * half-full windows is worth nothing. Otherwise the available key with the
+   * most headroom left, then any key whose check was inconclusive, in the
+   * order the profile lists them.
+   */
+  private pickManagedKey(exclude?: string): ManagedKey | undefined {
+    const usable = (item: ManagedKey) =>
+      item.id !== exclude && item.status !== "exhausted" && item.status !== "refused";
+    if (exclude === undefined) {
+      const current = this.managedApiKeys.find((item) => item.id === this.activeManagedKeyId && usable(item));
+      if (current) return current;
+    }
+    const available = this.managedApiKeys.filter((item) => usable(item) && item.status === "available");
+    if (available.length > 0) {
+      return available.reduce((best, item) =>
+        fullestPercent(item.usage ?? []) < fullestPercent(best.usage ?? []) ? item : best);
+    }
+    return this.managedApiKeys.find(usable);
+  }
+
+  managedApiKeyStates(): Array<Omit<ManagedKey, "key"> & { active: boolean }> {
     return this.managedApiKeys.map(({ key: _key, ...item }) => ({ ...item, active: item.id === this.activeManagedKeyId }));
+  }
+
+  /**
+   * The OpenRouter half of the same list. Same selection rule as the
+   * Anthropic keys, without the rotation: a proxied turn bills the account
+   * the key belongs to, so a dead one is reported rather than worked around.
+   */
+  setManagedRouterKeys(keys: ManagedKey[]): void {
+    this.managedRouterKeys = keys;
+    const usable = (item: ManagedKey) => item.status !== "exhausted" && item.status !== "refused";
+    const current = keys.find((item) => item.id === this.activeManagedRouterKeyId && usable(item));
+    const next = current ?? keys.find((item) => item.status === "available") ?? keys.find(usable);
+    this.activeManagedRouterKeyId = next?.id ?? null;
+    this.routerKey = next?.key ?? null;
+  }
+
+  managedRouterKeyStates(): Array<Omit<ManagedKey, "key"> & { active: boolean }> {
+    return this.managedRouterKeys.map(({ key: _key, ...item }) => ({ ...item, active: item.id === this.activeManagedRouterKeyId }));
   }
 
   private rotateManagedApiKey(): boolean {
@@ -379,32 +345,73 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     if (active) {
       active.status = "exhausted";
       active.checkedAt = Date.now();
+      const full = (active.usage ?? []).filter((window) => window.percent >= 100);
+      if (full.length > 0) {
+        active.resetsAt = full.map((window) => window.resetsAt).filter((at): at is string => at !== null).sort()[0] ?? null;
+      }
     }
-    const next = this.managedApiKeys.find((item) => item.status === "available");
-    if (!next) {
-      this.activeManagedKeyId = null;
-      this.apiKey = null;
-      return false;
-    }
-    this.activeManagedKeyId = next.id;
-    this.setApiKey(next.key);
-    return true;
+    const next = this.pickManagedKey(this.activeManagedKeyId ?? undefined);
+    this.activeManagedKeyId = next?.id ?? null;
+    this.applyApiKey(next?.key ?? null);
+    return next !== undefined;
   }
 
-  setApiKey(key: string): void {
-    // Typing the key that is already in use, switched on, is a developer
-    // making sure - not a reason to drop every process on the bench.
-    const moved = this.apiKey !== key || !this.apiKeyOn;
+  /**
+   * Re-ask each managed OAuth key what it has spent, and move off one whose
+   * window has filled.
+   *
+   * Called from the route the profile polls, so a key that runs out at 3pm
+   * is noticed without a turn having to fail first. A key whose window has
+   * turned over again comes back as available. One refresh at a time: two
+   * polls landing together are one set of requests, not two.
+   */
+  private refreshingUsage: Promise<void> | null = null;
+
+  refreshManagedUsage(fetchUsage: (key: string) => Promise<Usage>): Promise<void> {
+    this.refreshingUsage ??= this.doRefreshManagedUsage(fetchUsage)
+      .finally(() => { this.refreshingUsage = null; });
+    return this.refreshingUsage;
+  }
+
+  private async doRefreshManagedUsage(fetchUsage: (key: string) => Promise<Usage>): Promise<void> {
+    for (const item of this.managedApiKeys) {
+      if (!isOauthToken(item.key) || Date.now() - item.checkedAt < 60_000) continue;
+      const usage = await fetchUsage(item.key);
+      if (!usage.available) continue;
+      item.usage = usage.windows;
+      item.checkedAt = Date.now();
+      const full = usage.windows.filter((window) => window.percent >= 100);
+      if (full.length > 0) {
+        item.status = "exhausted";
+        item.resetsAt = full.map((window) => window.resetsAt).filter((at): at is string => at !== null).sort()[0] ?? null;
+      } else if (
+        item.status === "exhausted"
+        && item.resetsAt != null
+        && Date.parse(item.resetsAt) <= Date.now()
+      ) {
+        item.status = "available";
+        item.resetsAt = null;
+      }
+    }
+
+    const usable = (item: ManagedKey) => item.status !== "exhausted" && item.status !== "refused";
+    const current = this.managedApiKeys.find((item) => item.id === this.activeManagedKeyId && usable(item));
+    if (!current) {
+      const next = this.pickManagedKey();
+      this.activeManagedKeyId = next?.id ?? null;
+      this.applyApiKey(next?.key ?? null);
+    }
+  }
+
+  /**
+   * Point specialists at a new key, letting go of the ones still running on
+   * the old one - but only when the key actually moved, or re-syncing the
+   * same list would drop every process on the bench.
+   */
+  private applyApiKey(key: string | null): void {
+    if (this.apiKey === key) return;
     this.apiKey = key;
-    // Typed now beats written down earlier, for as long as this daemon runs.
-    this.apiKeyOrigin = { from: "settings" };
-    // Saving a key is asking for it to be used. Inheriting "off" from the key
-    // it replaced would be a key that quietly does nothing - and that answer
-    // has to be written down too, or the next restart parks a key the
-    // developer just went to the trouble of typing.
-    this.apiKeyOn = true;
-    this.rememberParked(false);
-    if (moved) this.credentialChanged();
+    this.credentialChanged();
   }
 
   /**
@@ -450,75 +457,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.session.stop();
   }
 
-  /**
-   * Park the key, or take it out of the car park.
-   *
-   * Written down, because this is the developer saying where their money
-   * goes and a daemon restart is not them changing their mind.
-   */
-  setApiKeyEnabled(on: boolean): void {
-    const moved = this.apiKeyOn !== on;
-    this.apiKeyOn = on;
-    this.rememberParked(!on);
-    // Writing the flag down again when the switch was already there is how a
-    // developer confirms a default they were given, and costs nothing.
-    // Dropping every running process for it is not nothing, so that part only
-    // happens when the switch actually moved.
-    if (moved) this.credentialChanged();
-  }
-
-  /** What may be said about the OpenRouter key: that there is one, and which
-   * one. Never the key - it goes to the daemon and does not come back. */
-  routerKeyState(): { present: boolean; hint: string; origin: string; searched: string[] } {
-    return this.routerKey === null
-      ? { present: false, hint: "", origin: "", searched: this.envSearched }
-      : {
-        present: true,
-        hint: keyHint(this.routerKey),
-        origin: describeOrigin(this.routerKeyOrigin),
-        searched: this.envSearched,
-      };
-  }
-
   /** The OpenRouter key to authenticate with. Read by the credit meter's
    * source, which the server is deliberately unable to reach past. */
   getRouterKey(): string | null {
     return this.routerKey;
-  }
-
-  setRouterKey(key: string): void {
-    this.routerKey = key;
-    this.routerKeyOrigin = { from: "settings" };
-  }
-
-  /**
-   * Let go of the OpenRouter key.
-   *
-   * Deliberately does not fall back to whatever the `.env` said. A Remove
-   * button that puts the key straight back is a button that does nothing,
-   * and the developer pressing it is telling this daemon to stop using that
-   * key - a restart is how they say the opposite.
-   */
-  clearRouterKey(): void {
-    this.routerKey = null;
-    this.routerKeyOrigin = { from: "settings" };
-  }
-
-  /**
-   * Let go of the Anthropic key, on the same terms.
-   *
-   * Throwing a key away is not the same as parking one, so the switch goes
-   * back on: the next key the developer gives this bench is one they want
-   * spent, and finding it arrived switched off would be a fault they go
-   * looking for.
-   */
-  clearApiKey(): void {
-    const moved = this.apiKey !== null;
-    this.apiKey = null;
-    this.apiKeyOrigin = { from: "settings" };
-    this.apiKeyOn = true;
-    this.rememberParked(false);
-    if (moved) this.credentialChanged();
   }
 
   async saveSettings(input: unknown): Promise<Settings> {
@@ -746,23 +688,6 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     });
   }
 
-  /**
-   * Write the parked flag down, and say so if it cannot be.
-   *
-   * Its own reporter rather than `remember`, because that one names the
-   * specialist index and a developer reading "could not update the specialist
-   * index" after touching the key switch would go looking in the wrong place.
-   * The switch still works for this daemon either way; what is lost is only
-   * that the next one will not know.
-   */
-  private rememberParked(parked: boolean): void {
-    void writeParked(this.config.home, parked).catch((error) => {
-      process.stderr.write(
-        `bench: could not write down whether the key is parked, so a restart will forget: ${String(error)}\n`,
-      );
-    });
-  }
-
   async restore(): Promise<void> {
     this.settings = await readSettings(this.config.home);
 
@@ -929,10 +854,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           startTurn: opts.startTurn,
           rules: () => houseRules(this.settings),
           nudge: () => this.nudgeTextFor(id),
-          // Through the three-state getter, not off the field: a parked key must
-          // reach the process as both variables cleared rather than as silence,
-          // or an inherited credential stands and the switch in Settings is a
-          // control that moves and changes nothing.
+          // Through the getter, not off the field: the key is read at spawn,
+          // and undefined there means "inherit the daemon's own login".
           apiKey: () => this.credentialForSpawn(),
           via: opts.via,
         });
