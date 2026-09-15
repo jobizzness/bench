@@ -387,17 +387,17 @@ button, input, textarea, select { font: inherit; color: inherit; }
    or finger lifts. Each control's own transition list already carries
    `transform` (see the per-control rules below), so this only ever has to
    set the value the press animates towards. */
-:is(button, a[href], summary, .row, .s-key-switch):not(:disabled):active {
+:is(button, a[href], summary, .row):not(:disabled):active {
   transform: scale(0.97);
 }
 /* The baseline for a control whose own rule does not otherwise transition
    anything - everything else already lists `transform` alongside its hover
    properties. */
-:is(button, a[href], summary, .row, .s-key-switch) {
+:is(button, a[href], summary, .row) {
   transition: transform var(--duration-press) var(--ease-exit);
 }
 @media (prefers-reduced-motion: reduce) {
-  :is(button, a[href], summary, .row, .s-key-switch):active { transform: none; }
+  :is(button, a[href], summary, .row):active { transform: none; }
 }
 
 /* Small caps label used for every piece of chrome. */
@@ -544,10 +544,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .profile-body section { margin-top: 20px; }
 .profile-sign-in { text-align: center; padding: 28px 0 18px; }
 .credential-list { list-style: none; margin: 0; padding: 0; }
-.credential-list li { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line); }
-.credential-list li > div { display: flex; align-items: center; gap: 10px; }
+.credential-list li { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.credential-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.credential-head > div { display: flex; align-items: center; gap: 10px; }
+.credential-usage { padding: 0 0 2px; }
 .credential-list span { color: var(--muted); font: 11px/1.3 var(--mono); }
 .credential-status { text-transform: capitalize; }
+.credential-active { color: var(--wants); font: 11px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .04em; }
 .credential-status.available, .credential-status.ok { color: var(--wants); }
 .credential-status.exhausted, .credential-status.refused { color: var(--broken); }
 .credential-add { display: grid; gap: 9px; }
@@ -2771,7 +2774,7 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   border-radius: 7px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
 }
-#usage-list,
+.usage-list,
 #spend-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
 
 /* Label over the bar rather than beside it. Beside it, the longest label
@@ -3164,54 +3167,6 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   color: var(--muted);
 }
 .s-theme[aria-pressed="true"] .s-theme-name { color: var(--text); }
-
-/* ── The developer's own API key ────────────────────────────────────── */
-
-#s-key {
-  display: block;
-  margin: 2px 0 4px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-/* Its own buttons rather than the sheet's: .actions is pinned to the bottom
-   of the form, and a Save that follows you down the page belongs to the
-   whole page, not to one field in it. */
-/* Above the buttons, because it is the thing you reach for most and the
-   buttons either side of it are the two you reach for least. */
-#s-key .s-key-switch {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 9px 0 2px;
-  font: 400 12.5px/1.4 var(--sans);
-  color: var(--muted);
-  cursor: pointer;
-  user-select: none;
-}
-#s-key .s-key-switch input { accent-color: var(--wants); cursor: pointer; }
-#s-key .s-key-switch input:disabled { cursor: default; }
-@media (hover: hover) {
-  #s-key .s-key-switch:hover { color: var(--text); }
-}
-
-#s-key .s-key-buttons { display: flex; gap: 9px; margin: 6px 0 4px; }
-#s-key .s-key-buttons button {
-  border: 1px solid var(--line-firm);
-  border-radius: 8px;
-  padding: 7px 14px;
-  cursor: pointer;
-  background: var(--raised);
-  font: 500 12px/1 var(--sans);
-  transition: background 120ms var(--ease), border-color 120ms var(--ease), transform var(--duration-press) var(--ease-exit);
-}
-@media (hover: hover) {
-  #s-key .s-key-buttons button:hover:not(:disabled) { background: var(--hover); }
-}
-#s-key .s-key-buttons button:disabled { opacity: 0.45; cursor: default; }
-#s-key-state { margin-bottom: 8px; }
-/* An input keeps the width of its `size` attribute unless told otherwise,
-   and a key is longer than twenty characters. */
-#s-key-input { width: 100%; font: 400 13px/1 var(--mono); }
 
 /* ── Where the cockpit is pointed ───────────────────────────────────── */
 

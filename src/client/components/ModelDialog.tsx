@@ -206,11 +206,11 @@ export function ModelDialog({
     let live = true;
     void (async () => {
       const [keyRes, modelsRes] = await Promise.all([
-        authFetch("/api/openrouter/key"),
+        authFetch("/api/openrouter/keys"),
         authFetch("/api/openrouter/models"),
       ]);
       if (!live) return;
-      if (keyRes.ok) setHasKey((await keyRes.json())?.present === true);
+      if (keyRes.ok) setHasKey(((await keyRes.json())?.credentials ?? []).some((c: { active?: boolean }) => c.active === true));
       if (modelsRes.ok) setListed((await modelsRes.json())?.models ?? []);
       else {
         // Anthropic's four still work, so this is a note rather than a
@@ -397,7 +397,7 @@ export function ModelDialog({
       <section className="model-house" data-house="anthropic">
         <h3>Anthropic</h3>
         <p className="field-note" data-house-note="anthropic">
-          This machine's Claude login, or the key in Settings. Nothing else has
+          This machine's Claude login, or the key in your profile. Nothing else has
           to be set up — and these are billed to your Claude plan, not per token,
           so there is no per-turn price to quote against them.
         </p>

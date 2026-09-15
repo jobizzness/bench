@@ -58,6 +58,9 @@ export interface RemoteControllerOptions {
     setIntervalImpl?: typeof setInterval;
     clearIntervalImpl?: typeof clearInterval;
   };
+  /** An identity was established (a client and its uid) or torn down (both
+   * null) - what `KeySync` hangs its Firestore polling off. */
+  onClient?: (client: FirestoreClient | null, uid: string | null) => void;
 }
 
 /**
@@ -182,6 +185,7 @@ export class RemoteController implements RemoteControllerLike {
     this.bridge = null;
     this.identity = null;
     this.machineName = null;
+    this.opts.onClient?.(null, null);
   }
 
   private async establish(identity: RemoteIdentity): Promise<void> {
@@ -264,6 +268,8 @@ export class RemoteController implements RemoteControllerLike {
       + `machine ${identity.machineId.slice(0, 8)}…, `
       + `token expires ${new Date(refresher.expiresAt()!).toISOString()}\n`,
     );
+
+    this.opts.onClient?.(this.client, identity.uid);
   }
 
   private async beat(): Promise<void> {

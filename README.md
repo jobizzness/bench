@@ -121,50 +121,31 @@ Settings holds the house rules every specialist is given, and the address this
 tab is talking to — point it at another machine's daemon and the same page
 loads from there.
 
-It also takes an Anthropic credential, if you would rather not spend the
-claude.ai login this machine already has: either a console API key, which
-bills the API, or a token from `claude setup-token`, which bills the
-subscription it was minted from. Whichever you give it is checked against the
-API before it is kept — the CLI retries a bad one ten times before it gives
-up, so a typo is worth catching here — and it is held in memory only: a
-daemon restart forgets it, and it reaches specialists started after it rather
-than the ones already running. A switch beside it parks the key without
-throwing it away, for the afternoons you want the work back on the machine's
-own login.
+### Keys live in your profile
 
-### Keys Bench finds for itself
+Your profile — the dialog behind the profile button at the top of the
+roster, once you have signed in with Google — is where API keys are kept.
+An Anthropic key saved there is synced to every Bench you sign in to, so a
+key written down once follows you to each machine rather than being pasted
+in per daemon. Either a console API key, which bills the API, or a token
+from `claude setup-token`, which bills the subscription it was minted from.
 
-Typing a key in is not the only way to give Bench one. At startup it reads
-`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` and `OPENROUTER_API_KEY` (or
-`OPEN_ROUTER_KEY`, or `OPENROUTER_KEY`) from its own environment and from a
-`.env` — so a key you have already written down survives every restart instead
-of being pasted in again. `.env.example` lists what is read.
+Each key is checked against the API before it is spent — the CLI retries a
+bad one ten times before it gives up, so a typo is worth catching there —
+and the list says which one is in use and when it was last checked. When the
+key in use reports a usage limit, the next turn moves to the next available
+key on the list. With no usable key, specialists run on this machine's own
+Claude login.
 
-It looks in `$BENCH_HOME/.env`, then the directory Bench was started from, then
-where Bench is installed; first hit wins. Something exported in the shell beats
-any file, and a key typed into Settings beats everything for as long as that
-daemon runs. Settings says which one is in force and where it came from, so a
-key nobody remembers setting can be traced rather than guessed at.
-
-The file is read, never merged into the environment. A `.env` usually holds
-more than Bench understands, and the daemon's environment is handed to every
-specialist it spawns — so only the keys above are taken out of it, and the rest
-of your file goes nowhere.
-
-One consequence worth knowing: an `ANTHROPIC_API_KEY` sitting in a `.env`
-overrides this machine's claude.ai login, which moves the spend from a
-subscription you have already paid for onto the API, and turns off claude.ai
-connectors. The switch in Settings parks it if that is not what you wanted,
-and the switch is remembered — a key parked on Friday is still parked on
-Monday. Only the flag is written down, in `~/.bench/keys.json`; the key is
-not.
+An OpenRouter key lives there too, on its own list — see the next section
+for what it is for.
 
 ### Running a specialist on something other than Claude
 
 Claude Code speaks one protocol and OpenRouter serves it, so pointing a
 specialist at Gemini or GPT or Llama is three environment variables on the
 child process — there is nothing to install and no second process that can be
-down. Save an OpenRouter key in Settings — or from the picker itself, which
+down. Save an OpenRouter key in your profile — or from the picker itself, which
 offers to take you there — and the picker fills in. Search it by name or id;
 each row says what the model holds and what a million tokens of its output
 costs, because that spend is yours rather than a subscription's. Without a key

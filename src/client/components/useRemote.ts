@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getAuth, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { authFetch, postJson } from "../api.js";
 import { firebaseApp } from "../firebase-app.js";
 import { REMOTE_OFF, type RemoteState } from "../../shared/remote.js";
@@ -59,6 +59,14 @@ export function useRemote(open: boolean) {
       const res = await authFetch("/api/remote", { method: "DELETE" });
       if (!res.ok) { setError("Could not turn remote off."); return; }
       setState(await res.json());
+      // Off means off: leaving the browser signed in would hand the identity
+      // straight back to the daemon on the next load.
+      try {
+        await signOut(getAuth(firebaseApp()));
+      } catch {
+        // The daemon already forgot the identity; a browser that stays
+        // signed in just offers it again on the next load.
+      }
     } finally {
       setBusy(false);
     }

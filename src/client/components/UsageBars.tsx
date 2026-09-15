@@ -16,7 +16,7 @@ export function UsageBars({ windows }: { windows: UsageWindow[] }) {
   if (windows.length === 0) return <p className="usage-note">Nothing recorded against this login yet.</p>;
 
   return (
-    <ul id="usage-list">
+    <ul className="usage-list">
       {windows.map((window) => (
         <li className="usage-row" key={window.key} data-tone={usageTone(window.percent)}>
           <span className="usage-label">{window.label}</span>

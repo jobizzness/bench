@@ -304,6 +304,49 @@ describe("renaming this machine", () => {
   });
 });
 
+describe("whoever asked for the Firestore client", () => {
+  it("receives it once connected, and loses it on disconnect", async () => {
+    const handed: Array<{ client: unknown; uid: string | null }> = [];
+    const remote = controller(await home(), fakeBackend().fetchImpl, {
+      onClient: (client, uid) => handed.push({ client, uid }),
+    });
+
+    await remote.connect("rt-0", "u1");
+    expect(handed.at(-1)?.uid).toBe("u1");
+    expect(handed.at(-1)?.client).not.toBeNull();
+
+    await remote.disconnect();
+    expect(handed.at(-1)).toEqual({ client: null, uid: null });
+  });
+
+  it("loses it when the refresh token is rejected", async () => {
+    vi.useFakeTimers();
+    const dir = await home();
+    let exchanges = 0;
+    const fetchImpl = (async (url: string) => {
+      if (url.includes("securetoken")) {
+        exchanges += 1;
+        return exchanges === 1
+          ? new Response(JSON.stringify(EXCHANGE_OK), { status: 200 })
+          : new Response(JSON.stringify({ error: { message: "TOKEN_EXPIRED" } }), { status: 400 });
+      }
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const handed: Array<{ client: unknown; uid: string | null }> = [];
+    const remote = controller(dir, fetchImpl, {
+      heartbeatMs: 1000,
+      onClient: (client, uid) => handed.push({ client, uid }),
+    });
+    await remote.connect("rt-0", "u1");
+    expect(handed.at(-1)?.uid).toBe("u1");
+
+    await vi.advanceTimersByTimeAsync(55 * 60 * 1000);
+    expect(handed.at(-1)).toEqual({ client: null, uid: null });
+    vi.useRealTimers();
+  });
+});
+
 describe("turning remote off", () => {
   it("clears the local file, removes the machine document, and reports off", async () => {
     const dir = await home();

@@ -54,3 +54,9 @@ export function fullest(windows: readonly UsageWindow[]): UsageWindow | null {
     null,
   );
 }
+
+/** How full the fullest window is. 0 for a key that has never been asked -
+ * an unreadable number is not a reason to pass a key over. */
+export function fullestPercent(windows: readonly UsageWindow[]): number {
+  return fullest(windows)?.percent ?? 0;
+}

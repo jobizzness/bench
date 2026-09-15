@@ -17,13 +17,11 @@ class StubRegistry extends EventEmitter {
   list(): RosterRow[] { return []; }
   getSettings() { return { codingStyle: "", workflowRules: "", reviewModel: "sonnet", roleModels: {} }; }
   async saveSettings(input: unknown) { return input as any; }
-  apiKeyState() { return { present: false, hint: "", enabled: true, origin: "", searched: [] }; }
-  setApiKey() {}
-  setApiKeyEnabled() {}
-  clearApiKey() {}
-  routerKeyState() { return { present: false, hint: "", origin: "", searched: [] }; }
-  setRouterKey() {}
-  clearRouterKey() {}
+  setManagedApiKeys() {}
+  managedApiKeyStates() { return []; }
+  async refreshManagedUsage() {}
+  setManagedRouterKeys() {}
+  managedRouterKeyStates() { return []; }
   async catalogue() { return []; }
   modelFor() { return "opus"; }
   async typicalTurn() { return { shape: null, turns: 0 }; }

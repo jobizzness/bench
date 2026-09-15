@@ -13,13 +13,14 @@ import { shareMessage } from "./share.js";
 import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
-import { checkKey, type KeyCheck } from "./anthropic-key.js";
+import { checkKey, type KeyCheck, type ManagedKey } from "./anthropic-key.js";
+import { checkManaged } from "./managed-keys.js";
 import type { TurnShape } from "../shared/cost.js";
 import { isRole, type Role } from "../shared/roles.js";
 import { checkKey as checkRouterKey, creditSource, handleGeminiProxy, type Listed } from "./gemini.js";
 import type { Credit } from "../shared/credit.js";
 import type { Total } from "./ledger.js";
-import { usageSource, type Usage } from "./usage.js";
+import { fetchUsage, usageSource, type Usage } from "./usage.js";
 import { RefIndex } from "./refs.js";
 import { reviewBrief, reviewLabel } from "./review.js";
 import { labelIsUsable } from "../shared/slug.js";
@@ -37,19 +38,18 @@ export interface SessionRegistryLike {
   list(): RosterRow[];
   getSettings(): Settings;
   saveSettings(input: unknown): Promise<Settings>;
-  apiKeyState(): { present: boolean; hint: string; enabled: boolean; origin: string; searched: string[] };
-  // No reader. The key goes to the daemon for the CLI's benefit, and a
-  // server that cannot ask for it is a server that cannot serve it back.
-  setApiKey(key: string): void;
-  setManagedApiKeys?(keys: import("./anthropic-key.js").ManagedAnthropicKey[]): void;
-  managedApiKeyStates?(): Array<Omit<import("./anthropic-key.js").ManagedAnthropicKey, "key"> & { active: boolean }>;
-  setApiKeyEnabled(on: boolean): void;
-  clearApiKey(): void;
-  // The OpenRouter key. Same rule as above: whether there is one goes out,
-  // the key itself never does.
-  routerKeyState(): { present: boolean; hint: string; origin: string; searched: string[] };
-  setRouterKey(key: string): void;
-  clearRouterKey(): void;
+  // No reader for the keys themselves. They go to the daemon for the CLI's
+  // benefit, and a server that cannot ask for them is a server that cannot
+  // serve them back.
+  setManagedApiKeys(keys: ManagedKey[]): void;
+  managedApiKeyStates(): Array<Omit<ManagedKey, "key"> & { active: boolean }>;
+  /** Re-ask the OAuth keys what they have spent, and move off one that has
+   * filled its window. Called from the route the profile polls. */
+  refreshManagedUsage(fetchUsage: (key: string) => Promise<Usage>): Promise<void>;
+  // The OpenRouter keys. Same rule as above: the states go out, the keys
+  // never do.
+  setManagedRouterKeys(keys: ManagedKey[]): void;
+  managedRouterKeyStates(): Array<Omit<ManagedKey, "key"> & { active: boolean }>;
   /** Every model OpenRouter serves, for the picker. */
   catalogue(): Promise<Listed[]>;
   /** What a new specialist of this role should run on. */
@@ -287,6 +287,8 @@ export function createServer(opts: {
   checkKey?: (key: string) => Promise<KeyCheck>;
   /** The same, for OpenRouter. */
   checkRouterKey?: (key: string) => Promise<KeyCheck>;
+  /** The same, for what an OAuth token has spent. */
+  keyUsage?: (key: string) => Promise<Usage>;
   /** The same, for the OpenRouter credit meter. */
   credit?: () => Promise<Credit>;
   /** Where the usage panel's numbers come from. Injected by the tests, and
@@ -303,6 +305,8 @@ export function createServer(opts: {
   const clientDir = opts.clientDir ?? CLIENT_DIR;
   const verify = opts.checkKey ?? checkKey;
   const verifyRouter = opts.checkRouterKey ?? checkRouterKey;
+  const usageOf = opts.keyUsage ?? fetchUsage;
+
   const spent = opts.usage ?? usageSource({ benchKey: () => null });
   const routerSpent = opts.credit ?? creditSource({ key: () => null });
   const remote = opts.remote ?? REMOTE_OFF;
@@ -469,89 +473,26 @@ export function createServer(opts: {
     }
 
     /**
-     * The developer's own Anthropic key. Held by the daemon for as long as it
-     * runs and never written down, so these three routes are the whole of its
-     * life: what there is, one to give, one to take away.
+     * The developer's Anthropic keys, synced down from their profile. Held
+     * by the daemon for as long as it runs and never written down: the
+     * states go out, the keys themselves never do.
      */
-    if (path === "/api/anthropic-key" && req.method === "GET") {
-      json(res, 200, { ...registry.apiKeyState(), verified: true });
-      return;
-    }
-
     if (path === "/api/anthropic-keys" && req.method === "GET") {
-      json(res, 200, { credentials: registry.managedApiKeyStates?.() ?? [] });
+      // The profile polls this every minute: it is where a window filling up
+      // mid-afternoon gets noticed, and where the next usable key takes over.
+      await registry.refreshManagedUsage(usageOf);
+      json(res, 200, { credentials: registry.managedApiKeyStates() });
       return;
     }
 
     if (path === "/api/anthropic-keys" && req.method === "POST") {
       const input = (await readBody(req))?.credentials;
-      if (!Array.isArray(input) || input.length > 100 || !registry.setManagedApiKeys) {
+      if (!Array.isArray(input) || input.length > 100) {
         json(res, 400, { error: "credentials must be a list" });
         return;
       }
-      const checked = await Promise.all(input.map(async (item: unknown) => {
-        const value = item as Record<string, unknown>;
-        const id = String(value.id ?? "");
-        const key = String(value.key ?? "").trim();
-        const label = String(value.label ?? "Anthropic key");
-        const priorStatus = String(value.status ?? "unchecked");
-        const priorCheckedAt = Number(value.checkedAt ?? 0);
-        if (id === "" || key === "") return null;
-        const verdict = await verify(key);
-        const coolingDown = priorStatus === "exhausted" && Date.now() - priorCheckedAt < 15 * 60_000;
-        return {
-          id, key, label,
-          status: coolingDown ? "exhausted" : verdict === "ok" ? "available" : verdict,
-          checkedAt: coolingDown ? priorCheckedAt : Date.now(),
-        } as import("./anthropic-key.js").ManagedAnthropicKey;
-      }));
-      const credentials = checked.filter((item): item is import("./anthropic-key.js").ManagedAnthropicKey => item !== null);
-      registry.setManagedApiKeys(credentials);
-      json(res, 200, { credentials: registry.managedApiKeyStates?.() ?? [] });
-      return;
-    }
-
-    if (path === "/api/anthropic-key" && req.method === "POST") {
-      const key = String((await readBody(req))?.key ?? "").trim();
-      if (key === "") {
-        json(res, 400, { error: "no key was sent" });
-        return;
-      }
-
-      const verdict = await verify(key);
-      if (verdict === "refused") {
-        // Said now rather than discovered later. The CLI retries a rejected
-        // key ten times with a doubling delay, so a typo kept here does not
-        // look like a typo - it looks like a specialist that hangs.
-        json(res, 400, { error: "The API turned that key away. Check it and try again." });
-        return;
-      }
-
-      registry.setApiKey(key);
-      // "unreachable" is not "wrong": an offline machine should still be able
-      // to hold a key, as long as it is told the key is unproven.
-      json(res, 200, { ...registry.apiKeyState(), verified: verdict === "ok" });
-      return;
-    }
-
-    /**
-     * The key, parked or in use.
-     *
-     * Its own route rather than a field on the save, because the key does
-     * not go up with it: switching a held key off must not require the
-     * developer to have it to hand.
-     */
-    if (path === "/api/anthropic-key/enabled" && req.method === "POST") {
-      const enabled = (await readBody(req))?.enabled;
-      if (typeof enabled !== "boolean") {
-        json(res, 400, { error: "say true or false" });
-        return;
-      }
-
-      registry.setApiKeyEnabled(enabled);
-      // Verified stands: this is the same key the API already vouched for,
-      // and parking it proves nothing new either way.
-      json(res, 200, { ...registry.apiKeyState(), verified: true });
+      registry.setManagedApiKeys(await checkManaged(input, { check: verify, usageOf, fallbackLabel: "Anthropic key" }));
+      json(res, 200, { credentials: registry.managedApiKeyStates() });
       return;
     }
 
@@ -567,50 +508,26 @@ export function createServer(opts: {
       return;
     }
 
-    if (path === "/api/anthropic-key" && req.method === "DELETE") {
-      registry.clearApiKey();
-      json(res, 200, { ...registry.apiKeyState(), verified: true });
-      return;
-    }
-
     /**
-     * The developer's OpenRouter key, and what it can reach.
+     * The developer's OpenRouter keys, synced down from their profile.
      *
-     * Same life as the Anthropic key above - held while the daemon runs,
-     * never written down - and the same three routes, so the cockpit treats
+     * Same life as the Anthropic keys above - held while the daemon runs,
+     * never written down - and the same two routes, so the cockpit treats
      * both the same way.
      */
-    if (path === "/api/openrouter/key" && req.method === "GET") {
-      json(res, 200, { ...registry.routerKeyState(), verified: true });
+    if (path === "/api/openrouter/keys" && req.method === "GET") {
+      json(res, 200, { credentials: registry.managedRouterKeyStates() });
       return;
     }
 
-    if (path === "/api/openrouter/key" && req.method === "POST") {
-      const key = String((await readBody(req))?.key ?? "").trim();
-      if (key === "") {
-        json(res, 400, { error: "no key was sent" });
+    if (path === "/api/openrouter/keys" && req.method === "POST") {
+      const input = (await readBody(req))?.credentials;
+      if (!Array.isArray(input) || input.length > 100) {
+        json(res, 400, { error: "credentials must be a list" });
         return;
       }
-
-      const verdict = await verifyRouter(key);
-      if (verdict === "refused") {
-        // Said now rather than discovered later. The CLI retries a rejected
-        // key with a doubling delay, so a typo kept here does not look like a
-        // typo - it looks like a specialist that hangs.
-        json(res, 400, { error: "OpenRouter turned that key away. Check it and try again." });
-        return;
-      }
-
-      registry.setRouterKey(key);
-      // "unreachable" is not "wrong": an offline machine should still be able
-      // to hold a key, as long as it is told the key is unproven.
-      json(res, 200, { ...registry.routerKeyState(), verified: verdict === "ok" });
-      return;
-    }
-
-    if (path === "/api/openrouter/key" && req.method === "DELETE") {
-      registry.clearRouterKey();
-      json(res, 200, { ...registry.routerKeyState(), verified: true });
+      registry.setManagedRouterKeys(await checkManaged(input, { check: verifyRouter, usageOf, fallbackLabel: "OpenRouter key" }));
+      json(res, 200, { credentials: registry.managedRouterKeyStates() });
       return;
     }
 

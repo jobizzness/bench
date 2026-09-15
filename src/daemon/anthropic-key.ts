@@ -8,6 +8,8 @@
  * daemon does.
  */
 
+import type { UsageWindow } from "../shared/usage.js";
+
 /** All a key may ever look like once it has been handed over. Enough to
  * recognise which key is set, useless to anyone who reads it. */
 export function keyHint(key: string): string {
@@ -45,12 +47,17 @@ function authHeaders(key: string): Record<string, string> {
  */
 export type KeyCheck = "ok" | "refused" | "unreachable";
 
-export interface ManagedAnthropicKey {
+export interface ManagedKey {
   id: string;
   key: string;
   label: string;
   status: "available" | "exhausted" | "refused" | "unreachable" | "unchecked";
   checkedAt: number;
+  /** What the key has spent, for the kind that can be asked. Only OAuth
+   * tokens have windows; a console key is billed, not rationed. */
+  usage?: UsageWindow[];
+  /** When the fullest window turns over, for a key at its limit. */
+  resetsAt?: string | null;
 }
 
 export function isUsageLimitError(stderr: string): boolean {

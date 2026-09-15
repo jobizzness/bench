@@ -50,7 +50,7 @@ function Spend({ credit }: { credit: Extract<Credit, { available: true }> }) {
   const percent = limitPercent(credit);
 
   return (
-    <ul id="usage-list">
+    <ul className="usage-list">
       <li className="usage-row" data-tone={percent === null ? undefined : usageTone(percent)}>
         <span className="usage-label">OpenRouter</span>
         <span className="usage-percent credit-amount">
@@ -101,6 +101,6 @@ function Left({ balance, percent }: { balance: Balance; percent: number | null }
 /** Why there are no numbers, said as the thing to do about it. */
 function trouble(credit: Extract<Credit, { available: false }>): string {
   return credit.reason === "refused"
-    ? "That key was turned away — check it in Settings, or save a fresh one."
+    ? "That key was turned away — check it in your profile, or save a fresh one."
     : "Could not reach OpenRouter to ask. The key is fine as far as anyone here knows.";
 }

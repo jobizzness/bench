@@ -12,14 +12,18 @@ import { signInWithPopup } from "firebase/auth";
  * is the one call in the cockpit that is not `authFetch`, and these tests
  * stand in for what a real popup would hand back.
  */
+/** Who `onAuthStateChanged` reports at boot - null unless a test signs in. */
+const auth = vi.hoisted(() => ({ user: null as { uid: string; refreshToken: string; email: string | null } | null }));
+
 vi.mock("firebase/app", () => ({ initializeApp: vi.fn(() => ({})) }));
 vi.mock("firebase/auth", () => ({
   getAuth: vi.fn(() => ({})),
   GoogleAuthProvider: vi.fn(function GoogleAuthProvider(this: unknown) {}),
   signInWithPopup: vi.fn(),
-  // `useFirebaseUser.ts` (App.tsx, unconditionally) also asks `firebase/auth`
-  // for this now - nobody signed in, ever, in this suite.
-  onAuthStateChanged: vi.fn((_auth: unknown, cb: (user: null) => void) => { cb(null); return () => {}; }),
+  signOut: vi.fn(async () => {}),
+  // `useFirebaseUser.ts` (App.tsx, unconditionally) asks `firebase/auth` for
+  // this - nobody signed in unless the test says so.
+  onAuthStateChanged: vi.fn((_auth: unknown, cb: (user: unknown) => void) => { cb(auth.user); return () => {}; }),
 }));
 
 const popup = vi.mocked(signInWithPopup);
@@ -28,6 +32,7 @@ let ui: Cockpit;
 afterEach(() => {
   ui?.unmount();
   popup.mockReset();
+  auth.user = null;
   history.pushState({}, "", "/?token=t");
 });
 
@@ -92,6 +97,48 @@ describe("the remote control, off", () => {
     expect(ui.$("#s-remote-off")).toBeNull();
   });
 });
+
+describe("the profile's sign-in handing the daemon the same identity", () => {
+  const SIGNED_IN = { uid: "u1", refreshToken: "rt-xyz", email: "dev@example.com" };
+
+  it("posts it after the Google popup finishes", async () => {
+    popup.mockResolvedValue({ user: SIGNED_IN } as any);
+    await open();
+
+    await ui.click(ui.$("#open-profile"));
+    await ui.click([...ui.$$("button")].find((b) => b.textContent === "Continue with Google"));
+
+    await waitFor(
+      () => ui.sent.find((s) => s.url.endsWith("/api/remote/identity")),
+      "the identity handover",
+    );
+    const sent = ui.sent.find((s) => s.url.endsWith("/api/remote/identity"));
+    expect(sent?.body).toEqual({ refreshToken: "rt-xyz", uid: "u1", email: "dev@example.com" });
+  });
+
+  it("posts it on load when a signed-in browser finds a daemon without it", async () => {
+    auth.user = SIGNED_IN;
+    await open();
+
+    await waitFor(
+      () => ui.sent.find((s) => s.url.endsWith("/api/remote/identity")),
+      "the identity handover",
+    );
+  });
+
+  it("posts nothing on load when the daemon already holds the identity", async () => {
+    auth.user = SIGNED_IN;
+    await open({ remote: { ...REMOTE_CONNECTED } });
+    await waitFor(() => ui.$("#s-remote-off"), "the connected state");
+
+    expect(ui.sent.find((s) => s.url.endsWith("/api/remote/identity"))).toBeUndefined();
+  });
+});
+
+const REMOTE_CONNECTED = {
+  connected: true, uid: "u1", email: "dev@example.com", machineId: "m1",
+  machineName: "dev-laptop", platform: "darwin", tokenExpiresAt: Date.now() + 3_600_000, error: null,
+};
 
 describe("the remote control, on", () => {
   const CONNECTED = {
