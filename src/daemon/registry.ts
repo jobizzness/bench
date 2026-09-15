@@ -24,7 +24,7 @@ import { asRole, isRole, type Role } from "../shared/roles.js";
 import { modelForRole } from "../shared/role-models.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
-import { isOauthToken, isUsageLimitError, type ManagedKey } from "./anthropic-key.js";
+import { isOauthToken, isUsageLimitError, limitResetsAt, type ManagedKey } from "./anthropic-key.js";
 import { fullestPercent, type Usage } from "../shared/usage.js";
 import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
 import { isModelId, modelLabel } from "../shared/models.js";
@@ -343,7 +343,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     return this.managedRouterKeys.map(({ key: _key, ...item }) => ({ ...item, active: item.id === this.activeManagedRouterKeyId }));
   }
 
-  private rotateManagedApiKey(): boolean {
+  /** `said` is the CLI's own account of the failure - for a setup-token, the
+   * only place its reset time is ever given. */
+  private rotateManagedApiKey(said = ""): boolean {
     const active = this.managedApiKeys.find((item) => item.id === this.activeManagedKeyId);
     if (active) {
       active.status = "exhausted";
@@ -351,6 +353,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       const full = (active.usage ?? []).filter((window) => window.percent >= 100);
       if (full.length > 0) {
         active.resetsAt = full.map((window) => window.resetsAt).filter((at): at is string => at !== null).sort()[0] ?? null;
+      } else {
+        const told = limitResetsAt(said, active.checkedAt);
+        if (told !== null) active.resetsAt = told;
       }
     }
     const next = this.pickManagedKey(this.activeManagedKeyId ?? undefined);
@@ -1024,7 +1029,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       }
 
       const retry = this.retryPrompts.get(id);
-      if (entry && retry && runtimeFor(entry.model) === "claude" && !isOpenRouterModel(entry.model) && isUsageLimitError(stderr) && this.rotateManagedApiKey()) {
+      if (entry && retry && runtimeFor(entry.model) === "claude" && !isOpenRouterModel(entry.model) && isUsageLimitError(stderr) && this.rotateManagedApiKey(stderr ?? "")) {
         this.revive(id, entry, undefined);
         entry.session!.send(retry.text, retry.images);
         this.update(id, "working", "retrying with another credential");
@@ -1062,8 +1067,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     session.on("turn-end", async (result: ResultEvent) => {
       const entry = this.entries.get(id);
       if (!entry) return;
-      const limited = result.is_error && isUsageLimitError(`${result.subtype} ${result.result ?? ""}`);
-      if (runtimeFor(entry.model) === "claude" && !isOpenRouterModel(entry.model) && limited && this.retryPrompts.has(id) && this.rotateManagedApiKey()) {
+      const told = `${result.subtype} ${result.result ?? ""}`;
+      const limited = result.is_error && isUsageLimitError(told);
+      if (runtimeFor(entry.model) === "claude" && !isOpenRouterModel(entry.model) && limited && this.retryPrompts.has(id) && this.rotateManagedApiKey(told)) {
         this.credentialRetries.add(id);
         return;
       }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { keyHint, checkKey, isUsageLimitError } from "../src/daemon/anthropic-key.js";
+import { keyHint, checkKey, isUsageLimitError, limitResetsAt } from "../src/daemon/anthropic-key.js";
 
 describe("what the cockpit is allowed to show of a key", () => {
   it("shows the last four characters and nothing else", () => {
@@ -76,6 +76,40 @@ describe("recognising a credential that cannot serve another turn", () => {
 
   it("does not rotate credentials for an unrelated process failure", () => {
     expect(isUsageLimitError("worktree does not exist")).toBe(false);
+  });
+});
+
+describe("when a spent setup-token comes back", () => {
+  // 20:25 UTC - the moment the session limit was actually hit on this bench.
+  const now = Date.parse("2026-09-15T20:25:00Z");
+
+  it("reads a later time today, in the zone the CLI named", () => {
+    expect(limitResetsAt("You've hit your session limit · resets 8:30pm (Africa/Banjul)", now))
+      .toBe("2026-09-15T20:30:00.000Z");
+  });
+
+  it("reads an hour with no minutes as on the hour", () => {
+    expect(limitResetsAt("You've hit your session limit · resets 9pm (America/New_York)", now))
+      .toBe("2026-09-16T01:00:00.000Z");
+  });
+
+  it("rolls a time already past today over to tomorrow", () => {
+    expect(limitResetsAt("You've hit your session limit · resets 4am (Atlantic/Reykjavik)", now))
+      .toBe("2026-09-16T04:00:00.000Z");
+  });
+
+  it("reads a weekly limit's date as well as its time", () => {
+    // Days away, not hours: falling back to the fifteen-minute cooldown here
+    // would retry a spent key a few hundred times before it came back.
+    expect(limitResetsAt("You've hit your weekly limit · resets Aug 29, 4pm (Africa/Banjul)", Date.parse("2026-08-25T10:00:00Z")))
+      .toBe("2026-08-29T16:00:00.000Z");
+  });
+
+  it("says nothing rather than guess", () => {
+    // Null falls back to the fifteen-minute cooldown, which is what a spent
+    // key got before any of this was read.
+    expect(limitResetsAt("You're out of extra usage", now)).toBeNull();
+    expect(limitResetsAt("You've hit your session limit · resets 8:30pm (Not/AZone)", now)).toBeNull();
   });
 });
 

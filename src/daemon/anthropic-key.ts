@@ -73,6 +73,61 @@ export function isUsageLimitError(stderr: string): boolean {
 }
 
 /**
+ * When a spent setup-token comes back, read off the CLI's own sentence -
+ * "You've hit your session limit · resets 8:30pm (Africa/Banjul)".
+ *
+ * A setup-token has no usage endpoint to ask, so this sentence is the only
+ * word there is on it. The time is a wall-clock time in the zone named, and
+ * the next time it comes round is the one meant: 4am said at 8pm is
+ * tomorrow. Anything it cannot read exactly is null, and the key falls back
+ * to the ordinary cooldown rather than a guess.
+ */
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+export function limitResetsAt(message: string, now: number = Date.now()): string | null {
+  // A weekly limit names the day too: "resets Aug 29, 4pm (Africa/Banjul)".
+  const found = /resets (?:([a-z]{3})[a-z]* (\d{1,2}),? )?(\d{1,2})(?::(\d{2}))?\s*(am|pm) \(([^)]+)\)/i.exec(message);
+  if (!found) return null;
+  const [, mon, date, h, m = "0", meridiem, zone] = found;
+  const month = mon === undefined ? null : MONTHS.indexOf(mon.toLowerCase());
+  const hour = (Number(h) % 12) + (meridiem.toLowerCase() === "pm" ? 12 : 0);
+  const minute = Number(m);
+  if (month === -1 || hour > 23 || minute > 59) return null;
+
+  let format: Intl.DateTimeFormat;
+  try {
+    format = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone, hourCycle: "h23",
+      year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric",
+    });
+  } catch {
+    return null;
+  }
+  // The zone's wall clock at an instant, written as if it were UTC - so the
+  // difference from the instant itself is the zone's offset there.
+  const wall = (at: number): number => {
+    const p = Object.fromEntries(format.formatToParts(at).map((part) => [part.type, part.value]));
+    return Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour) % 24, Number(p.minute), Number(p.second));
+  };
+  const offset = (at: number): number => wall(at) - (at - (at % 1000));
+
+  const today = new Date(wall(now));
+  const year = today.getUTCFullYear();
+  // The next time it comes round: today then tomorrow for a bare time, this
+  // year then next for a date.
+  const targets = month === null
+    ? [0, 1].map((day) => Date.UTC(year, today.getUTCMonth(), today.getUTCDate() + day, hour, minute))
+    : [0, 1].map((ahead) => Date.UTC(year + ahead, month, Number(date), hour, minute));
+  for (const target of targets) {
+    // Twice, so a guess that lands across a clock change is corrected by the
+    // offset on the right side of it.
+    const at = target - offset(target - offset(target));
+    if (at > now) return new Date(at).toISOString();
+  }
+  return null;
+}
+
+/**
  * Ask the API, as this key, for the cheapest thing it will answer.
  *
  * Worth the round trip: the CLI does not fail fast on a bad key. It retries a

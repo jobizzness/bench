@@ -1297,6 +1297,26 @@ describe("the developer's API keys", () => {
         expect(states.find((k) => k.id === "two")!.active).toBe(true);
       });
 
+      it("keeps a key the CLI said was spent out until the time it gave", async () => {
+        // A setup-token has no usage to ask about, so the CLI's own sentence
+        // is the only word on when it comes back. Without it the key was
+        // cooled down for fifteen minutes and then tried again while still
+        // spent - one more failed turn before moving on.
+        const { config } = await setup();
+        const registry = new SessionRegistry({ ...config } as any);
+        const TWO = "sk-ant-oat01-managed-two-1111";
+
+        registry.setManagedApiKeys([managed("available"), managed("available", "two", TWO)]);
+        expect((registry as any).rotateManagedApiKey(
+          "success You've hit your session limit · resets 8:30pm (Africa/Banjul)",
+        )).toBe(true);
+
+        const resetsAt = registry.managedApiKeyStates().find((k) => k.id === "one")!.resetsAt!;
+        expect(resetsAt).toMatch(/T20:30:00\.000Z$/);
+        expect(Date.parse(resetsAt)).toBeGreaterThan(Date.now());
+        expect(Date.parse(resetsAt) - Date.now()).toBeLessThanOrEqual(24 * 3_600_000);
+      });
+
       it("lets go of the key when the last one is spent", async () => {
         const { config } = await setup();
         const registry = new SessionRegistry({ ...config } as any);
