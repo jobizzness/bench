@@ -367,6 +367,46 @@ export function activityLine(event: ClaudeEvent): string | null {
 }
 
 /**
+ * The tools that change a file on disk. `Read` is deliberately absent: an
+ * editor that opened every file an agent looked at would spend a grep of the
+ * codebase fighting the developer for the screen.
+ */
+const WRITING_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
+
+/** A file a specialist has just written, named in full. */
+export interface FileTouch {
+  tool: string;
+  /** Absolute, as the agent gave it - this is what an editor opens. */
+  path: string;
+}
+
+/**
+ * The same tool call `activityLine` reads, kept whole.
+ *
+ * `activityLine` exists to fit a phone's roster row, so it runs the path
+ * through `shortPath` and the real one is gone. Nothing could act on it.
+ * This is the other reading of the identical event: what changed, at a path
+ * something else can open.
+ *
+ * Writes made through the shell - `sed -i`, a `>` redirect - carry no path in
+ * their input and are invisible here. Parsing one out of a command line would
+ * open the wrong file more often than the right one.
+ */
+export function fileTouch(event: ClaudeEvent): FileTouch | null {
+  if (event.type !== "assistant") return null;
+  const content = (event as AssistantEvent).message?.content ?? [];
+  for (const block of content) {
+    if (block.type !== "tool_use" || !block.name) continue;
+    if (!WRITING_TOOLS.has(block.name)) return null;
+
+    const input = (block as { input?: Record<string, unknown> }).input;
+    const path = input?.file_path ?? input?.notebook_path;
+    return typeof path === "string" && path !== "" ? { tool: block.name, path } : null;
+  }
+  return null;
+}
+
+/**
  * The turn's final assistant text. Taken from the result event rather than
  * accumulated from streamed blocks: the thread only shows a reply once the
  * turn ends, so streaming buys nothing.

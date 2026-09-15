@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   LineDecoder, userMessageLine, isResultEvent, activityLine, replyText, contextFrom,
-  generationIdFrom, answeringModelFrom,
+  generationIdFrom, answeringModelFrom, fileTouch,
 } from "./stream-codec.js";
 import type { Context } from "../shared/context-window.js";
 import type { Attachment } from "../shared/types.js";
@@ -480,6 +480,11 @@ export class ClaudeSession extends EventEmitter implements Session {
     for (const event of this.decoder.push(chunk)) {
       const line = activityLine(event);
       if (line) this.emit("activity", line);
+
+      // The same tool call read a second way, kept whole. The trail above is
+      // trimmed to fit a phone; an editor needs the path itself.
+      const touch = fileTouch(event);
+      if (touch) this.emit("edit", touch);
 
       // Which OpenRouter requests answered this turn, and what actually
       // answered them. Sets, because one API request produces several

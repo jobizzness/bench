@@ -26,10 +26,10 @@ import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./
 import { describeOrigin, type Origin } from "./env-file.js";
 import { writeParked } from "./key-park.js";
 import { isModelId, modelLabel } from "../shared/models.js";
-import type { AttachmentRef, RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
+import type { AttachmentRef, EditEvent, RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
 import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
 import { costFrom, shapeFrom } from "./stream-codec.js";
-import type { ResultEvent } from "./stream-codec.js";
+import type { FileTouch, ResultEvent } from "./stream-codec.js";
 import { TurnLog } from "./turns.js";
 import { Ledger, type Total } from "./ledger.js";
 import { nudgeFor, type NudgeState } from "../shared/nudge.js";
@@ -964,6 +964,23 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       }
       this.update(id, "working", line);
     });
+
+    // Not held on the row: an edit is a moment, not state. Anything that
+    // wants it is listening now, and a page that reloads has missed it -
+    // which is right, because the file it would have opened is already open.
+    session.on("edit", (touch: FileTouch) => {
+      const current = this.entries.get(id);
+      if (!current) return;
+      this.emit("edit", {
+        id,
+        label: current.row.label,
+        project: current.row.project,
+        tool: touch.tool,
+        path: touch.path,
+        at: new Date().toISOString(),
+      } satisfies EditEvent);
+    });
+
     session.on("exit", (code: number | null, stderr: string) => {
       const entry = this.entries.get(id);
       if (entry) {

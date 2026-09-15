@@ -4,6 +4,7 @@ import {
   userMessageLine,
   isResultEvent,
   activityLine,
+  fileTouch,
   replyText,
   generationIdFrom,
   answeringModelFrom,
@@ -142,6 +143,79 @@ describe("activityLine", () => {
 
   it("returns null for events with nothing worth showing", () => {
     expect(activityLine({ type: "system", subtype: "thinking_tokens" })).toBeNull();
+  });
+});
+
+describe("fileTouch", () => {
+  it("keeps the whole path, where the roster trail keeps only the tail", () => {
+    const event = toolUse("Edit", { file_path: "/var/www/bench/src/daemon/registry.ts" });
+    // The same event, two readings: one to show a phone, one to open an editor.
+    expect(activityLine(event)).toBe("Edit src/daemon/registry.ts");
+    expect(fileTouch(event)).toEqual({
+      tool: "Edit",
+      path: "/var/www/bench/src/daemon/registry.ts",
+    });
+  });
+
+  it("reports a Write", () => {
+    expect(fileTouch(toolUse("Write", { file_path: "/tmp/new.ts" })))
+      .toEqual({ tool: "Write", path: "/tmp/new.ts" });
+  });
+
+  it("reports a MultiEdit", () => {
+    expect(fileTouch(toolUse("MultiEdit", { file_path: "/tmp/many.ts" })))
+      .toEqual({ tool: "MultiEdit", path: "/tmp/many.ts" });
+  });
+
+  it("reads a notebook from its own field", () => {
+    expect(fileTouch(toolUse("NotebookEdit", { notebook_path: "/tmp/book.ipynb" })))
+      .toEqual({ tool: "NotebookEdit", path: "/tmp/book.ipynb" });
+  });
+
+  /**
+   * The whole point of the event is "this file changed". A Read that opened
+   * an editor would make every grep of the codebase a fight for the screen.
+   */
+  it("ignores a tool that only looks at a file", () => {
+    expect(fileTouch(toolUse("Read", { file_path: "/var/www/bench/README.md" }))).toBeNull();
+  });
+
+  it("ignores a search", () => {
+    expect(fileTouch(toolUse("Grep", { pattern: "evaluateStop" }))).toBeNull();
+    expect(fileTouch(toolUse("Glob", { pattern: "**/*.ts" }))).toBeNull();
+  });
+
+  /**
+   * `sed -i` and `>` redirects really do change files, and are invisible here.
+   * Guessing at a path inside a shell command would open the wrong file more
+   * often than the right one - see docs/specs/2026-09-15-editor-follow.md.
+   */
+  it("ignores a shell command, even one that clearly writes a file", () => {
+    expect(fileTouch(toolUse("Bash", { command: "sed -i s/a/b/ /tmp/x.ts" }))).toBeNull();
+  });
+
+  it("returns null when an edit carries no path at all", () => {
+    expect(fileTouch(toolUse("Edit"))).toBeNull();
+  });
+
+  it("returns null for an event that is not a tool call", () => {
+    expect(fileTouch({ type: "system", subtype: "thinking_tokens" })).toBeNull();
+  });
+
+  /**
+   * An assistant turn can narrate before it acts; the tool_use block is not
+   * always first.
+   */
+  it("finds the edit behind a block of text", () => {
+    expect(fileTouch({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "text", text: "Fixing the registry now." },
+          { type: "tool_use", name: "Edit", input: { file_path: "/tmp/a.ts" } },
+        ],
+      },
+    })).toEqual({ tool: "Edit", path: "/tmp/a.ts" });
   });
 });
 

@@ -292,7 +292,9 @@ it reachable from the Windows browser with no extra plumbing.
 
 - `GET /` — the cockpit UI
 - `GET /r/<session>/<seq>/*` — report assets
-- `WS /events` — roster state, agent status transitions, decision prompts
+- `WS /events` — roster state, agent status transitions, decision prompts, and
+  `{ type: "edit" }` for each file a specialist writes
+  (see `docs/specs/2026-09-15-editor-follow.md`)
 - `POST /sessions` — create a Specialist (project, task, label, model)
 - `POST /sessions/<id>/answer` — deliver a decision
 - `POST /sessions/<id>/stop` — kill an agent

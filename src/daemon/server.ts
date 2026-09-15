@@ -27,7 +27,7 @@ import { DEFAULT_MODEL, isProxied } from "../shared/models.js";
 import { cockpitOrigins, isLoopback } from "./urls.js";
 import type { RemoteControllerLike } from "./remote/controller.js";
 import { REMOTE_OFF as REMOTE_OFF_STATE } from "../shared/remote.js";
-import type { IntakeAnswer, RosterRow, StoredAttachment } from "../shared/types.js";
+import type { EditEvent, IntakeAnswer, RosterRow, StoredAttachment } from "../shared/types.js";
 import {
   attachmentPath, attachmentProblem, mediaTypeForName, readAttachments, storeAttachments,
   MAX_BODY_BYTES,
@@ -80,6 +80,9 @@ export interface SessionRegistryLike {
   /** Discard a tab's held first message. */
   decline(id: string): void;
   on(event: "roster", listener: () => void): unknown;
+  /** A file a specialist has just written. Pushed to whoever is listening and
+   * never replayed - see `EditEvent`. */
+  on(event: "edit", listener: (edit: EditEvent) => void): unknown;
 }
 
 const CLIENT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "client");
@@ -1204,8 +1207,18 @@ export function createServer(opts: {
     const send = () => socket.send(JSON.stringify({ type: "roster", rows: registry.list() }));
     send();
     registry.on("roster", send);
+
+    // Fire-and-forget, unlike the roster: there is no snapshot to send on
+    // connect, because an edit that has already happened is a file already
+    // written. Consumers that do not know the type ignore it - the cockpit
+    // matches on "roster" and drops everything else.
+    const sendEdit = (edit: EditEvent) => socket.send(JSON.stringify({ type: "edit", ...edit }));
+    registry.on("edit", sendEdit);
+
     socket.on("close", () => {
-      (registry as unknown as { off(e: string, l: () => void): void }).off?.("roster", send);
+      const bus = registry as unknown as { off(e: string, l: (...args: any[]) => void): void };
+      bus.off?.("roster", send);
+      bus.off?.("edit", sendEdit);
     });
   });
 

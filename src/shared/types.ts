@@ -13,6 +13,28 @@ export type SessionStatus =
   | "crashed"
   | "done";
 
+/**
+ * A file a specialist has just written, pushed down `/events` as it happens.
+ *
+ * Unlike the roster this is not state: it is sent once, to whoever is
+ * connected at the time, and never replayed. An editor following along wants
+ * the moment; a page that reconnects has not missed anything it could act on.
+ *
+ * The path is absolute and belongs to the machine the daemon runs on, which
+ * is why these are never mirrored to another machine's cockpit.
+ */
+export interface EditEvent {
+  /** The specialist that wrote it. */
+  id: string;
+  label: string;
+  /** The repo it belongs to - not the worktree, which is inside it. */
+  project: string;
+  /** `Edit`, `MultiEdit`, `Write` or `NotebookEdit`. */
+  tool: string;
+  path: string;
+  at: string;
+}
+
 export interface RosterRow {
   id: string;
   label: string;
