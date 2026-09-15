@@ -12,12 +12,54 @@
   "main": "./out/extension.js",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "bench",
+          "title": "Bench",
+          "icon": "media/bench.svg"
+        }
+      ]
+    },
+    "views": {
+      "bench": [
+        {
+          "id": "bench.specialists",
+          "name": "Specialists",
+          "contextualTitle": "Bench"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "bench.toggleFollow",
         "title": "Bench: Pause or resume following edits"
+      },
+      {
+        "command": "bench.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "bench.openDiff",
+        "title": "Bench: Open changes for this file"
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "bench.refresh",
+          "when": "view == bench.specialists",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "bench.openDiff",
+          "when": "false"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "tsc -p .",

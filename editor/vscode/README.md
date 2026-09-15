@@ -12,6 +12,20 @@ the window you type in: this is made for a second monitor. Click the status-bar
 item, or run **Bench: Pause or resume following edits**, to pause it without
 disconnecting.
 
+## The sidebar
+
+A Bench view in the activity bar lists every specialist working on this
+window's projects, and what each has changed since its branch started. Click a
+file to see the diff.
+
+The view carries a badge: how many specialists are waiting on a decision from
+you, counting only projects this window has open. It counts a specialist as
+waiting when it has written a report nobody has answered — not merely when it
+has finished a turn.
+
+Committed and uncommitted work both show. A file still only on disk says so,
+because that is the work that could still be lost.
+
 ## Installing
 
 ```bash

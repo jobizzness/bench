@@ -53,6 +53,10 @@ subagents, web search. Bench supervises it; it does not replace it.
   each file a specialist writes — including one inside its worktree, which
   lives under the folder you already have open. It takes focus every time, so
   it is made for a second monitor; the status bar pauses it.
+- **And read what they wrote.** The extension's sidebar lists every specialist
+  on the project with the files it has changed since its branch started,
+  committed or not, each opening as a diff. It badges how many are waiting on
+  a decision from you.
 - **Any model, not only Claude's.** Anthropic's aliases go straight to
   Anthropic on the login you already have. Everything else goes through an
   OpenRouter key you supply, and is billed there. The picker offers the models

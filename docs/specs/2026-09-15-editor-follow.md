@@ -67,16 +67,78 @@ for the sake of a thing most checkouts will never build.
 
 | File | Does |
 |---|---|
-| `endpoint.ts` | `BENCH_HOME ?? ~/.bench` for the token, `BENCH_PORT ?? 7420` for the socket |
+| `endpoint.ts` | `BENCH_HOME ?? ~/.bench` for the token, `BENCH_PORT ?? 7420` for both the socket and the HTTP routes |
 | `inside.ts` | whether a path is inside a folder this window has open |
 | `follow.ts` | holds the socket, reconnects, pauses |
 | `retry.ts` | opens a file that may not exist for another moment |
+| `roster.ts` | who is waiting, and which specialists this window can speak for |
+| `changes.ts` | reads the daemon's changes and blob routes |
+| `tree.ts` | the sidebar's tree provider |
+| `diff.ts` | the left-hand side of a diff, and opening one |
 | `status.ts` | the status-bar item |
 | `extension.ts` | the VS Code glue, and nothing else |
 
-Everything but `status.ts` and `extension.ts` is free of any `vscode` import,
-which is what lets `tests/editor-follow*.test.ts` and
-`tests/editor-open-retry.test.ts` run in Bench's own suite.
+`status.ts`, `tree.ts`, `diff.ts` and `extension.ts` import `vscode`. Nothing
+else does, which is what lets `tests/editor-*.test.ts` run in Bench's own
+suite — including the reconnect behaviour, against a real socket server.
+
+## The sidebar
+
+*Issue [#128](https://github.com/jobizzness/bench/issues/128).*
+
+An activity-bar view listing every specialist on this window's projects, each
+expanding to the files it has changed. Clicking one opens a git-style diff.
+
+**Children are fetched per specialist, not up front.** A bench of six would
+otherwise mean six `git status` runs on every roster push, and the roster
+pushes on every tool call.
+
+**The badge** counts specialists waiting on the developer, in this window's
+projects only — `roster.ts`, a copy of the cockpit's `isWaiting`. The rule is
+not "the status says `awaiting_decision`": a specialist that answered a
+question and wrote no report has that status too, so the status alone would
+badge every idle tab on the bench. Zero waiting sets the badge to `undefined`
+rather than `0`, which is how VS Code is told there is nothing to say.
+
+**Rows from other machines are excluded** along with other projects. Their
+paths mean nothing here and the local daemon cannot serve their diffs.
+
+### Two routes, not one
+
+| | |
+|---|---|
+| `GET /api/sessions/:id/changes` | `{ base, root, files[] }` — asked often, small |
+| `GET /api/sessions/:id/blob?path=` | one file at `base` — asked only when a diff opens |
+
+`root` travels with the files because the paths are relative to it. Nothing
+outside the daemon reconstructs a worktree path from a label and an id.
+
+The blob route refuses an absolute path or one containing `..`. git would
+refuse to resolve outside the repository anyway, but a route handing user
+input to a shell should not lean on that alone.
+
+### What "since the branch started" means
+
+`changedFiles()` in `worktree.ts` measures from the merge base with whatever
+the developer has checked out, because that is what `createWorktree` branched
+from. Committed work comes from `git diff --name-status <base> HEAD`,
+uncommitted from `git status --porcelain`, and **uncommitted wins** where a
+file appears in both — it is the state on disk, and the one the developer can
+still do something about.
+
+A specialist working in the checkout itself shares the developer's branch, so
+its base is its own HEAD and only uncommitted work shows. That is right: its
+commits are the developer's commits.
+
+The alternative — diffing against the branch's own HEAD — was rejected because
+specialists commit as they work, so the list would empty itself exactly when
+there is most to look at.
+
+**Bench's own leavings never appear.** `changedFiles` reuses
+`isBootstrapLeftover`, the same filter `inspectWorktree` uses: the symlinked
+`node_modules`, a regenerated lockfile, `.bench/`, `.claude/`. Without it every
+worktree looks entirely rewritten, because `node_modules` is a symlink into the
+developer's checkout.
 
 ### Why a worktree needs no second window
 

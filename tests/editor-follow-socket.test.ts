@@ -59,7 +59,7 @@ describe("following a daemon's edits", () => {
     await d.close();
   });
 
-  it("ignores the roster it is not there for", async () => {
+  it("never opens a file because of a roster frame", async () => {
     const d = await daemon();
     const { f, opened } = follower(d.url);
     f.start();
@@ -71,6 +71,55 @@ describe("following a daemon's edits", () => {
     await waitFor(() => opened.length || null, "the file to be opened");
     // One open, from the edit - the roster produced nothing.
     expect(opened).toEqual(["/var/www/bench/src/x.ts"]);
+    await d.close();
+  });
+
+  /**
+   * The same socket carries the roster, which is where the badge and the
+   * sidebar's list of specialists come from (#128). One connection, two
+   * readers - not a second socket for a second feature.
+   */
+  it("hands the roster to whoever asked for it", async () => {
+    const d = await daemon();
+    const rosters: unknown[][] = [];
+    const f = new EditFollower({
+      url: () => d.url,
+      open: () => {},
+      onState: () => {},
+      onRoster: (rows) => rosters.push(rows),
+      retryMs: 20,
+    });
+    stop = () => f.stop();
+    f.start();
+
+    await waitFor(() => d.sockets.length || null, "the follower to connect");
+    d.sockets[0].send(JSON.stringify({ type: "roster", rows: [{ id: "s1", label: "auth" }] }));
+
+    await waitFor(() => rosters.length || null, "the roster to arrive");
+    expect(rosters[0]).toEqual([{ id: "s1", label: "auth" }]);
+    await d.close();
+  });
+
+  /** Pausing is about files opening, not about going blind. */
+  it("keeps reporting the roster while paused", async () => {
+    const d = await daemon();
+    const rosters: unknown[][] = [];
+    const f = new EditFollower({
+      url: () => d.url,
+      open: () => {},
+      onState: () => {},
+      onRoster: (rows) => rosters.push(rows),
+      retryMs: 20,
+    });
+    stop = () => f.stop();
+    f.start();
+
+    await waitFor(() => d.sockets.length || null, "the follower to connect");
+    f.following = false;
+    d.sockets[0].send(JSON.stringify({ type: "roster", rows: [{ id: "s1" }] }));
+
+    await waitFor(() => rosters.length || null, "the roster to arrive anyway");
+    expect(rosters).toHaveLength(1);
     await d.close();
   });
 

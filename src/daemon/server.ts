@@ -22,6 +22,7 @@ import type { Credit } from "../shared/credit.js";
 import type { Total } from "./ledger.js";
 import { fetchUsage, usageSource, type Usage } from "./usage.js";
 import { RefIndex } from "./refs.js";
+import type { SessionChanges } from "./worktree.js";
 import { reviewBrief, reviewLabel } from "./review.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { DEFAULT_MODEL, isProxied } from "../shared/models.js";
@@ -62,6 +63,12 @@ export interface SessionRegistryLike {
     reportsDir: string; threadPath: string; alive: boolean; revivable: boolean; model: string;
   } | null;
   send(id: string, text: string, from?: string, images?: StoredAttachment[]): void;
+  /** What a specialist has changed since its branch started, and the commit
+   * that was - see #128. Null when there is no such session. */
+  changes(id: string): Promise<SessionChanges | null>;
+  /** One of those files as it was at that commit. Null when it cannot be
+   * read, which includes a path this refuses to resolve. */
+  baseBlob(id: string, path: string): Promise<string | null>;
   close(id: string, opts?: { force?: boolean }): Promise<{ closed: boolean; changes: number; unmergedCommits: number }>;
   stop(id: string): void;
   clearContext(id: string): boolean;
@@ -1011,6 +1018,30 @@ export function createServer(opts: {
       const session = registry.get(plan[1]);
       if (!session) { json(res, 404, { error: "no such session" }); return; }
       json(res, 200, { steps: await readPlan(session.reportsDir) });
+      return;
+    }
+
+    // What a specialist has changed, for the editor's sidebar (#128). Two
+    // routes rather than one: the list is asked for often and is small, the
+    // blobs are asked for only when a diff is opened.
+    const changes = path.match(/^\/api\/sessions\/([^/]+)\/changes$/);
+    if (changes && req.method === "GET") {
+      const state = await registry.changes(changes[1]);
+      if (state === null) { json(res, 404, { error: "no such session" }); return; }
+      json(res, 200, state);
+      return;
+    }
+
+    const blob = path.match(/^\/api\/sessions\/([^/]+)\/blob$/);
+    if (blob && req.method === "GET") {
+      const wanted = url.searchParams.get("path");
+      if (wanted === null) { json(res, 400, { error: "path is required" }); return; }
+
+      const content = await registry.baseBlob(blob[1], wanted);
+      // Null covers both "no such session" and "that is not a file we will
+      // read" - the second deliberately says no more than the first.
+      if (content === null) { json(res, 404, { error: "not available" }); return; }
+      json(res, 200, { content });
       return;
     }
 

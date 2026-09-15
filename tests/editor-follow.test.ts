@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tokenPath, eventsUrl } from "../editor/vscode/src/endpoint.js";
+import { tokenPath, eventsUrl, apiBase } from "../editor/vscode/src/endpoint.js";
 import { insideWorkspace } from "../editor/vscode/src/inside.js";
 
 /**
@@ -86,5 +86,17 @@ describe("deciding whether a path is ours to open", () => {
 
   it("refuses a relative path, having nothing to resolve it against", () => {
     expect(insideWorkspace("src/x.ts", ["/var/www/bench"])).toBe(false);
+  });
+});
+
+describe("reaching the daemon's HTTP routes", () => {
+  it("uses the same port as the socket", () => {
+    expect(apiBase({})).toBe("http://127.0.0.1:7420");
+    expect(apiBase({ BENCH_PORT: "9001" })).toBe("http://127.0.0.1:9001");
+  });
+
+  it("stays on loopback, like the socket does", () => {
+    expect(apiBase({ BENCH_HOST: "0.0.0.0" } as Record<string, string>))
+      .toBe("http://127.0.0.1:7420");
   });
 });

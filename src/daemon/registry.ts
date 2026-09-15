@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { loadConfig } from "./config.js";
 import { createServer, type SessionRegistryLike } from "./server.js";
-import { createWorktree, currentBranch, excludeBenchDir, inspectWorktree, removeWorktree } from "./worktree.js";
+import {
+  changedFiles, createWorktree, currentBranch, excludeBenchDir, fileAtCommit, inspectWorktree,
+  removeWorktree, type SessionChanges,
+} from "./worktree.js";
 import { bootstrapWorktree, BootstrapError } from "./bootstrap.js";
 import { ClaudeSession } from "./claude-session.js";
 import { DevinSession } from "./devin-session.js";
@@ -766,6 +769,40 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   list(): RosterRow[] {
     return [...this.entries.values()].map((e) => e.row);
+  }
+
+  /**
+   * What a specialist has changed since its branch started, for the editor's
+   * sidebar (#128).
+   *
+   * A specialist working in the checkout itself has no worktree of its own,
+   * so it is asked about the project directory - where its uncommitted work
+   * genuinely is.
+   */
+  async changes(id: string): Promise<SessionChanges | null> {
+    const entry = this.entries.get(id);
+    if (!entry) return null;
+    const root = this.treeOf(entry);
+    // The root travels with the files because the paths are relative to it,
+    // and nothing outside the daemon should be reconstructing a worktree
+    // path from a label and an id.
+    return { ...await changedFiles(entry.row.project, root, entry.branch), root };
+  }
+
+  /**
+   * One of those files as it was before the specialist touched it. The other
+   * side of the diff is the file on disk, which an editor can open itself.
+   */
+  async baseBlob(id: string, path: string): Promise<string | null> {
+    const entry = this.entries.get(id);
+    if (!entry) return null;
+    const { base } = await changedFiles(entry.row.project, this.treeOf(entry), entry.branch);
+    if (base === null) return null;
+    return fileAtCommit(this.treeOf(entry), base, path);
+  }
+
+  private treeOf(entry: Entry): string {
+    return entry.worktree === "" ? entry.row.project : entry.worktree;
   }
 
   get(id: string): {

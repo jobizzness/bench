@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Bench">
+  <title>Bench</title>
+  <!-- Bench's own mark, in one colour: VS Code recolours an activity-bar
+       icon to match the theme, so the two-tone original would lose the
+       distinction anyway and come out muddy. -->
+  <g fill="currentColor">
+    <rect x="2.4" y="16.4" width="19.2" height="2.6" rx="1.3"/>
+    <rect x="4.6" y="11.4" width="2.4" height="5" rx="1.2"/>
+    <rect x="12.6" y="11.4" width="2.4" height="5" rx="1.2"/>
+    <rect x="16.6" y="11.4" width="2.4" height="5" rx="1.2"/>
+    <!-- The one standing, and the only one with a head - what stops it
+         reading as a bar chart at 16px. -->
+    <rect x="8.6" y="7.4" width="2.4" height="9" rx="1.2"/>
+    <circle cx="9.8" cy="4.5" r="1.75"/>
+  </g>
+</svg>

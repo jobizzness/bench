@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import type { EditEvent } from "./types.js";
+import type { EditEvent, RosterRow } from "./types.js";
 
 /** What the status bar has to say about the daemon. */
 export type FollowState = "connecting" | "live" | "offline" | "no-token";
@@ -10,6 +10,9 @@ export interface FollowOptions {
   url: () => string | null;
   open: (edit: EditEvent) => void;
   onState: (state: FollowState) => void;
+  /** The roster, as the daemon pushes it. The badge and the sidebar read it
+   * from here rather than opening a second socket for it. */
+  onRoster?: (rows: RosterRow[]) => void;
   retryMs?: number;
 }
 
@@ -89,6 +92,13 @@ export class EditFollower {
     } catch {
       // The roster is the only other thing on this socket and it is large; a
       // frame we cannot read is not worth taking the extension host down for.
+      return;
+    }
+
+    if (frame.type === "roster") {
+      // Not gated on `following`: pausing is about files opening, not about
+      // the sidebar going blind.
+      this.options.onRoster?.((frame as { rows?: RosterRow[] }).rows ?? []);
       return;
     }
 

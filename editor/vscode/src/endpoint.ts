@@ -29,6 +29,15 @@ export function tokenPath(env: BenchEnv, homeDir: string): string {
  * that port is reaching a shell, so the extension only ever talks to itself.
  */
 export function eventsUrl(env: BenchEnv, token: string): string {
-  const port = env.BENCH_PORT ?? DEFAULT_PORT;
-  return `ws://127.0.0.1:${port}/events?token=${encodeURIComponent(token)}`;
+  return `${host(env, "ws")}/events?token=${encodeURIComponent(token)}`;
+}
+
+/** Where the daemon's HTTP routes are, for the sidebar's diffs. Same port,
+ * same loopback rule. */
+export function apiBase(env: BenchEnv): string {
+  return host(env, "http");
+}
+
+function host(env: BenchEnv, scheme: "ws" | "http"): string {
+  return `${scheme}://127.0.0.1:${env.BENCH_PORT ?? DEFAULT_PORT}`;
 }
