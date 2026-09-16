@@ -219,7 +219,7 @@ describe("the model picker", () => {
     // that refused to open would be refusing over something that does not
     // affect them.
     await openPicker({ ...one, models: "unreachable" });
-    expect(ui.$$("#model-dialog .model-option").length).toBe(4);
+    expect(ui.$$("#model-dialog [data-house='anthropic'] .model-option").length).toBe(4);
     expect(ui.$("#model-dialog-error")!.textContent).toContain("Anthropic's models still work");
   });
 
@@ -227,7 +227,7 @@ describe("the model picker", () => {
     // Devin has no vendor prefix and is not in the OpenRouter catalogue.
     // It must appear in a dedicated section, not inside the catalogue list.
     await openPicker({ ...one, models: [] });
-    const section = ui.$("[data-house='devin']");
+    const section = ui.$("#model-dialog [data-house='devin']");
     expect(section).not.toBe(null);
     const button = section!.querySelector("[data-model='devin']");
     expect(button).not.toBe(null);
@@ -238,7 +238,7 @@ describe("the model picker", () => {
   it("can pick Devin without an OpenRouter key", async () => {
     // Devin is a local runtime. Picking it must not require any key.
     await openPicker({ ...one, models: [] });
-    await ui.click(ui.$("[data-model='devin']"));
+    await ui.click(ui.$("#model-dialog [data-model='devin']"));
     const posted = ui.sent.find((s) => s.url.includes("/model"));
     expect(posted!.body).toEqual({ model: "devin" });
   });
