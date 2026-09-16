@@ -13,6 +13,9 @@ let carry = "";
 let prompts = 0;
 let initialized = false;
 let setup = null;
+let promptRequestId = null;
+let pendingPermissionId = null;
+let pendingUnknownId = null;
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
 process.stdin.on("data", (chunk) => {
   carry += chunk.toString();
@@ -21,6 +24,19 @@ process.stdin.on("data", (chunk) => {
   for (const line of lines) {
     if (!line.trim()) continue;
     const request = JSON.parse(line);
+    if (request.method === undefined) {
+      // A response to something we (the fake agent) asked the client.
+      if (request.id === pendingPermissionId) {
+        pendingPermissionId = null;
+        send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "permission=" + JSON.stringify(request.result) } } } });
+        send({ jsonrpc: "2.0", id: promptRequestId, result: { stopReason: "end_turn" } });
+      } else if (request.id === pendingUnknownId) {
+        pendingUnknownId = null;
+        send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "error=" + JSON.stringify(request.error) } } } });
+        send({ jsonrpc: "2.0", id: promptRequestId, result: { stopReason: "end_turn" } });
+      }
+      continue;
+    }
     if (request.method === "initialize") {
       initialized = request.params.protocolVersion === 1 && request.params.clientInfo.name === "bench";
       send({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true }, authMethods: [] } });
@@ -32,10 +48,28 @@ process.stdin.on("data", (chunk) => {
       send({ jsonrpc: "2.0", id: request.id, result: null });
     } else if (request.method === "session/prompt") {
       prompts += 1;
+      promptRequestId = request.id;
       const text = request.params.prompt.find((block) => block.type === "text").text;
       if (mode === "die") {
         process.stderr.write("ACP child died during prompt\\n");
         process.exit(7);
+      }
+      if (mode === "silent") {
+        // Accepts the prompt and never says another word - the #116 repro.
+        continue;
+      }
+      if (mode === "permission") {
+        pendingPermissionId = 555;
+        send({ jsonrpc: "2.0", id: pendingPermissionId, method: "session/request_permission", params: { sessionId: "devin-session", options: [
+          { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          { optionId: "allow-once", name: "Allow", kind: "allow_once" },
+        ] } });
+        continue;
+      }
+      if (mode === "unknown-request") {
+        pendingUnknownId = 777;
+        send({ jsonrpc: "2.0", id: pendingUnknownId, method: "fs/read_text_file", params: { path: "/tmp/x" } });
+        continue;
       }
       const answer = mode === "inspect"
         ? JSON.stringify({ initialized, setup, cwd: process.cwd(), text })
@@ -309,6 +343,33 @@ describe("DevinSession", () => {
     const [code, stderr] = await exited;
     expect(code).toBe(7);
     expect(stderr).toContain("ACP child died during prompt");
+  });
+
+  it("declares a turn stalled after silence since the agent's last message, not after total turn duration (#116)", async () => {
+    const session = await makeSession("silent", { stallTimeoutMs: 80 });
+    const exited = once(session, "exit");
+    session.open();
+    session.send("work");
+    const [code, stderr] = await exited;
+    expect(code).toBeNull();
+    expect(stderr).toMatch(/went silent.*stalled/i);
+  });
+
+  it("answers session/request_permission instead of dropping it (#116)", async () => {
+    const session = await makeSession("permission");
+    session.open();
+    const result = await turn(session, "work");
+    expect(result.result).toContain('"outcome":"selected"');
+    expect(result.result).toContain('"optionId":"allow-once"');
+    session.stop();
+  });
+
+  it("answers an unrecognized inbound request with a JSON-RPC error instead of silence (#116)", async () => {
+    const session = await makeSession("unknown-request");
+    session.open();
+    const result = await turn(session, "work");
+    expect(result.result).toContain('"code":-32601');
+    session.stop();
   });
 
   it("uses byte-identical turn framing to ClaudeSession", async () => {

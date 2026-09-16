@@ -13,6 +13,17 @@ const STDERR_KEPT = 4000;
 const CLEAN_STOP_REASONS = new Set(["end_turn"]);
 
 /**
+ * How long a running turn may go without a single message from the agent -
+ * a `session/update` of any kind, an inbound request, anything on the wire -
+ * before it is declared stalled (#116). Keyed on silence since the agent's
+ * last word, not on the turn's total duration: driving the real binary
+ * showed `usage_update` alone arriving once at turn start and again at every
+ * tool-call boundary, so a live turn keeps talking and a flat deadline would
+ * only end up punishing a long but healthy one.
+ */
+const DEFAULT_STALL_TIMEOUT_MS = 60_000;
+
+/**
  * Read the Windsurf/Devin API key that `devin auth login` stores on disk.
  * The real `devin acp` process ignores local CLI credentials in ACP mode and
  * requires the host to call `authenticate` — this is what we pass there.
@@ -49,6 +60,8 @@ export interface DevinSessionOptions {
   onSessionId?: (sessionId: string) => void | Promise<void>;
   rules?: () => string;
   nudge?: () => string;
+  /** Overrides `DEFAULT_STALL_TIMEOUT_MS`. Only ever set by tests. */
+  stallTimeoutMs?: number;
 }
 
 interface Prompt {
@@ -196,11 +209,18 @@ export class DevinSession extends EventEmitter implements Session {
    * `this.context.used` is set from this turn's own notifications.
    */
   private turnStartUsed: number | null = null;
+  /** The last moment any message - notification, inbound request, or
+   * response - arrived from the agent while a turn was running. Armed by
+   * `beginTurn`, read by `checkStall`. `null` when no turn is running. */
+  private lastMessageAt: number | null = null;
+  private stallCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly stallTimeoutMs: number;
 
   constructor(private readonly opts: DevinSessionOptions) {
     super();
     this.turnCount = opts.startTurn ?? 0;
     this.firstPrompt = opts.resumeSessionId === undefined;
+    this.stallTimeoutMs = opts.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS;
   }
 
   get turnStartedAt(): string | null {
@@ -256,6 +276,7 @@ export class DevinSession extends EventEmitter implements Session {
     });
     this.child.stdin.on("error", () => {});
     this.child.on("close", (code) => {
+      this.disarmStallWatchdog();
       this.child = null;
       this.ready = false;
       this.emit("exit", code, this.lastStderr.trim());
@@ -310,8 +331,25 @@ export class DevinSession extends EventEmitter implements Session {
   }
 
   private handle(message: RpcMessage): void {
-    if (message.method === "session/update") {
-      this.update(message.params?.update);
+    // Any word from the agent counts as evidence the turn is alive - reset
+    // the silence clock before doing anything else with the message. Only
+    // meaningful while a turn is actually running; harmless no-op otherwise.
+    if (this.running) this.lastMessageAt = Date.now();
+
+    // `method` is what tells a notification or an agent-initiated request
+    // apart from a response to one of *our* requests - a response never
+    // carries one. Checking it first, rather than falling through to the
+    // `message.id === this.xRequestId` chain below, is what #116 found
+    // missing: an inbound request's `id` is the agent's own counter, not
+    // ours, so it could only ever coincide with one of ours by chance - and
+    // when it didn't, the message matched nothing and was silently dropped,
+    // forever, with no response ever written back.
+    if (message.method !== undefined) {
+      if (message.method === "session/update") {
+        this.update(message.params?.update);
+        return;
+      }
+      if (message.id !== undefined) this.handleInboundRequest(message.id, message.method, message.params);
       return;
     }
     if (message.id === this.initializeRequestId) {
@@ -365,6 +403,71 @@ export class DevinSession extends EventEmitter implements Session {
       return;
     }
     if (message.id === this.promptRequestId) this.endTurn(message);
+  }
+
+  /**
+   * A JSON-RPC request from the agent to us, as opposed to a notification -
+   * it carries an `id` it expects an answer on. `session/request_permission`
+   * is the one confirmed real method in the binary's table (#116); the
+   * default session mode is `accept-edits`, so most edits never reach here,
+   * but anything that mode doesn't auto-approve will ask, and used to get no
+   * answer at all. Deciding Bench's permission *policy* is out of scope
+   * (#116) - this answers with whichever option the agent itself labelled
+   * as an "allow", so the reply agrees with the mode already in effect
+   * rather than picking a policy of its own. Anything else gets a
+   * `-32601 Method not found` so the agent fails fast instead of waiting on
+   * a reply that will never come.
+   */
+  private handleInboundRequest(id: number, method: string, params: Record<string, unknown> | undefined): void {
+    if (method === "session/request_permission") {
+      this.write({ jsonrpc: "2.0", id, result: { outcome: this.permissionOutcome(params) } });
+      return;
+    }
+    this.write({ jsonrpc: "2.0", id, error: { code: -32601, message: `Bench does not handle ${method}` } });
+  }
+
+  private permissionOutcome(params: Record<string, unknown> | undefined): { outcome: string; optionId?: string } {
+    const options = params?.options;
+    if (Array.isArray(options)) {
+      for (const option of options) {
+        if (!option || typeof option !== "object") continue;
+        const { kind, optionId } = option as Record<string, unknown>;
+        if (typeof kind === "string" && kind.startsWith("allow") && typeof optionId === "string") {
+          return { outcome: "selected", optionId };
+        }
+      }
+    }
+    // No allow option on offer, or a shape nothing here recognizes - a
+    // defined "no selection was made" outcome, not a guess at one.
+    return { outcome: "cancelled" };
+  }
+
+  private armStallWatchdog(): void {
+    this.disarmStallWatchdog();
+    this.lastMessageAt = Date.now();
+    // Checked well inside the timeout window rather than once at the
+    // deadline, so a short `stallTimeoutMs` in tests still resolves quickly.
+    const intervalMs = Math.max(25, Math.floor(this.stallTimeoutMs / 4));
+    this.stallCheckTimer = setInterval(() => this.checkStall(), intervalMs);
+    this.stallCheckTimer.unref?.();
+  }
+
+  private disarmStallWatchdog(): void {
+    if (this.stallCheckTimer) {
+      clearInterval(this.stallCheckTimer);
+      this.stallCheckTimer = null;
+    }
+  }
+
+  private checkStall(): void {
+    if (this.lastMessageAt === null) return;
+    if (Date.now() - this.lastMessageAt < this.stallTimeoutMs) return;
+    this.disarmStallWatchdog();
+    const seconds = Math.round(this.stallTimeoutMs / 1000);
+    this.lastStderr = (this.lastStderr
+      + `\nDevin ACP went silent for ${seconds}s mid-turn - no session/update, no result. Treating the turn as stalled.`
+    ).slice(-STDERR_KEPT);
+    this.stop();
   }
 
   private startSession(): void {
@@ -463,6 +566,7 @@ export class DevinSession extends EventEmitter implements Session {
     this.turnCount = turn;
     this.startedAt = Date.now();
     this.tokens = 0;
+    this.armStallWatchdog();
     // `this.context.used` is the last cumulative figure this instance has
     // actually seen - accurate as a baseline whether it came from this
     // turn's predecessor or an earlier one. Only genuinely unknown on a
@@ -497,6 +601,7 @@ export class DevinSession extends EventEmitter implements Session {
   }
 
   private endTurn(message: RpcMessage): void {
+    this.disarmStallWatchdog();
     const stopReason = typeof message.result?.stopReason === "string" ? message.result.stopReason : "error";
     const reply = this.reply;
     // The result's own cumulative count is authoritative over whatever
