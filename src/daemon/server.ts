@@ -26,6 +26,7 @@ import type { SessionChanges } from "./worktree.js";
 import { reviewBrief, reviewLabel } from "./review.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { DEFAULT_MODEL, isProxied } from "../shared/models.js";
+import { devinFamilies } from "./devin-models.js";
 import { cockpitOrigins, isLoopback } from "./urls.js";
 import type { RemoteControllerLike } from "./remote/controller.js";
 import { REMOTE_OFF as REMOTE_OFF_STATE } from "../shared/remote.js";
@@ -611,6 +612,16 @@ export function createServer(opts: {
         // empty list that looks like OpenRouter has nothing.
         json(res, 502, { error: error instanceof Error ? error.message : String(error) });
       }
+      return;
+    }
+
+    // Devin's own families (#114) - not cached at this layer, unlike
+    // `registry.catalogue()`: `devin models list` has been observed failing
+    // intermittently on this machine, and caching that failure would leave
+    // the picker showing none of them until the daemon restarts even after
+    // the CLI recovers.
+    if (path === "/api/devin/models" && req.method === "GET") {
+      json(res, 200, { families: await devinFamilies(config.devinBin) });
       return;
     }
 

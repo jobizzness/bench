@@ -148,4 +148,78 @@ describe("moving a specialist across a runtime boundary (#113)", () => {
     );
     expect((await store.all()).find((r) => r.id === id)!.resumable).toBe(true);
   });
+
+  it("keeps resumable moving between two Devin families (#114) — both still devin", async () => {
+    // devin:adaptive -> devin:opus is the move #114 exists to make possible.
+    // Both sides are the "devin" runtime, so this must read exactly like
+    // opus -> sonnet above: a change within a runtime, not a crossing.
+    const { registry, store, id } = await setup();
+    await registry.setModel(id, "devin:adaptive");
+    // `store` is a second SessionStore handle on the same file, its own
+    // write queue - it must not touch disk until the registry's internal
+    // store has actually finished the write `setModel` above only started.
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.model === "devin:adaptive" ? true : null),
+      "first model change written to disk",
+    );
+    await store.markResumable(id);
+    const entry = (registry as any).entries.get(id);
+    entry.resumable = true;
+    entry.runtimeSessionId = "devin-conversation-1";
+
+    await registry.setModel(id, "devin:opus");
+
+    expect(entry.resumable).toBe(true);
+    expect(entry.runtimeSessionId).toBe("devin-conversation-1");
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.model === "devin:opus" ? true : null),
+      "model written to disk",
+    );
+    expect((await store.all()).find((r) => r.id === id)!.resumable).toBe(true);
+  });
+
+  it("clears resumable moving from a Devin family to a Claude model", async () => {
+    const { registry, store, id } = await setup();
+    await registry.setModel(id, "devin:adaptive");
+    const entry = (registry as any).entries.get(id);
+    entry.resumable = true;
+    entry.runtimeSessionId = "devin-conversation-1";
+
+    await registry.setModel(id, "sonnet");
+
+    expect(entry.resumable).toBe(false);
+    expect(entry.runtimeSessionId).toBeUndefined();
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.resumable === false ? true : null),
+      "resumable cleared on disk",
+    );
+  });
+
+  it("keeps resumable moving from the bare account default onto a named family", async () => {
+    // Bare `devin` and `devin:adaptive` are both the "devin" runtime — moving
+    // between them is choosing a model within it, the same as opus -> sonnet,
+    // not the crossing #113 guards against.
+    const { registry, store, id } = await setup();
+    await registry.setModel(id, "devin");
+    // See the note in the previous test: `store` is a second write queue on
+    // the same file and must wait for the registry's own write to land.
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.model === "devin" ? true : null),
+      "first model change written to disk",
+    );
+    await store.markResumable(id);
+    const entry = (registry as any).entries.get(id);
+    entry.resumable = true;
+    entry.runtimeSessionId = "devin-conversation-1";
+
+    await registry.setModel(id, "devin:adaptive");
+
+    expect(entry.resumable).toBe(true);
+    expect(entry.runtimeSessionId).toBe("devin-conversation-1");
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.model === "devin:adaptive" ? true : null),
+      "model written to disk",
+    );
+    expect((await store.all()).find((r) => r.id === id)!.resumable).toBe(true);
+  });
 });

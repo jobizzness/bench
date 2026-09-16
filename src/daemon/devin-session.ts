@@ -55,6 +55,13 @@ export interface DevinSessionOptions {
    * without touching the filesystem.
    */
   devinApiKey?: string;
+  /**
+   * The family to run this session's turns on - `"adaptive"` from a
+   * `devin:adaptive` model id, already stripped of the `devin:` namespace by
+   * `devinFamilyOf` (#114). Absent for the bare account default, which is
+   * what an unset `DEVIN_MODEL` already means to `devin acp`.
+   */
+  model?: string;
   startTurn?: number;
   resumeSessionId?: string;
   onSessionId?: (sessionId: string) => void | Promise<void>;
@@ -155,6 +162,24 @@ function usageUpdateFrom(value: unknown): { used: number; size: number | null } 
   return { used, size: typeof size === "number" && Number.isFinite(size) ? size : null };
 }
 
+/**
+ * The `configOptions` block `session/new`/`session/load` hands the client
+ * unasked - 385 entries the picker deliberately never draws (#114), but
+ * among them is `{"id": "model", ..., "currentValue": "swe-2-high"}`,
+ * captured verbatim off the real binary, which is what this session has
+ * actually resolved to. Read once at setup rather than watched for changes:
+ * changing it live, via `session/set_config_option`, is a different ticket.
+ */
+function modelOptionValueFrom(configOptions: unknown): string | null {
+  if (!Array.isArray(configOptions)) return null;
+  for (const option of configOptions) {
+    if (!option || typeof option !== "object") continue;
+    const { id, currentValue } = option as Record<string, unknown>;
+    if (id === "model" && typeof currentValue === "string" && currentValue !== "") return currentValue;
+  }
+  return null;
+}
+
 function folded(prompts: Prompt[]): Prompt {
   if (prompts.length === 1) return prompts[0];
   const images = prompts.flatMap((prompt) => prompt.images);
@@ -215,6 +240,15 @@ export class DevinSession extends EventEmitter implements Session {
   private lastMessageAt: number | null = null;
   private stallCheckTimer: ReturnType<typeof setInterval> | null = null;
   private readonly stallTimeoutMs: number;
+  /**
+   * What this session actually resolved to, read off `session/new`'s or
+   * `session/load`'s own `configOptions` (#114) - the `{id: "model", ...,
+   * currentValue: "swe-2-high"}` entry, captured verbatim off the real
+   * binary. `null` until that result arrives, which is what keeps
+   * `turnAnsweredBy` empty for the one turn between `open()` and setup
+   * finishing.
+   */
+  private resolvedModel: string | null = null;
 
   constructor(private readonly opts: DevinSessionOptions) {
     super();
@@ -243,8 +277,16 @@ export class DevinSession extends EventEmitter implements Session {
   // cleared per turn: see `context` above for why.
   get contextUsed(): Context | null { return this.context; }
 
-  // These identify OpenRouter requests and have no meaning for Devin.
-  get turnAnsweredBy(): string[] { return []; }
+  // Reused from the OpenRouter auto-router's own field (registry.ts reads it
+  // the same way for both) to carry what this session actually resolved to -
+  // read off `session/new`/`session/load`'s own `configOptions` in
+  // `startSession`, not asked for or changed here (#114; live reconfiguration
+  // is out of scope). Empty until that arrives. Billing never reaches this:
+  // `registry.bill` prices Devin turns from the CLI's own result, which
+  // carries no cost for Devin, before it ever reads `answeredBy`.
+  get turnAnsweredBy(): string[] { return this.resolvedModel === null ? [] : [this.resolvedModel]; }
+  // Identifies OpenRouter requests for per-request billing lookups. No
+  // meaning for Devin, which has no such requests.
   get turnGenerationIds(): string[] { return []; }
 
   get runningTurn(): { ids: string[]; answeredBy: string[] } | null {
@@ -262,6 +304,14 @@ export class DevinSession extends EventEmitter implements Session {
         BENCH_SELF_MODEL: "devin",
         PORT: this.opts.port === undefined ? undefined : String(this.opts.port),
         BENCH_URL: this.opts.cockpitUrl,
+        // `devin acp --model` is also read from this env var, per `devin
+        // acp --help` (#114). Explicitly undefined rather than omitted,
+        // matching PORT above: Node drops an undefined-valued key from the
+        // child's env even though it was just inherited via `...process.env`,
+        // which is what keeps a bare `devin` specialist on the account
+        // default rather than picking up whatever the daemon's own process
+        // happens to have set.
+        DEVIN_MODEL: this.opts.model,
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -399,6 +449,7 @@ export class DevinSession extends EventEmitter implements Session {
         this.stop();
         return;
       }
+      this.resolvedModel = modelOptionValueFrom(message.result?.configOptions);
       void this.finishSetup(sessionId);
       return;
     }
