@@ -418,6 +418,25 @@ export function activityLine(event: ClaudeEvent): string | null {
  */
 const WRITING_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 
+/**
+ * Bench's own bookkeeping, which is not work to look at.
+ *
+ * A specialist writes `report.html`, `decision.json` and `plan.json` into
+ * `<project>/.bench/reports/<id>/` on nearly every turn, and the daemon's own
+ * home is `~/.bench`. Each one took the editor's screen, which on a bench of
+ * six is an editor doing little else.
+ *
+ * Only the *opening* stops: `activityLine` is untouched, so the roster trail
+ * still says the specialist wrote its report - that is a fact about what it
+ * did, and only this reading is about what a developer wants in front of them.
+ *
+ * A whole segment, not a substring: `.benchmarks/` is somebody's real
+ * directory, and `/var/www/bench` is this repo.
+ */
+function isBenchOwn(path: string): boolean {
+  return path.split(/[\\/]/).includes(".bench");
+}
+
 /** A file a specialist has just written, named in full. */
 export interface FileTouch {
   tool: string;
@@ -481,6 +500,7 @@ export function fileTouch(event: ClaudeEvent): FileTouch | null {
     const input = (block as { input?: Record<string, unknown> }).input;
     const path = input?.file_path ?? input?.notebook_path;
     if (typeof path !== "string" || path === "") return null;
+    if (isBenchOwn(path)) return null;
 
     const wrote = wroteLine(block.name, input);
     return { tool: block.name, path, ...(wrote === undefined ? {} : { wrote }) };

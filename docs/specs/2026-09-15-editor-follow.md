@@ -250,6 +250,16 @@ it — a narrowing that only the cockpit could undo would be a trap.
   line would open the wrong file more often than the right one.
 - **Devin specialists.** `devin-session.ts` emits `activity` as an
   already-formatted line with no structured path. Its own ticket.
+- **Bench's own bookkeeping.** A specialist writes `report.html`,
+  `decision.json` and `plan.json` into `<project>/.bench/reports/<id>/` on
+  nearly every turn, and each one took the screen — on a bench of six, an
+  editor doing little else. Any path with a `.bench` segment is skipped, which
+  covers the daemon's `~/.bench` home too. The roster trail still shows the
+  write: that is a fact about what the specialist did, and only this reading is
+  about what a developer wants in front of them. A whole segment, not a
+  substring, so `.benchmarks/` and this repo's own `/var/www/bench` are
+  untouched — and `.claude/worktrees/` deliberately is not filtered, since that
+  is where a specialist's real work lives.
 - **Files outside every open folder.** By design — one daemon serves every
   project at once, and that filter is what lets several windows each follow
   only their own.

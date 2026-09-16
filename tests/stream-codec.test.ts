@@ -215,6 +215,50 @@ describe("fileTouch", () => {
   });
 
   /**
+   * Bench's own bookkeeping is not work to look at.
+   *
+   * A specialist writes `report.html`, `decision.json` and `plan.json` into
+   * `<project>/.bench/reports/<id>/` on nearly every turn. Each one took the
+   * screen, which on a bench of six is the editor doing little else. The
+   * roster trail still shows the write - it is a fact about what the
+   * specialist did; it is only not a file to open.
+   */
+  it("never opens bench's own reports", () => {
+    expect(fileTouch(toolUse("Write", {
+      file_path: "/var/www/realpeep/.bench/reports/8e28900f/226/report.html",
+    }))).toBeNull();
+    expect(fileTouch(toolUse("Write", {
+      file_path: "/var/www/realpeep/.bench/reports/8e28900f/226/decision.json",
+    }))).toBeNull();
+    expect(fileTouch(toolUse("Write", {
+      file_path: "/var/www/realpeep/.bench/reports/8e28900f/plan.json",
+    }))).toBeNull();
+  });
+
+  it("never opens anything in the bench home either", () => {
+    expect(fileTouch(toolUse("Edit", { file_path: "/home/dev/.bench/token" }))).toBeNull();
+  });
+
+  /**
+   * A worktree lives at `<repo>/.claude/worktrees/<label>-<id8>`, which is
+   * the whole reason a specialist's work opens in the window the developer
+   * already has open. Filtering bench's own leavings must not touch it.
+   */
+  it("still opens a file inside a specialist's worktree", () => {
+    expect(fileTouch(toolUse("Edit", {
+      file_path: "/var/www/bench/.claude/worktrees/auth-abcd1234/src/daemon/registry.ts",
+    }))).toMatchObject({ path: "/var/www/bench/.claude/worktrees/auth-abcd1234/src/daemon/registry.ts" });
+  });
+
+  /** A segment, not a substring: `.benchmarks/` is somebody's real directory. */
+  it("does not mistake a longer name for bench's own directory", () => {
+    expect(fileTouch(toolUse("Edit", { file_path: "/var/www/app/.benchmarks/run.ts" })))
+      .toMatchObject({ path: "/var/www/app/.benchmarks/run.ts" });
+    expect(fileTouch(toolUse("Edit", { file_path: "/var/www/bench/src/daemon/registry.ts" })))
+      .toMatchObject({ path: "/var/www/bench/src/daemon/registry.ts" });
+  });
+
+  /**
    * The whole point of the event is "this file changed". A Read that opened
    * an editor would make every grep of the codebase a fight for the screen.
    */
