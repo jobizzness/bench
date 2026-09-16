@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
-import { MODELS, DEVIN_MODEL, REASONING_EFFORT_NOTE } from "../../shared/models.js";
+import { MODELS, DEVIN_MODEL, DEVIN_PREFIX, isDevinModel, modelLabel, REASONING_EFFORT_NOTE } from "../../shared/models.js";
 import { costOfTurn, dollars, multipleLabel, multipleOf, type Price } from "../../shared/cost.js";
 import { AutoRouters, isAutoRouter } from "./AutoRouters.js";
 import { ModelRow, shortName, windowLabel, type Listed } from "./ModelRow.js";
 import { useTurnShape } from "./useTurnShape.js";
 
 export type { Listed };
+
+/** A Devin model family, from `/api/devin/models` (#114) — not the daemon's
+ * own `DevinFamily`, kept as its own local shape the way `Listed` above is
+ * kept separate from the daemon's, so the client never has to import daemon
+ * code to draw a picker row. */
+interface DevinFamily {
+  id: string;
+  label: string;
+}
 
 /** Vendors worth putting at the top. Everything else follows alphabetically —
  * these are simply the ones people reach for, not a judgement about the rest. */
@@ -158,6 +167,12 @@ export function ModelDialog({
   const searchRef = useRef<HTMLInputElement>(null);
   const [listed, setListed] = useState<Listed[]>([]);
   const [hasKey, setHasKey] = useState(false);
+  /** Devin's model families (#114), read fresh every time the dialog opens.
+   * Empty either while still loading or because the daemon could not read
+   * them - `devin models list` has been observed refusing intermittently -
+   * and the two are drawn the same way: the account default button below is
+   * offered regardless, since it needs nothing from this list. */
+  const [devinFamilies, setDevinFamilies] = useState<DevinFamily[]>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -205,9 +220,10 @@ export function ModelDialog({
 
     let live = true;
     void (async () => {
-      const [keyRes, modelsRes] = await Promise.all([
+      const [keyRes, modelsRes, devinRes] = await Promise.all([
         authFetch("/api/openrouter/keys"),
         authFetch("/api/openrouter/models"),
+        authFetch("/api/devin/models"),
       ]);
       if (!live) return;
       if (keyRes.ok) setHasKey(((await keyRes.json())?.credentials ?? []).some((c: { active?: boolean }) => c.active === true));
@@ -218,6 +234,11 @@ export function ModelDialog({
         setListed([]);
         setError("Could not read OpenRouter's model list. Anthropic's models still work.");
       }
+      // No note on failure here the way OpenRouter gets one above: the
+      // account default is always offered and needs nothing from this list,
+      // so an empty result reads the same whether the daemon could not run
+      // `devin models list` or simply found nothing else to add.
+      setDevinFamilies(devinRes.ok ? ((await devinRes.json())?.families ?? []) : []);
     })();
     return () => { live = false; };
   }, [open]);
@@ -234,6 +255,7 @@ export function ModelDialog({
   /** What the developer is comparing against, in the words the picker uses
    * for it elsewhere. */
   const currentLabel = MODELS.find((m) => m.id === current)?.label
+    ?? (isDevinModel(current) ? modelLabel(current) : undefined)
     ?? shortName(listed.find((m) => m.id === current) ?? { id: current, name: current, vendor: "", contextLength: null, price: EMPTY_PRICE });
 
   /**
@@ -425,6 +447,9 @@ export function ModelDialog({
         <p className="field-note" data-house-note="devin">
           Runs on the Devin agent installed on this machine. Requires{" "}
           <code>devin auth login</code> once. No API key, no per-turn charge in Bench.
+          {devinFamilies.length === 0 && (
+            <> Its own model list could not be read just now — the account default still works.</>
+          )}
         </p>
         <div className="model-options">
           <button
@@ -436,9 +461,27 @@ export function ModelDialog({
             disabled={busy}
             onClick={() => void choose(DEVIN_MODEL)}
           >
-            <b>Devin</b>
-            <span>local agent</span>
+            <b>Account default</b>
+            <span>whatever the Devin account is set to</span>
           </button>
+          {devinFamilies.map((family) => {
+            const modelId = `${DEVIN_PREFIX}${family.id}`;
+            return (
+              <button
+                type="button"
+                key={modelId}
+                className="model-option"
+                data-model={modelId}
+                data-current={current === modelId}
+                aria-current={current === modelId}
+                disabled={busy}
+                onClick={() => void choose(modelId)}
+              >
+                <b>{family.label}</b>
+                <span>{family.id}</span>
+              </button>
+            );
+          })}
         </div>
       </section>
 

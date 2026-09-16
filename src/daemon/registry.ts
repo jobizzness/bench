@@ -28,7 +28,7 @@ import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } f
 import { isOauthToken, isUsageLimitError, limitResetsAt, type ManagedKey } from "./anthropic-key.js";
 import { fullestPercent, type Usage, type UsageWindow } from "../shared/usage.js";
 import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
-import { isModelId, modelLabel } from "../shared/models.js";
+import { devinFamilyOf, isModelId, modelLabel } from "../shared/models.js";
 import type { AttachmentRef, EditEvent, RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
 import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
 import { costFrom, shapeFrom } from "./stream-codec.js";
@@ -932,6 +932,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           port: opts.port,
           cockpitUrl: `http://127.0.0.1:${this.config.port}`,
           devinBin: this.config.devinBin,
+          model: devinFamilyOf(opts.model),
           startTurn: opts.startTurn,
           resumeSessionId: opts.resumeSessionId,
           rules: () => houseRules(this.settings),

@@ -89,6 +89,10 @@ export interface Fixtures {
     contextLength: number | null;
     price: { fresh: number | null; cacheWrite: number | null; cacheRead: number | null; out: number | null };
   }> | "unreachable";
+  /** Devin's model families (#114). Undefined behaves as an empty list -
+   * `devin models list` refusing, or simply a machine with none configured -
+   * which is what a picker offering only the account default looks like. */
+  devinFamilies?: Array<{ id: string; label: string }>;
   /** The turn the picker prices every model against. Undefined is a daemon
    * that has recorded none, which is the ordinary case in a test. */
   turnShape?: { shape: unknown; turns: number };
@@ -252,6 +256,10 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
           ? { error: "OpenRouter answered 500 for its model list" }
           : { models: models ?? [] }),
       };
+    }
+
+    if (url.includes("/api/devin/models")) {
+      return { ok: true, status: 200, json: async () => ({ families: fixtures.devinFamilies ?? [] }) };
     }
 
     if (init?.method === "POST" && url.includes("/api/editor/target")) {

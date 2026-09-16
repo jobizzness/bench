@@ -235,11 +235,57 @@ describe("the model picker", () => {
     expect((button as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("can pick Devin without an OpenRouter key", async () => {
+  it("can pick Devin's account default without an OpenRouter key", async () => {
     // Devin is a local runtime. Picking it must not require any key.
     await openPicker({ ...one, models: [] });
     await ui.click(ui.$("#model-dialog [data-model='devin']"));
     const posted = ui.sent.find((s) => s.url.includes("/model"));
     expect(posted!.body).toEqual({ model: "devin" });
+  });
+
+  it("offers Devin's own families, from the machine rather than a hardcoded list (#114)", async () => {
+    await openPicker({
+      ...one,
+      models: [],
+      devinFamilies: [{ id: "adaptive", label: "Adaptive" }, { id: "opus", label: "Opus" }],
+    });
+    const section = ui.$("#model-dialog [data-house='devin']")!;
+    expect(section.querySelector("[data-model='devin:adaptive']")).not.toBe(null);
+    expect(section.querySelector("[data-model='devin:opus']")).not.toBe(null);
+    // Still offered alongside the families, not replaced by them.
+    expect(section.querySelector("[data-model='devin']")).not.toBe(null);
+  });
+
+  it("marks the family a specialist is already on as current", async () => {
+    await openPicker({
+      rows: [row({ model: "devin:adaptive" })],
+      entries: [entry()],
+      models: [],
+      devinFamilies: [{ id: "adaptive", label: "Adaptive" }, { id: "opus", label: "Opus" }],
+    });
+    const current = ui.$("#model-dialog [data-model='devin:adaptive']")!;
+    expect(current.getAttribute("data-current")).toBe("true");
+    expect(ui.$("#model-dialog [data-model='devin:opus']")!.getAttribute("data-current")).toBe("false");
+    expect(ui.$("#model-dialog [data-model='devin']")!.getAttribute("data-current")).toBe("false");
+  });
+
+  it("can pick a Devin family, needing no OpenRouter key either", async () => {
+    await openPicker({
+      ...one,
+      models: [],
+      devinFamilies: [{ id: "adaptive", label: "Adaptive" }],
+    });
+    await ui.click(ui.$("#model-dialog [data-model='devin:adaptive']"));
+    const posted = ui.sent.find((s) => s.url.includes("/model"));
+    expect(posted!.body).toEqual({ model: "devin:adaptive" });
+  });
+
+  it("says the account default still works when Devin's own list could not be read", async () => {
+    // devin models list has been observed refusing intermittently (#114) -
+    // the picker still has to open, on the one thing that needs nothing
+    // from that list.
+    await openPicker({ ...one, models: [] });
+    const note = ui.$("#model-dialog [data-house-note='devin']")!;
+    expect(note.textContent).toContain("account default still works");
   });
 });

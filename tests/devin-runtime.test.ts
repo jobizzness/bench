@@ -66,6 +66,12 @@ describe("runtimeFor", () => {
     expect(runtimeFor("devin")).toBe("devin");
   });
 
+  it("returns 'devin' for a namespaced Devin model (#114)", () => {
+    expect(runtimeFor("devin:adaptive")).toBe("devin");
+    expect(runtimeFor("devin:opus")).toBe("devin");
+    expect(runtimeFor("devin:swe-2")).toBe("devin");
+  });
+
   it("returns 'claude' for Anthropic aliases", () => {
     for (const id of ["opus", "sonnet", "fable", "haiku"]) {
       expect(runtimeFor(id)).toBe("claude");
@@ -84,6 +90,7 @@ describe("fellBack does not trigger for devin", () => {
     // fellBack is for proxied models with no key; it must never affect Devin.
     for (const role of ROLES) {
       expect(fellBack(role, { chosen: "devin", viaRouter: false }), role).toBe(false);
+      expect(fellBack(role, { chosen: "devin:adaptive", viaRouter: false }), role).toBe(false);
     }
   });
 });

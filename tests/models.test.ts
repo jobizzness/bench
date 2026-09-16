@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   MODELS,
   DEVIN_MODEL,
+  DEVIN_PREFIX,
+  devinFamilyOf,
+  isDevinModel,
   modelLabel,
   runningModelLabel,
   isProxied,
@@ -115,5 +118,72 @@ describe("devin as a third-kind model id", () => {
     // Adding it there would pass it to `claude --model`, which does not
     // understand it and would silently fall back to some other model.
     expect(MODELS.some((m) => m.id === DEVIN_MODEL)).toBe(false);
+  });
+});
+
+describe("Devin's own models, namespaced under it (#114)", () => {
+  it("is accepted by isModelId", () => {
+    expect(isModelId("devin:adaptive")).toBe(true);
+    expect(isModelId("devin:opus")).toBe(true);
+    expect(isModelId("devin:swe-2")).toBe(true);
+  });
+
+  it("refuses the bare prefix with nothing after it", () => {
+    expect(isModelId(DEVIN_PREFIX)).toBe(false);
+    expect(isModelId("devin:")).toBe(false);
+  });
+
+  it("is not proxied through OpenRouter — a colon, not a slash, on purpose", () => {
+    // isProxied treats any id containing "/" as an OpenRouter model, which
+    // would make every Devin model demand an OpenRouter key. That is the
+    // whole reason the namespace is "devin:adaptive", not "devin/adaptive".
+    expect(isProxied("devin:adaptive")).toBe(false);
+    expect(isProxied("devin:swe-2")).toBe(false);
+  });
+
+  it("has a human-readable label naming the family", () => {
+    expect(modelLabel("devin:adaptive")).toBe("Devin: adaptive");
+  });
+
+  it("is recognised by isDevinModel, bare or namespaced", () => {
+    expect(isDevinModel(DEVIN_MODEL)).toBe(true);
+    expect(isDevinModel("devin:adaptive")).toBe(true);
+    expect(isDevinModel("opus")).toBe(false);
+    expect(isDevinModel("google/gemini-3.7-flash")).toBe(false);
+  });
+
+  it("extracts the family devin acp --model wants, from a namespaced id", () => {
+    expect(devinFamilyOf("devin:adaptive")).toBe("adaptive");
+    expect(devinFamilyOf("devin:swe-2")).toBe("swe-2");
+  });
+
+  it("has no family to extract from the bare account default", () => {
+    // Undefined, not "", so a caller can tell "nothing to override" apart
+    // from a genuinely empty string it would have to reject.
+    expect(devinFamilyOf(DEVIN_MODEL)).toBeUndefined();
+    expect(devinFamilyOf("opus")).toBeUndefined();
+  });
+});
+
+describe("what a specialist is actually running on, for Devin", () => {
+  it("shows the bare account default until a turn has resolved it", () => {
+    expect(runningModelLabel(DEVIN_MODEL, null)).toBe("Devin");
+    expect(runningModelLabel(DEVIN_MODEL, [])).toBe("Devin");
+  });
+
+  it("shows what the account default actually resolved to, once a turn has", () => {
+    // Bare "devin" names no model at all - swe-2-high is what the ticket's
+    // own capture off the live binary showed it silently running on.
+    expect(runningModelLabel(DEVIN_MODEL, ["swe-2-high"])).toBe("swe-2-high");
+  });
+
+  it("shows what a named family resolved to, not tagged <auto>", () => {
+    // Unlike openrouter/auto, picking devin:adaptive was a real choice, so
+    // the resolved variant is shown plainly rather than annotated as one.
+    expect(runningModelLabel("devin:adaptive", ["adaptive-high"])).toBe("adaptive-high");
+  });
+
+  it("falls back to the family name before any turn has answered", () => {
+    expect(runningModelLabel("devin:adaptive", null)).toBe("Devin: adaptive");
   });
 });

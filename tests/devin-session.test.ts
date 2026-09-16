@@ -42,7 +42,10 @@ process.stdin.on("data", (chunk) => {
       send({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true }, authMethods: [] } });
     } else if (request.method === "session/new") {
       setup = request.params;
-      send({ jsonrpc: "2.0", id: request.id, result: { sessionId: "devin-session" } });
+      // The "model" configOption, captured verbatim off the real binary
+      // (#114) - always sent, whether or not a test cares, the same way the
+      // real server hands it over unasked.
+      send({ jsonrpc: "2.0", id: request.id, result: { sessionId: "devin-session", configOptions: [{ id: "model", name: "Model", type: "select", currentValue: "swe-2-high", options: [] }] } });
     } else if (request.method === "session/load") {
       setup = request.params;
       send({ jsonrpc: "2.0", id: request.id, result: null });
@@ -72,7 +75,7 @@ process.stdin.on("data", (chunk) => {
         continue;
       }
       const answer = mode === "inspect"
-        ? JSON.stringify({ initialized, setup, cwd: process.cwd(), text })
+        ? JSON.stringify({ initialized, setup, cwd: process.cwd(), text, devinModelEnv: process.env.DEVIN_MODEL ?? null })
         : text + "|received=" + prompts;
       const finish = () => {
         send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "tool_call", title: "Editing file", status: "in_progress" } } });
@@ -169,6 +172,37 @@ describe("DevinSession", () => {
     session.stop();
   });
 
+  it("passes the chosen family to devin acp via DEVIN_MODEL (#114)", async () => {
+    const session = await makeSession("inspect", { model: "adaptive" });
+    session.open();
+    const result = await turn(session, "hello");
+    expect(JSON.parse(result.result).devinModelEnv).toBe("adaptive");
+    session.stop();
+  });
+
+  it("leaves DEVIN_MODEL unset for the bare account default", async () => {
+    // No `model` option at all - `devinFamilyOf` returns undefined for a
+    // bare `devin` id, and an unset DEVIN_MODEL is what leaves `devin acp`
+    // on the account's own default.
+    const session = await makeSession("inspect");
+    session.open();
+    const result = await turn(session, "hello");
+    expect(JSON.parse(result.result).devinModelEnv).toBeNull();
+    session.stop();
+  });
+
+  it("reports what the session actually resolved to, off configOptions (#114)", async () => {
+    // The picker offers "adaptive", a family; this is what the session
+    // actually ran the turn on, captured off the real binary's own
+    // configOptions the way the ticket's evidence showed it.
+    const session = await makeSession("clean", { model: "adaptive" });
+    session.open();
+    expect(session.turnAnsweredBy).toEqual([]);
+    await turn(session, "hello");
+    expect(session.turnAnsweredBy).toEqual(["swe-2-high"]);
+    session.stop();
+  });
+
   it("persists Devin's session id before dispatching the first prompt", async () => {
     const home = await mkdtemp(join(tmpdir(), "bench-devin-store-"));
     const store = new SessionStore(home);
@@ -219,7 +253,10 @@ describe("DevinSession", () => {
     expect(session.contextUsed).toBeNull();
     expect(session.turnTokens).toBe(0);
     expect(session.turnGenerationIds).toEqual([]);
-    expect(session.turnAnsweredBy).toEqual([]);
+    // Not [] any more (#114): turnAnsweredBy now carries what the session
+    // actually resolved to, off the fake server's own configOptions - every
+    // clean-mode session gets one, the same as the real binary always does.
+    expect(session.turnAnsweredBy).toEqual(["swe-2-high"]);
     session.stop();
   });
 
