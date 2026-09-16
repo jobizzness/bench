@@ -42,6 +42,16 @@ export const settingsSchema = z.object({
    * environment is already fixed.
    */
   headroom: z.boolean().default(true),
+  /**
+   * The one Anthropic credential the developer has told this bench to
+   * spend, by its id in the profile's list. `null` is "no opinion" - the
+   * daemon's ordinary rule (in use, then most headroom, then whatever could
+   * not be checked) decides instead. A strong preference, not a lock: a
+   * turn is never held for a pinned key that has run out, but the pin
+   * outranks the key already in use once the pinned one is usable again -
+   * see `pickManagedKey` in `registry.ts`.
+   */
+  pinnedManagedKeyId: z.string().nullable().default(null),
 });
 
 /**
@@ -59,18 +69,21 @@ export const settingsInputSchema = z.object({
   roleModels: z.record(z.string(), z.string().refine(isModelId, "not a model this bench offers")).optional(),
   reasoningEffort: z.enum(["none", "low", "medium", "high"]).optional(),
   headroom: z.boolean().optional(),
+  pinnedManagedKeyId: z.string().nullable().optional(),
 }).transform((s) => ({
   ...s,
   reviewModel: s.reviewModel ?? DEFAULT_MODEL,
   roleModels: s.roleModels ?? {},
   reasoningEffort: s.reasoningEffort ?? "medium",
   headroom: s.headroom ?? true,
+  pinnedManagedKeyId: s.pinnedManagedKeyId ?? null,
 }));
 
 export type Settings = z.infer<typeof settingsSchema>;
 
 export const NO_SETTINGS: Settings = {
   codingStyle: "", workflowRules: "", reviewModel: DEFAULT_MODEL, roleModels: {}, reasoningEffort: "medium", headroom: true,
+  pinnedManagedKeyId: null,
 };
 
 /**

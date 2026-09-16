@@ -1561,6 +1561,152 @@ process.stdin.on("data", (chunk) => {
   });
 });
 
+/**
+ * A pin: "spend this Anthropic credential", set once from the Profile
+ * dialog rather than re-decided by `pickManagedKey` on every sync.
+ *
+ * It is a strong preference, not a lock - a turn is never held for a pinned
+ * key that has run out, so it falls back the same way an unpinned bench
+ * always has. The trap is what happens after: `pickManagedKey` prefers
+ * whichever key is already in use while it is still usable, so left alone
+ * the fallback would stay active forever and the pin would evaporate the
+ * first time the pinned key filled up. The pin has to outrank the key
+ * already in use once it is usable again.
+ */
+describe("pinning an Anthropic credential", () => {
+  const managed = (status: string, id: string, key: string) =>
+    ({ id, key, label: id, status, checkedAt: Date.now() }) as any;
+  const A = "sk-ant-api03-pinned-aaaa-0000";
+  const B = "sk-ant-api03-fallback-bbbb-1111";
+
+  it("is picked over the key already in use, once set", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+
+    // B syncs in first and is the only one there is, so it is the one in
+    // use. A shows up after - ordinary stickiness keeps B active, since
+    // churn between two usable keys is worth nothing on its own.
+    registry.setManagedApiKeys([managed("available", "b", B)]);
+    expect(registry.getApiKey()).toBe(B);
+    registry.setManagedApiKeys([managed("available", "a", A), managed("available", "b", B)]);
+    expect(registry.getApiKey()).toBe(B);
+
+    await registry.setPinnedManagedKey("a");
+    expect(registry.getApiKey()).toBe(A);
+    expect(registry.managedApiKeyStates().find((k) => k.id === "a")!.pinned).toBe(true);
+  });
+
+  it("returns to the pinned key once it is usable again, rather than staying on the fallback", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+
+    registry.setManagedApiKeys([managed("available", "a", A), managed("available", "b", B)]);
+    await registry.setPinnedManagedKey("a");
+    expect(registry.getApiKey()).toBe(A);
+
+    // A runs out mid-turn - the same rotation any unpinned bench goes through.
+    expect((registry as any).rotateManagedApiKey()).toBe(true);
+    expect(registry.getApiKey()).toBe(B);
+    expect(registry.managedApiKeyStates().find((k) => k.id === "b")!.active).toBe(true);
+
+    // The next profile sync reports A's window has turned over - the
+    // ordinary path a re-check of the profile's keys always takes.
+    registry.setManagedApiKeys([managed("available", "a", A), managed("available", "b", B)]);
+
+    expect(registry.getApiKey()).toBe(A);
+    expect(registry.managedApiKeyStates().find((k) => k.id === "a")!.active).toBe(true);
+  });
+
+  /**
+   * The same trap, noticed a different way: a usage poll rather than a
+   * profile sync. `doRefreshManagedUsage` used to re-pick only when the
+   * active key itself stopped being usable - which a pinned key's own
+   * recovery never does, since the fallback it is replacing is still
+   * perfectly fine. Left alone, the poll that is supposed to catch a
+   * window turning over would never look again once it had a usable key.
+   */
+  it("also returns to the pinned key when a usage poll notices it recovered", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+    const OAUTH_A = "sk-ant-oat01-pinned-aaaa-0000";
+    const OAUTH_B = "sk-ant-oat01-fallback-bbbb-1111";
+
+    registry.setManagedApiKeys([managed("available", "a", OAUTH_A), managed("available", "b", OAUTH_B)]);
+    await registry.setPinnedManagedKey("a");
+    expect(registry.getApiKey()).toBe(OAUTH_A);
+
+    expect((registry as any).rotateManagedApiKey()).toBe(true);
+    expect(registry.getApiKey()).toBe(OAUTH_B);
+
+    // A's exhaustion carries a reset time already in the past - what the
+    // CLI's own sentence gives `rotateManagedApiKey` in the real path - and
+    // both keys are stale enough to be re-checked.
+    registry.setManagedApiKeys([
+      { ...managed("exhausted", "a", OAUTH_A), checkedAt: 0, resetsAt: new Date(Date.now() - 1000).toISOString() },
+      { ...managed("available", "b", OAUTH_B), checkedAt: 0 },
+    ]);
+    expect(registry.getApiKey()).toBe(OAUTH_B);
+
+    await registry.refreshManagedUsage(async () => ({
+      available: true,
+      windows: [{ key: "five_hour", label: "5-hour", percent: 10, resetsAt: null }],
+    }));
+
+    expect(registry.getApiKey()).toBe(OAUTH_A);
+  });
+
+  it("takes a pin on a key that is currently exhausted, effective once it recovers", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+
+    registry.setManagedApiKeys([managed("exhausted", "a", A), managed("available", "b", B)]);
+    await registry.setPinnedManagedKey("a");
+
+    // Not silently dropped: the pin is recorded and reported back...
+    expect(registry.managedApiKeyStates().find((k) => k.id === "a")!.pinned).toBe(true);
+    // ...but a spent key is never spawned onto, so the bench still runs on B.
+    expect(registry.getApiKey()).toBe(B);
+  });
+
+  it("leaves behaviour exactly as it is today when no pin is set", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+
+    registry.setManagedApiKeys([managed("available", "a", A), managed("available", "b", B)]);
+    expect(registry.getApiKey()).toBe(A);
+    expect(registry.managedApiKeyStates().every((k) => k.pinned === false)).toBe(true);
+  });
+
+  it("stops preferring the key once unpinned", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+
+    registry.setManagedApiKeys([managed("available", "a", A), managed("available", "b", B)]);
+    await registry.setPinnedManagedKey("a");
+    await (registry as any).rotateManagedApiKey();
+    expect(registry.getApiKey()).toBe(B);
+
+    await registry.setPinnedManagedKey(null);
+    // A recovering no longer pulls the bench back onto it.
+    registry.setManagedApiKeys([managed("available", "a", A), managed("available", "b", B)]);
+    expect(registry.getApiKey()).toBe(B);
+  });
+
+  it("survives a daemon restart", async () => {
+    const { config } = await setup();
+    const first = new SessionRegistry({ ...config } as any);
+    await first.restore();
+    first.setManagedApiKeys([managed("available", "a", A), managed("available", "b", B)]);
+    await first.setPinnedManagedKey("a");
+
+    const second = new SessionRegistry({ ...config } as any);
+    await second.restore();
+    second.setManagedApiKeys([managed("available", "a", A), managed("available", "b", B)]);
+    expect(second.getApiKey()).toBe(A);
+    expect(second.managedApiKeyStates().find((k) => k.id === "a")!.pinned).toBe(true);
+  });
+});
+
 describe("what a new specialist runs on", () => {
   it("takes the model from the role when the caller names none", async () => {
     // The CLI knows what kind of agent it is opening and nothing else. It

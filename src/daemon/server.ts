@@ -44,10 +44,17 @@ export interface SessionRegistryLike {
   // benefit, and a server that cannot ask for them is a server that cannot
   // serve them back.
   setManagedApiKeys(keys: ManagedKey[]): void;
-  managedApiKeyStates(): Array<Omit<ManagedKey, "key"> & { active: boolean }>;
+  managedApiKeyStates(): Array<Omit<ManagedKey, "key"> & { active: boolean; pinned: boolean }>;
   /** Re-ask the OAuth keys what they have spent, and move off one that has
    * filled its window. Called from the route the profile polls. */
   refreshManagedUsage(fetchUsage: (key: string) => Promise<Usage>): Promise<void>;
+  /** The one Anthropic credential to spend, by id, or `null` for no opinion.
+   * See `pinnedManagedKeyId` in settings.ts. */
+  setPinnedManagedKey(id: string | null): Promise<Settings>;
+  /** Said when the pin is not who is actually active - `null` when there is
+   * nothing to say. Pushed alongside the roster; see `pinnedKeyNotice` in
+   * registry.ts. */
+  pinnedKeyNotice(): string | null;
   // The OpenRouter keys. Same rule as above: the states go out, the keys
   // never do.
   setManagedRouterKeys(keys: ManagedKey[]): void;
@@ -514,6 +521,22 @@ export function createServer(opts: {
         return;
       }
       registry.setManagedApiKeys(await checkManaged(input, { check: verify, usageOf, fallbackLabel: "Anthropic key" }));
+      json(res, 200, { credentials: registry.managedApiKeyStates() });
+      return;
+    }
+
+    /**
+     * Which Anthropic credential to spend, set from the Profile dialog.
+     * `id: null` clears the pin and returns to the ordinary rule.
+     */
+    if (path === "/api/anthropic-keys/pin" && req.method === "POST") {
+      const input = await readBody(req);
+      const id = input && typeof input === "object" ? (input as { id?: unknown }).id : undefined;
+      if (id !== null && typeof id !== "string") {
+        json(res, 400, { error: "id must be a string or null" });
+        return;
+      }
+      await registry.setPinnedManagedKey(id);
       json(res, 200, { credentials: registry.managedApiKeyStates() });
       return;
     }
@@ -1214,7 +1237,9 @@ export function createServer(opts: {
     // sidebar - and is additionally reachable by the targeting route above.
     if (url.searchParams.get("as") === "editor") editors.add(socket);
 
-    const send = () => socket.send(JSON.stringify({ type: "roster", rows: registry.list() }));
+    const send = () => socket.send(JSON.stringify({
+      type: "roster", rows: registry.list(), pinnedKeyNotice: registry.pinnedKeyNotice(),
+    }));
     send();
     registry.on("roster", send);
 

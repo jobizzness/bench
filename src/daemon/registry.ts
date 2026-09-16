@@ -329,14 +329,25 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   /**
    * Which managed key to spend, given what is known about each.
    *
-   * The key already in use while it is still usable - churn between two
-   * half-full windows is worth nothing. Otherwise the available key with the
-   * most headroom left, then any key whose check was inconclusive, in the
-   * order the profile lists them.
+   * The developer's pin outranks everything else while it is usable - that
+   * is the one thing a pin is for. Absent a pin, or with the pinned key
+   * spent, the key already in use while it is still usable - churn between
+   * two half-full windows is worth nothing. Otherwise the available key
+   * with the most headroom left, then any key whose check was inconclusive,
+   * in the order the profile lists them.
+   *
+   * The pin is checked ahead of "already in use" on purpose, not merely
+   * alongside it: a pinned key that has fallen back once stays active under
+   * that same "already in use" rule, and a pin that could never outrank it
+   * would evaporate the moment it first ran out.
    */
   private pickManagedKey(exclude?: string): ManagedKey | undefined {
     const usable = (item: ManagedKey) =>
       item.id !== exclude && item.status !== "exhausted" && item.status !== "refused";
+
+    const pinned = this.managedApiKeys.find((item) => item.id === this.settings.pinnedManagedKeyId && usable(item));
+    if (pinned) return pinned;
+
     if (exclude === undefined) {
       const current = this.managedApiKeys.find((item) => item.id === this.activeManagedKeyId && usable(item));
       if (current) return current;
@@ -349,8 +360,46 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     return this.managedApiKeys.find(usable);
   }
 
-  managedApiKeyStates(): Array<Omit<ManagedKey, "key"> & { active: boolean }> {
-    return this.managedApiKeys.map(({ key: _key, ...item }) => ({ ...item, active: item.id === this.activeManagedKeyId }));
+  managedApiKeyStates(): Array<Omit<ManagedKey, "key"> & { active: boolean; pinned: boolean }> {
+    return this.managedApiKeys.map(({ key: _key, ...item }) => ({
+      ...item,
+      active: item.id === this.activeManagedKeyId,
+      pinned: item.id === this.settings.pinnedManagedKeyId,
+    }));
+  }
+
+  /**
+   * Said plainly when the pin is not who is actually running: the developer
+   * chose a key on purpose, and being billed on a different one without
+   * being told is exactly what a pin exists to prevent. `null` covers both
+   * "no pin" and "the pin is exactly who is active" - nothing to say either
+   * way.
+   */
+  pinnedKeyNotice(): string | null {
+    const pinnedId = this.settings.pinnedManagedKeyId;
+    if (pinnedId === null || pinnedId === this.activeManagedKeyId) return null;
+    const pinned = this.managedApiKeys.find((item) => item.id === pinnedId);
+    if (!pinned) return null;
+    const active = this.managedApiKeys.find((item) => item.id === this.activeManagedKeyId);
+    return `Pinned key "${pinned.label}" is ${pinned.status}; running on ${active?.label ?? "another key"} instead.`;
+  }
+
+  /**
+   * Set, or clear, the one Anthropic credential the developer wants spent.
+   *
+   * Pinning a key that is spent or refused is allowed rather than rejected -
+   * it takes effect the moment that key recovers, which `pickManagedKey`
+   * alone cannot promise unless it is re-run. Re-picking here is what makes
+   * the pin take hold immediately rather than waiting for the next profile
+   * sync or usage poll.
+   */
+  async setPinnedManagedKey(id: string | null): Promise<Settings> {
+    this.settings = await writeSettings(this.config.home, { ...this.settings, pinnedManagedKeyId: id });
+    const next = this.pickManagedKey();
+    this.activeManagedKeyId = next?.id ?? null;
+    this.applyApiKey(next?.key ?? null);
+    this.emit("roster");
+    return this.settings;
   }
 
   /**
@@ -449,13 +498,15 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       }
     }
 
-    const usable = (item: ManagedKey) => item.status !== "exhausted" && item.status !== "refused";
-    const current = this.managedApiKeys.find((item) => item.id === this.activeManagedKeyId && usable(item));
-    if (!current) {
-      const next = this.pickManagedKey();
-      this.activeManagedKeyId = next?.id ?? null;
-      this.applyApiKey(next?.key ?? null);
-    }
+    // Always re-run, not only when the active key just stopped being
+    // usable: a pinned key coming back from a reset is exactly the case
+    // where the active key is still perfectly usable and nothing else here
+    // would notice it has recovered. `pickManagedKey` itself is what keeps
+    // this a no-op for the ordinary case - it returns the same key already
+    // active, and `applyApiKey` no-ops when the key has not moved.
+    const next = this.pickManagedKey();
+    this.activeManagedKeyId = next?.id ?? null;
+    this.applyApiKey(next?.key ?? null);
   }
 
   /**

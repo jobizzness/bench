@@ -66,7 +66,8 @@ export function App() {
   // that `100dvh` alone does not always account for - see the hook's own
   // comment and `#app` in styles.css.
   useVisualViewportHeight();
-  const { rows, live, wakingMachines, degradedMachines, activeMachineName, newIds } = useRoster(selectedId);
+  const { rows, live, wakingMachines, degradedMachines, activeMachineName, newIds, pinnedKeyNotice } =
+    useRoster(selectedId);
   const row = rows.find((r) => r.id === selectedId) ?? null;
 
   // Below the breakpoint, which of the phone's two panes is in front of the
@@ -470,6 +471,13 @@ export function App() {
               {degradedMachines.map((m) => m.name).join(", ")} {degradedMachines.length === 1 ? "is" : "are"}{" "}
               near today's Firestore limit and updating more slowly.
             </p>
+          )}
+
+          {/* The developer pinned a credential and it is not the one
+              running - said here, unprompted, rather than left for the
+              Profile dialog to reveal only to whoever thinks to open it. */}
+          {pinnedKeyNotice !== null && (
+            <p id="pinned-key-notice" className="field-note">{pinnedKeyNotice}</p>
           )}
 
           {/* At the foot of the pane, where settings live in everything else.

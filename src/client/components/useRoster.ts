@@ -34,6 +34,10 @@ export interface Roster {
    * anything else. See "Machine-global routes" in the design and
    * `SettingsDialog.tsx`, the one place this is shown. */
   activeMachineName: string | null;
+  /** Said when the developer's pinned Anthropic credential is not the one
+   * actually running - `null` when there is nothing to say. See
+   * `pinnedKeyNotice` in registry.ts. */
+  pinnedKeyNotice: string | null;
   /** Ids that were not on any roster this client has held before now - one
    * push's worth, not cumulative. `Row.tsx` reads this once, at its own
    * mount, to decide whether it is a specialist genuinely appearing rather
@@ -58,9 +62,10 @@ export interface Roster {
  * top, and it is a true no-op with nobody signed into Firebase in this
  * browser: no listener, no heartbeat, no Firestore call at all.
  */
-function useLocalRoster(): Pick<Roster, "rows" | "live"> {
+function useLocalRoster(): Pick<Roster, "rows" | "live" | "pinnedKeyNotice"> {
   const [rows, setRows] = useState<RosterRow[]>([]);
   const [live, setLive] = useState<boolean | null>(null);
+  const [pinnedKeyNotice, setPinnedKeyNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -78,7 +83,10 @@ function useLocalRoster(): Pick<Roster, "rows" | "live"> {
 
       socket.onmessage = (event) => {
         const message = JSON.parse(String(event.data));
-        if (message.type === "roster") setRows(message.rows as RosterRow[]);
+        if (message.type === "roster") {
+          setRows(message.rows as RosterRow[]);
+          setPinnedKeyNotice((message.pinnedKeyNotice as string | null | undefined) ?? null);
+        }
       };
 
       socket.onclose = (event) => {
@@ -100,7 +108,7 @@ function useLocalRoster(): Pick<Roster, "rows" | "live"> {
     };
   }, []);
 
-  return { rows, live };
+  return { rows, live, pinnedKeyNotice };
 }
 
 /**
@@ -367,5 +375,6 @@ export function useRoster(watching: string | null = null): Roster {
     degradedMachines: remote.degradedMachines,
     activeMachineName: watchedRow?.machine?.name ?? null,
     newIds,
+    pinnedKeyNotice: local.pinnedKeyNotice,
   };
 }

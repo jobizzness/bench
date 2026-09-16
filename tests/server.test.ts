@@ -37,7 +37,14 @@ class StubRegistry extends EventEmitter {
   getSettings() { return this.settings; }
   managedKeys: ManagedKey[] = [];
   setManagedApiKeys(keys: ManagedKey[]) { this.managedKeys = keys; }
-  managedApiKeyStates() { return this.managedKeys.map(({ key: _key, ...item }, index) => ({ ...item, active: index === 0 })); }
+  pinnedId: string | null = null;
+  managedApiKeyStates() {
+    return this.managedKeys.map(({ key: _key, ...item }, index) =>
+      ({ ...item, active: index === 0, pinned: item.id === this.pinnedId }));
+  }
+  async setPinnedManagedKey(id: string | null) { this.pinnedId = id; return this.settings as any; }
+  pinnedKeyNotice() { return this.pinnedNotice; }
+  pinnedNotice: string | null = null;
   async refreshManagedUsage(fetchUsage: (key: string) => Promise<unknown>) { this.usageAsked?.(fetchUsage); }
   /** Set by tests that want to see which keys a refresh was asked about. */
   usageAsked?: (fetchUsage: (key: string) => Promise<unknown>) => void;
@@ -875,6 +882,45 @@ describe("the developer's API keys", () => {
       body: JSON.stringify({ credentials: [{ id: "one", key: KEY, label: "P", status: "exhausted", checkedAt, resetsAt: past }] }),
     });
     expect(registry.managedKeys[0].status).toBe("available");
+  });
+
+  it("pins one credential, and reports it back as pinned", async () => {
+    const res = await fetch(`${base}/api/anthropic-keys/pin`, {
+      method: "POST", ...auth, body: JSON.stringify({ id: "one" }),
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(registry.pinnedId).toBe("one");
+    expect(body.credentials).toEqual(registry.managedApiKeyStates());
+  });
+
+  it("clears the pin with a null id", async () => {
+    registry.pinnedId = "one";
+    const res = await fetch(`${base}/api/anthropic-keys/pin`, {
+      method: "POST", ...auth, body: JSON.stringify({ id: null }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.pinnedId).toBeNull();
+  });
+
+  it("refuses a pin body whose id is not a string or null", async () => {
+    const res = await fetch(`${base}/api/anthropic-keys/pin`, {
+      method: "POST", ...auth, body: JSON.stringify({ id: 5 }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(registry.pinnedId).toBeNull();
+  });
+
+  it("lets nobody without the token set the pin", async () => {
+    const res = await fetch(`${base}/api/anthropic-keys/pin`, {
+      method: "POST", body: JSON.stringify({ id: "one" }),
+    });
+
+    expect(res.status).toBe(401);
+    expect(registry.pinnedId).toBeNull();
   });
 });
 
