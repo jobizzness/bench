@@ -536,25 +536,83 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 #open-profile svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; }
 
-#profile-dialog { width: min(560px, 92vw); padding: 0; }
-.profile-body { padding: 22px; }
-.profile-body > header { display: flex; justify-content: space-between; align-items: start; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
-.profile-body h2, .profile-body h3, .profile-body p { margin-top: 0; }
-.profile-body > header p { color: var(--muted); margin: 5px 0 0; }
-.profile-body section { margin-top: 20px; }
-.profile-sign-in { text-align: center; padding: 28px 0 18px; }
-.credential-list { list-style: none; margin: 0; padding: 0; }
-.credential-list li { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--line); }
-.credential-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
-.credential-head > div { display: flex; align-items: center; gap: 10px; }
+/* The Profile dialog. Sized and padded like #model-dialog rather than a
+   private wrapper of its own - both are a `.sheet` with no `<form>` inside
+   it, so both take their padding directly rather than from `.sheet form`. */
+#profile-dialog { width: min(560px, 92vw); padding: 20px; gap: 0; }
+#profile-dialog h2 { margin: 0 0 4px; }
+#profile-dialog-note { margin: 0 0 16px; }
+
+/* The credential list. A `.model-house` for the section itself; a row is its
+   own thing - part choice, part status, part action - so it takes the same
+   border, radius and colour tokens `.model-option` uses rather than that
+   class itself. */
+.credential-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.credential-row {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.credential-row-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.credential-row-head > div { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.credential-row-head b { font: 600 13px/1.3 var(--sans); }
+.credential-row-head span { font: 400 11px/1.3 var(--mono); color: var(--faint); }
+.credential-row-actions { display: flex; align-items: center; gap: 8px; }
 .credential-usage { padding: 0 0 2px; }
-.credential-list span { color: var(--muted); font: 11px/1.3 var(--mono); }
 .credential-status { text-transform: capitalize; }
-.credential-active { color: var(--wants); font: 11px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+.credential-active { color: var(--wants); font: 400 10px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .04em; }
 .credential-status.available, .credential-status.ok { color: var(--wants); }
 .credential-status.exhausted, .credential-status.refused { color: var(--broken); }
-.credential-add { display: grid; gap: 9px; }
-.credential-add h3 { margin-bottom: 2px; }
+
+/* Pin and Remove. Small, bordered like `.model-need-key`; a pin that is set
+   takes the same "current" treatment `.model-option[data-current="true"]`
+   uses, so "this is the one in force" reads the same way everywhere it is
+   said. */
+.credential-pin, .credential-remove {
+  padding: 4px 9px;
+  font: 500 11px/1.3 var(--sans);
+  border: 1px solid var(--line-firm);
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.credential-pin[data-pinned="true"] { border-color: var(--wants); color: var(--wants); }
+.credential-pin:disabled, .credential-remove:disabled { opacity: 0.4; cursor: not-allowed; }
+@media (hover: hover) {
+  .credential-pin:hover:not(:disabled), .credential-remove:hover:not(:disabled) { border-color: var(--line-firm); background: var(--hover); }
+}
+
+/* The add form. Same input treatment as `.model-search`, stacked rather than
+   inline - a name and a secret typed one after the other, not side by side. */
+.credential-add input {
+  display: block;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  font: 400 13px/1.4 var(--sans);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--sunk);
+  color: var(--text);
+}
+.credential-add input:focus-visible { outline: none; border-color: var(--wants); }
+.credential-add input::placeholder { color: var(--faint); }
+.credential-add button {
+  padding: 6px 11px;
+  font: 500 12px/1.3 var(--sans);
+  border: 1px solid var(--line-firm);
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.credential-add button:disabled { opacity: 0.4; cursor: not-allowed; }
+@media (hover: hover) {
+  .credential-add button:hover:not(:disabled) { border-color: var(--wants); }
+}
 
 /* An icon rather than a word, because it is a place you already recognise -
    and square, so it does not read as a third button of the same kind. */

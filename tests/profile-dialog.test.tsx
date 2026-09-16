@@ -45,13 +45,17 @@ const reply = (status: number, body: unknown) =>
 let host: HTMLDivElement;
 let root: Root;
 let patched: Array<{ url: string; body: any }>;
+let pinned: Array<{ url: string; body: any }>;
+let pinnedId: string | null;
 afterEach(() => { act(() => root?.unmount()); host?.remove(); });
 
-async function open(): Promise<void> {
+async function open(startPinned: string | null = null): Promise<void> {
   const checkedA = Date.now() - 120_000;
   const checkedB = Date.now() - 60_000;
   const resetsA = new Date(Date.now() + 3_600_000).toISOString();
   patched = [];
+  pinned = [];
+  pinnedId = startPinned;
 
   (globalThis as any).fetch = async (url: string, init?: RequestInit) => {
     if (init?.method === "PATCH") patched.push({ url, body: JSON.parse(String(init.body)) });
@@ -63,20 +67,14 @@ async function open(): Promise<void> {
       if (init?.method === "PATCH" || init?.method === "DELETE") return reply(200, {});
       return reply(200, { documents: [doc("a", "Primary", "sk-ant-oat01-aaaaaaaaaaaa"), doc("b", "Backup", "sk-ant-oat01-bbbbbbbbbbbb")] });
     }
+    if (url.endsWith("/api/anthropic-keys/pin")) {
+      const body = JSON.parse(String(init?.body));
+      pinned.push({ url, body });
+      pinnedId = body.id;
+      return reply(200, { credentials: anthropicStates(checkedA, checkedB, resetsA) });
+    }
     if (url.includes("/api/anthropic-keys")) {
-      return reply(200, {
-        credentials: [
-          {
-            id: "a", label: "Primary", status: "exhausted", checkedAt: checkedA, active: false,
-            usage: [{ key: "five_hour", label: "5-hour", percent: 100, resetsAt: resetsA }],
-            resetsAt: resetsA,
-          },
-          {
-            id: "b", label: "Backup", status: "available", checkedAt: checkedB, active: true,
-            usage: [{ key: "five_hour", label: "5-hour", percent: 41, resetsAt: null }],
-          },
-        ],
-      });
+      return reply(200, { credentials: anthropicStates(checkedA, checkedB, resetsA) });
     }
     if (url.includes("/api/openrouter/keys")) return reply(200, { credentials: [] });
     return reply(200, {});
@@ -96,6 +94,22 @@ async function open(): Promise<void> {
     );
   });
   await waitFor(() => host.querySelector(".credential-active"), "the active key to be marked");
+}
+
+function anthropicStates(checkedA: number, checkedB: number, resetsA: string) {
+  return [
+    {
+      id: "a", label: "Primary", status: "exhausted", checkedAt: checkedA, active: false,
+      pinned: pinnedId === "a",
+      usage: [{ key: "five_hour", label: "5-hour", percent: 100, resetsAt: resetsA }],
+      resetsAt: resetsA,
+    },
+    {
+      id: "b", label: "Backup", status: "available", checkedAt: checkedB, active: true,
+      pinned: pinnedId === "b",
+      usage: [{ key: "five_hour", label: "5-hour", percent: 41, resetsAt: null }],
+    },
+  ];
 }
 
 describe("the profile's credential lists", () => {
@@ -149,5 +163,49 @@ describe("the profile's credential lists", () => {
 
     const summaries = [...host.querySelectorAll(".credential-summary")];
     expect(summaries[1].textContent).toContain("only Anthropic's models are offered");
+  });
+});
+
+describe("pinning an Anthropic credential from the Profile dialog", () => {
+  it("offers a pin control only on the Anthropic list, not OpenRouter", async () => {
+    await open();
+
+    const sections = [...host.querySelectorAll("[data-house]")];
+    const anthropic = sections.find((s) => s.getAttribute("data-house") === "anthropicCredentials")!;
+    const openrouter = sections.find((s) => s.getAttribute("data-house") === "openRouterCredentials")!;
+    expect(anthropic.querySelectorAll(".credential-pin").length).toBeGreaterThan(0);
+    expect(openrouter.querySelectorAll(".credential-pin").length).toBe(0);
+  });
+
+  it("pins a credential and marks the row pinned", async () => {
+    await open();
+
+    const rows = [...host.querySelectorAll(".credential-list li")];
+    const primary = rows.find((li) => li.textContent!.includes("Primary"))!;
+    const pinButton = primary.querySelector(".credential-pin") as HTMLButtonElement;
+    expect(pinButton.textContent).toBe("Pin");
+
+    await act(async () => { pinButton.click(); await Promise.resolve(); });
+    await waitFor(() => pinned.length > 0, "the pin request to go out");
+
+    expect(pinned[0]!.body).toEqual({ id: "a" });
+    await waitFor(() => primary.querySelector(".credential-pin")!.textContent === "Pinned", "the row to show as pinned");
+  });
+
+  it("clears the pin on a second click", async () => {
+    await open("a");
+    await waitFor(
+      () => [...host.querySelectorAll(".credential-pin")].some((b) => b.textContent === "Pinned"),
+      "the already-pinned row to render as pinned",
+    );
+
+    const rows = [...host.querySelectorAll(".credential-list li")];
+    const primary = rows.find((li) => li.textContent!.includes("Primary"))!;
+    await act(async () => {
+      (primary.querySelector(".credential-pin") as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    await waitFor(() => pinned.length > 0, "the pin request to go out");
+    expect(pinned[0]!.body).toEqual({ id: null });
   });
 });

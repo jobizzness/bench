@@ -73,7 +73,7 @@ describe("the house rules page", () => {
     // anything was typed - see the round-trip test below.
     expect(saved()!.body).toEqual({
       codingStyle: "terse", workflowRules: "verify first", reviewModel: "opus", roleModels: {},
-      reasoningEffort: "medium", headroom: true,
+      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null,
     });
   });
 

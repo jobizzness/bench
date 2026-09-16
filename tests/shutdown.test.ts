@@ -24,6 +24,7 @@ class StubRegistry extends EventEmitter {
   get() { return null; }
   send() {}
   stop() {}
+  pinnedKeyNotice() { return null; }
   async close() { return { closed: true, changes: 0, unmergedCommits: 0 }; }
   async create() { return "s1"; }
 }

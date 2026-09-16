@@ -19,6 +19,7 @@ describe("what is on disk", () => {
       roleModels: {},
       reasoningEffort: "medium",
       headroom: true,
+      pinnedManagedKeyId: null,
     });
   });
 
@@ -39,7 +40,7 @@ describe("what is on disk", () => {
     const dir = await home();
     await writeFile(join(dir, "settings.json"), JSON.stringify({ codingStyle: "terse" }));
 
-    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium", headroom: true });
+    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null });
   });
 
   it("refuses half a set rather than erasing the half it was not sent", async () => {
@@ -113,7 +114,7 @@ describe("which model reviews", () => {
     const dir = await home();
     await writeSettings(dir, { codingStyle: "terse", workflowRules: "" });
 
-    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium", headroom: true });
+    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null });
   });
 
   it("keeps a model written into the file by hand", async () => {
