@@ -423,6 +423,40 @@ export interface FileTouch {
   tool: string;
   /** Absolute, as the agent gave it - this is what an editor opens. */
   path: string;
+  /**
+   * The first line the edit wrote, trimmed - what an editor scrolls to, so a
+   * three-line change in a 600-line file is not shown as the top of a file
+   * the developer already knows.
+   *
+   * Absent for `Write` and `NotebookEdit`: a whole new file has no region to
+   * jump to, and a notebook cell is not a line of the text document VS Code
+   * opens.
+   */
+  wrote?: string;
+}
+
+/** Long enough to find a line again, short enough to travel on a socket that
+ * carries every tool call a bench makes. */
+const WROTE_MAX = 200;
+
+/**
+ * The first line an edit actually wrote.
+ *
+ * `MultiEdit` gets its first edit: several changes have no single place to
+ * scroll to, and the earliest is the one to read from.
+ */
+function wroteLine(tool: string, input: Record<string, unknown> | undefined): string | undefined {
+  const written = tool === "Edit"
+    ? input?.new_string
+    : tool === "MultiEdit"
+      ? (input?.edits as Array<{ new_string?: unknown }> | undefined)?.[0]?.new_string
+      : undefined;
+  if (typeof written !== "string") return undefined;
+
+  // An edit often opens with a blank line; a blank line is findable anywhere
+  // and so points at nothing.
+  const line = written.split("\n").map((part) => part.trim()).find((part) => part !== "");
+  return line === undefined ? undefined : line.slice(0, WROTE_MAX);
 }
 
 /**
@@ -446,7 +480,10 @@ export function fileTouch(event: ClaudeEvent): FileTouch | null {
 
     const input = (block as { input?: Record<string, unknown> }).input;
     const path = input?.file_path ?? input?.notebook_path;
-    return typeof path === "string" && path !== "" ? { tool: block.name, path } : null;
+    if (typeof path !== "string" || path === "") return null;
+
+    const wrote = wroteLine(block.name, input);
+    return { tool: block.name, path, ...(wrote === undefined ? {} : { wrote }) };
   }
   return null;
 }

@@ -32,6 +32,9 @@ export interface EditEvent {
   /** `Edit`, `MultiEdit`, `Write` or `NotebookEdit`. */
   tool: string;
   path: string;
+  /** The first line the edit wrote, for an editor to scroll to. Absent for a
+   * `Write` or a `NotebookEdit`, which name no line - see `FileTouch`. */
+  wrote?: string;
   at: string;
 }
 

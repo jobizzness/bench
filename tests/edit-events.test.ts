@@ -118,6 +118,32 @@ describe("file edits on the events socket", () => {
     }
   });
 
+  /**
+   * The line an editor scrolls to, carried the whole way.
+   *
+   * `fileTouch` reading `new_string` correctly proves nothing on its own: the
+   * registry forwards the touch field by field, so dropping `wrote` there
+   * leaves every unit test green and every file opening at line 1 again.
+   */
+  it("carries the line the specialist wrote, for an editor to scroll to", async () => {
+    const b = await bench(toolCallingCli("Edit", {
+      file_path: "/var/www/bench/src/daemon/registry.ts",
+      new_string: "  return compute(a);\n  // and on",
+    }));
+    try {
+      b.registry.send(b.id, "change something");
+
+      const frame = await waitFor(
+        () => b.frames.find((f) => f.type === "edit"),
+        "an edit frame on the socket",
+      );
+
+      expect(frame.wrote).toBe("return compute(a);");
+    } finally {
+      b.stop();
+    }
+  });
+
   it("still sends the roster, and still shortens the path on the trail", async () => {
     const b = await bench(toolCallingCli("Edit", { file_path: "/var/www/bench/src/daemon/registry.ts" }));
     try {

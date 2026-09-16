@@ -161,6 +161,34 @@ default.
 The tab is a *preview* tab, so consecutive edits reuse one rather than leaving
 forty behind. That is a choice about hoarding tabs, not about focus.
 
+### Where in the file it opens
+
+Three changed lines in a 600-line file, opened at line 1, is a file the
+developer already knows drawn again. So `fileTouch` keeps the first line the
+edit wrote — `new_string` for an `Edit`, the first edit's for a `MultiEdit` —
+and the extension scrolls there and puts the cursor on it.
+
+`Write` and `NotebookEdit` carry no line: a whole new file's change is the
+whole of it, and a notebook cell is not a line of the text document VS Code
+opens.
+
+**Matched as text, not carried as a line number.** By the time the editor
+opens the file the specialist has usually written again, and a number taken
+before that edit points at the wrong line. Text that has moved is still
+found; text that is gone leaves the file exactly as it opened before any of
+this existed, which is the honest answer rather than scrolling somewhere
+wrong. The line is trimmed, so it matches inside whatever indentation the
+file has, and capped at 200 characters — a minified line must not fill a
+frame on a socket that carries every tool call.
+
+**Diffing on open was considered and rejected.** The obvious alternative is to
+open the sidebar's diff instead of the file. Against the branch's own HEAD it
+empties itself exactly when there is most to look at — the same reason
+`changedFiles` measures from the merge base — and against the branch start it
+makes the live view a review view, one `git show` per write. The sidebar is
+already the place to read what a specialist wrote; this is the place to watch
+it write.
+
 ### Loopback only
 
 `endpoint.ts` ignores `BENCH_HOST`. Widening what the daemon *binds* to is a

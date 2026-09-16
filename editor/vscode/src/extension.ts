@@ -8,6 +8,7 @@ import { BASE_SCHEME, BaseContentProvider, openDiff } from "./diff.js";
 import { insideWorkspace } from "./inside.js";
 import { effectiveFolders, targetFolder } from "./binding.js";
 import { attempt } from "./retry.js";
+import { offsetOf } from "./reveal.js";
 import { FollowStatus } from "./status.js";
 import type { EditEvent } from "./types.js";
 
@@ -82,8 +83,26 @@ async function openEdit(edit: EditEvent): Promise<void> {
 
   await attempt(async () => {
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(edit.path));
-    await vscode.window.showTextDocument(document, { preview: true, preserveFocus: false });
+    const shown = await vscode.window.showTextDocument(document, { preview: true, preserveFocus: false });
+    revealWritten(shown, document, edit.wrote);
   }, { tries: OPEN_TRIES, delayMs: OPEN_RETRY_MS });
+}
+
+/**
+ * Scroll to the line the specialist just wrote, and put the cursor on it.
+ *
+ * The file is what changed; the top of it is rarely where. A line the daemon
+ * named but that is no longer there - the specialist wrote again before this
+ * opened - leaves the file exactly as it was shown before this existed,
+ * which is the right answer rather than an error.
+ */
+function revealWritten(editor: vscode.TextEditor, document: vscode.TextDocument, wrote: string | undefined): void {
+  const at = offsetOf(document.getText(), wrote);
+  if (at === null) return;
+
+  const position = document.positionAt(at);
+  editor.selection = new vscode.Selection(position, position);
+  editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
 }
 
 /** The daemon's HTTP routes, or null when there is no token to reach them

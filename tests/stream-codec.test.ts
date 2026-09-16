@@ -157,6 +157,48 @@ describe("fileTouch", () => {
     });
   });
 
+  /**
+   * What the specialist actually wrote, so an editor can scroll to the change
+   * rather than opening a 600-line file at line 1 and showing a file the
+   * developer already knows. One line is enough to find it again, and keeps
+   * the frame small on a socket that carries every tool call.
+   */
+  it("carries the first line an Edit wrote", () => {
+    expect(fileTouch(toolUse("Edit", {
+      file_path: "/tmp/a.ts",
+      new_string: "  const total = price * quantity;\n  return total;",
+    }))).toEqual({
+      tool: "Edit",
+      path: "/tmp/a.ts",
+      wrote: "const total = price * quantity;",
+    });
+  });
+
+  it("takes a MultiEdit's first edit, which is where to look first", () => {
+    expect(fileTouch(toolUse("MultiEdit", {
+      file_path: "/tmp/many.ts",
+      edits: [{ old_string: "a", new_string: "alpha();" }, { old_string: "b", new_string: "beta();" }],
+    }))).toEqual({ tool: "MultiEdit", path: "/tmp/many.ts", wrote: "alpha();" });
+  });
+
+  it("skips the blank lines an edit often opens with", () => {
+    expect(fileTouch(toolUse("Edit", { file_path: "/tmp/a.ts", new_string: "\n\n  done();\n" })))
+      .toMatchObject({ wrote: "done();" });
+  });
+
+  /** A whole new file has no region to jump to: the top of it is the change. */
+  it("says nothing to scroll to for a Write", () => {
+    expect(fileTouch(toolUse("Write", { file_path: "/tmp/new.ts", content: "hello\nworld" })))
+      .toEqual({ tool: "Write", path: "/tmp/new.ts" });
+  });
+
+  it("keeps a minified line from filling the frame", () => {
+    const wrote = fileTouch(toolUse("Edit", { file_path: "/tmp/a.ts", new_string: "x".repeat(400) }))!.wrote!;
+    expect(wrote.length).toBeLessThanOrEqual(200);
+    // Still a prefix of the real line, so it is still findable in the file.
+    expect("x".repeat(400).startsWith(wrote)).toBe(true);
+  });
+
   it("reports a Write", () => {
     expect(fileTouch(toolUse("Write", { file_path: "/tmp/new.ts" })))
       .toEqual({ tool: "Write", path: "/tmp/new.ts" });

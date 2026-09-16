@@ -49,5 +49,8 @@ export interface EditEvent {
   tool: string;
   /** Absolute, on the machine the daemon is running on. */
   path: string;
+  /** The first line the edit wrote, trimmed - what to scroll to. Absent for a
+   * `Write` or `NotebookEdit`, which name no line. */
+  wrote?: string;
   at: string;
 }

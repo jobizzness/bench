@@ -978,6 +978,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         project: current.row.project,
         tool: touch.tool,
         path: touch.path,
+        ...(touch.wrote === undefined ? {} : { wrote: touch.wrote }),
         at: new Date().toISOString(),
       } satisfies EditEvent);
     });
