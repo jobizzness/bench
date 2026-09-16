@@ -74,7 +74,7 @@ export class HeadroomProxy {
     startupTimeoutMs?: number;
   }) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
-    this.startupTimeoutMs = opts.startupTimeoutMs ?? 15_000;
+    this.startupTimeoutMs = opts.startupTimeoutMs ?? 60_000;
   }
 
   get state(): HeadroomState {
@@ -163,30 +163,45 @@ export class HeadroomProxy {
       });
     });
 
+    // Only an exited child's stderr is a failure reason. A warning line from
+    // one still starting ("PyTorch was not found" is the usual one) is noise,
+    // and reporting it as `reason` is how a healthy slow start read as broken.
+    const fail = (code: number | null) => {
+      this.current = "failed";
+      this.failure = this.lastLine(stderrTail) ?? `proxy exited with code ${code ?? "?"}`;
+    };
+
+    // Watched for the life of the child, not just until the deadline: a
+    // proxy that dies after going up is failed, not up-and-quiet - a URL
+    // still being handed out while nothing listens is worse than none.
+    void exited.then((code) => {
+      if (this.current === "up" || this.current === "starting") fail(code);
+    });
+
     const deadline = Date.now() + this.startupTimeoutMs;
-    while (Date.now() < deadline) {
+    while (Date.now() < deadline && this.current === "starting") {
       if (await this.healthy()) {
         this.current = "up";
-        // If our proxy dies later the state has to say so - a URL that is
-        // still handed out while nothing listens is worse than none.
-        void exited.then((code) => {
-          if (this.current === "up") {
-            this.current = "failed";
-            this.failure = this.lastLine(stderrTail) ?? `proxy exited with code ${code ?? "?"}`;
-          }
-        });
         return;
       }
       const code = await Promise.race([exited, sleep(POLL_MS).then(() => "wait" as const)]);
-      if (code !== "wait") {
-        this.current = "failed";
-        this.failure = this.lastLine(stderrTail) ?? `proxy exited with code ${code ?? "?"}`;
-        return;
-      }
+      if (code !== "wait") return; // the watcher above already failed it
     }
 
-    this.current = "failed";
-    this.failure = this.lastLine(stderrTail) ?? `no answer on ${HEALTH_PATH} within ${this.startupTimeoutMs}ms`;
+    // The deadline is how long start() waits, not how long the proxy gets.
+    // A real headroom spends tens of seconds importing transformers before it
+    // binds, so a live child past the deadline is left running and polled in
+    // the background; "starting" resolves to up or failed without a respawn.
+    void (async () => {
+      while (this.current === "starting") {
+        if (await this.healthy()) {
+          this.current = "up";
+          return;
+        }
+        const code = await Promise.race([exited, sleep(POLL_MS).then(() => "wait" as const)]);
+        if (code !== "wait") return;
+      }
+    })();
   }
 
   /** Last non-empty line of what the proxy wrote to stderr. */

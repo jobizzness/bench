@@ -153,6 +153,10 @@ if (registry.getSettings().headroom) {
       process.stdout.write("bench: headroom not installed - specialists run direct.\n");
     } else if (headroom.state === "failed") {
       process.stdout.write(`bench: headroom failed to start (${headroom.reason ?? "unknown"}) - specialists run direct.\n`);
+    } else if (headroom.state === "starting") {
+      // A slow import is not a failure: the proxy is still coming up, and
+      // specialists spawned before it answers simply run direct.
+      process.stdout.write("bench: headroom still starting - specialists spawned before it answers run direct.\n");
     }
   });
 }

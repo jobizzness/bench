@@ -163,6 +163,37 @@ require("node:http").createServer((req, res) => {
     proxy.stop();
   });
 
+  it("keeps a slow-starting proxy starting rather than calling it failed", async () => {
+    // Real headroom spends tens of seconds importing transformers before it
+    // binds. The deadline is how long start() waits, not how long the proxy
+    // gets - so past it the state is "starting", not "failed", and the
+    // background poll still resolves it to up.
+    const bin = await makeBin(`#!/usr/bin/env node
+const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+setTimeout(() => {
+  require("node:http").createServer((req, res) => {
+    res.writeHead(req.url === "/health" ? 200 : 404).end();
+  }).listen(port, "127.0.0.1");
+}, 600);
+`);
+
+    const port = await freePort();
+    const proxy = new HeadroomProxy({ bin, port, logPath: await logPath(), startupTimeoutMs: 200 });
+
+    await proxy.start();
+    expect(proxy.state).toBe("starting");
+    expect(proxy.url()).toBeNull();
+    expect(proxy.reason).toBeNull();
+
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(proxy.state).toBe("up");
+    expect(proxy.url()).toBe(`http://127.0.0.1:${port}`);
+
+    proxy.stop();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await answers(port)).toBe(false);
+  });
+
   it("is absent, not failed, when there is no binary", async () => {
     const proxy = new HeadroomProxy({ bin: null, port: 8787, logPath: await logPath() });
 
