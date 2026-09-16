@@ -1110,7 +1110,17 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       if (!entry) return;
       const told = `${result.subtype} ${result.result ?? ""}`;
       const limited = result.is_error && isUsageLimitError(told);
-      if (runtimeFor(entry.model) === "claude" && !isOpenRouterModel(entry.model) && limited && this.retryPrompts.has(id) && this.rotateManagedApiKey(told)) {
+      // Returning here hands the row to the process's own exit, which is what
+      // revives it on the new key and resends the prompt. That is only true
+      // when a stop was actually issued: `applyApiKey` does nothing when the
+      // next key holds the same token as the old one, and then nothing is
+      // stopped, no exit ever arrives, and the row is left saying "working"
+      // with its turn already over. Two specialists sat like that for the
+      // best part of an hour. `stopping` is the proof that a stop was issued.
+      if (
+        runtimeFor(entry.model) === "claude" && !isOpenRouterModel(entry.model) && limited
+        && this.retryPrompts.has(id) && this.rotateManagedApiKey(told) && entry.stopping
+      ) {
         this.credentialRetries.add(id);
         return;
       }

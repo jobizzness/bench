@@ -19,6 +19,14 @@ import type { Session } from "./session.js";
 const STDERR_KEPT = 4000;
 
 /**
+ * How long a stopped process gets to go on its own before it is killed.
+ *
+ * Long enough for a CLI mid-write to finish and exit, short enough that a
+ * developer waiting on a row does not sit through it twice.
+ */
+const STOP_GRACE_MS = 5_000;
+
+/**
  * Both ways of authenticating to Anthropic, switched off.
  *
  * Undefined rather than empty: node omits an env entry whose value is
@@ -426,8 +434,24 @@ export class ClaudeSession extends EventEmitter implements Session {
     );
   }
 
+  /**
+   * Ask the process to go, and make sure it does.
+   *
+   * SIGTERM alone is a request, and the CLI catches it: one mid-retry against
+   * an API that is not answering can sit on it. Every caller here - a key
+   * change, a model change, a context clear - waits for the exit to move the
+   * row on, so a process that never goes is a specialist that never moves
+   * again. The kill is the deadline on that.
+   */
   stop(): void {
-    this.child?.kill("SIGTERM");
+    const child = this.child;
+    if (!child) return;
+    child.kill("SIGTERM");
+    setTimeout(() => {
+      // Already gone: killing a reaped child does nothing, but asking is
+      // clearer than assuming which of the two fields node sets.
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    }, STOP_GRACE_MS).unref?.();
   }
 
   /**

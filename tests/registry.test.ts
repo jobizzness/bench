@@ -1280,6 +1280,93 @@ describe("the developer's API keys", () => {
         }
       });
 
+      /**
+       * A turn that ends on a usage limit hands the row to the rotation: it
+       * marks the specialist for retry and returns *without* updating the
+       * row, because the credential change is expected to stop the process,
+       * and that process's exit is what revives it and resends the prompt.
+       *
+       * Nothing checks that the stop ever happened. Observed on this bench:
+       * two specialists sat at "working" for 44 and 53 minutes with their
+       * turns long over and their processes alive.
+       */
+      async function limitedBench(cliSource: string) {
+        const { home, project, worktree, id, reportsDir, config } = await setup();
+        await new SessionStore(home).put({
+          id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+          model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+        });
+        const registry = new SessionRegistry({ ...config, claudeBin: await fakeCli(cliSource) } as any);
+        await registry.restore();
+        return { registry, id };
+      }
+
+      /** Ends every turn on the sentence a spent setup-token really gives. */
+      const limitedCli = (ignoreStop: boolean) => `#!/usr/bin/env node
+${ignoreStop ? 'process.on("SIGTERM", () => {});' : ""}
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: true, session_id: "sess-restore",
+      result: "You've hit your session limit \\u00b7 resets 12:20pm (Africa/Banjul)",
+    }) + "\\n");
+  }
+});
+`;
+
+      it("does not leave a specialist working when the process will not die", async () => {
+        // The CLI catches SIGTERM - the real one does; both stuck processes
+        // on this bench had it in SigCgt - and `stop()` never escalates.
+        const { registry, id } = await limitedBench(limitedCli(true));
+        registry.setManagedApiKeys([
+          managed("available"),
+          managed("available", "two", "sk-ant-api03-managed-two-1111"),
+        ]);
+
+        registry.send(id, "off you go");
+        const settled = await waitFor(
+          async () => {
+            const row = registry.list().find((r) => r.id === id);
+            return row && row.status !== "working" ? row.status : null;
+          },
+          "the specialist to stop saying it is working",
+          // Longer than the grace the process gets before it is killed: this
+          // is the case where waiting on a polite stop is the bug.
+          15_000,
+        );
+
+        expect(settled).not.toBe("working");
+      }, 25_000);
+
+      it("does not leave a specialist working when the next key is the same token", async () => {
+        // Two profile entries, one token - so `applyApiKey` finds the key
+        // unchanged, nothing is stopped, and the exit that would have revived
+        // it never comes.
+        const SAME = "sk-ant-api03-one-token-twice-0000";
+        const { registry, id } = await limitedBench(limitedCli(false));
+        registry.setManagedApiKeys([
+          managed("available", "one", SAME),
+          managed("available", "two", SAME),
+        ]);
+
+        registry.send(id, "off you go");
+        const settled = await waitFor(
+          async () => {
+            const row = registry.list().find((r) => r.id === id);
+            return row && row.status !== "working" ? row.status : null;
+          },
+          "the specialist to stop saying it is working",
+        );
+
+        expect(settled).not.toBe("working");
+      });
+
       it("rotates onto a key whose check was inconclusive when nothing is known good", async () => {
         // "Could not be checked" is not "dead", and with nothing else known
         // good it is the best key there is to try.
