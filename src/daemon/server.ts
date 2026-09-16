@@ -21,6 +21,7 @@ import { checkKey as checkRouterKey, creditSource, handleGeminiProxy, type Liste
 import type { Credit } from "../shared/credit.js";
 import type { Total } from "./ledger.js";
 import { fetchUsage, usageSource, type Usage } from "./usage.js";
+import type { HeadroomProxy } from "./headroom.js";
 import { RefIndex } from "./refs.js";
 import type { SessionChanges } from "./worktree.js";
 import { reviewBrief, reviewLabel } from "./review.js";
@@ -306,6 +307,9 @@ export function createServer(opts: {
    * on. Absent is exactly what a daemon with no `~/.bench/firebase.json`
    * looks like - which is most daemons, and every one of them today. */
   remote?: RemoteControllerLike;
+  /** The daemon's handle on the compression proxy, for the status line the
+   * settings dialog shows. Absent in tests, which report it as not there. */
+  headroom?: HeadroomProxy;
 }) {
   const { config, registry } = opts;
   const index = opts.refs ?? new RefIndex();
@@ -317,6 +321,7 @@ export function createServer(opts: {
   const spent = opts.usage ?? usageSource({ benchKey: () => null });
   const routerSpent = opts.credit ?? creditSource({ key: () => null });
   const remote = opts.remote ?? REMOTE_OFF;
+  const headroom = opts.headroom;
 
   /**
    * A throw inside an async request handler is not caught by anything: node
@@ -522,6 +527,25 @@ export function createServer(opts: {
      */
     if (path === "/api/usage" && req.method === "GET") {
       json(res, 200, await spent());
+      return;
+    }
+
+    /**
+     * Whether the compression proxy is there and up. The settings dialog
+     * reads this to say plainly which of the three cases the toggle is in:
+     * nothing installed, running, or installed but refusing to start - the
+     * difference between "install it" and "here is why it will not run".
+     */
+    if (path === "/api/headroom" && req.method === "GET") {
+      json(res, 200, headroom
+        ? {
+          installed: headroom.installed,
+          state: headroom.state,
+          url: headroom.url(),
+          port: config.headroomPort,
+          reason: headroom.reason,
+        }
+        : { installed: false, state: "absent", url: null, port: config.headroomPort, reason: null });
       return;
     }
 

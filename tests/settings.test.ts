@@ -18,6 +18,7 @@ describe("what is on disk", () => {
       reviewModel: "opus",
       roleModels: {},
       reasoningEffort: "medium",
+      headroom: true,
     });
   });
 
@@ -38,7 +39,7 @@ describe("what is on disk", () => {
     const dir = await home();
     await writeFile(join(dir, "settings.json"), JSON.stringify({ codingStyle: "terse" }));
 
-    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium" });
+    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium", headroom: true });
   });
 
   it("refuses half a set rather than erasing the half it was not sent", async () => {
@@ -112,7 +113,7 @@ describe("which model reviews", () => {
     const dir = await home();
     await writeSettings(dir, { codingStyle: "terse", workflowRules: "" });
 
-    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium" });
+    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium", headroom: true });
   });
 
   it("keeps a model written into the file by hand", async () => {
@@ -122,6 +123,24 @@ describe("which model reviews", () => {
     await writeFile(join(dir, "settings.json"), JSON.stringify({ reviewModel: "claude-fable-5" }));
 
     expect((await readSettings(dir)).reviewModel).toBe("claude-fable-5");
+  });
+});
+
+describe("the headroom toggle", () => {
+  it("is on for a settings file written before it existed", async () => {
+    // On by default because it does nothing unless the binary is installed -
+    // an old file must not read as a choice the developer never made.
+    const dir = await home();
+    await writeFile(join(dir, "settings.json"), JSON.stringify({ codingStyle: "terse" }));
+
+    expect((await readSettings(dir)).headroom).toBe(true);
+  });
+
+  it("keeps a saved off", async () => {
+    const dir = await home();
+    await writeSettings(dir, { codingStyle: "", workflowRules: "", headroom: false });
+
+    expect((await readSettings(dir)).headroom).toBe(false);
   });
 });
 

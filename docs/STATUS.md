@@ -178,6 +178,18 @@ turn above was billed to. The file is read rather than merged into the
 environment, so the OpenAI and Gemini keys sitting beside them in that file
 reach no specialist.
 
+**Prompts compressed through Headroom.** With `headroom-ai[proxy]` 0.37.0
+installed, the daemon reuses or starts `headroom proxy` on `127.0.0.1:8787`
+(offline, beacon off) and hands its URL to Anthropic-direct specialists as
+`ANTHROPIC_BASE_URL` at spawn, with `ENABLE_TOOL_SEARCH=true` for the same
+reason `headroom wrap claude` sets it — a custom base URL otherwise makes
+the CLI load every tool schema up front. Verified against `claude 2.1.272`
+on the machine's claude.ai OAuth login: a specialist on `haiku` answered a
+turn through the proxy, and the proxy's own `/stats` recorded the request
+(`claude-haiku-4-5`, ~5% of prompt tokens removed). A proxy already running
+on the port is borrowed, never killed; one that is absent or fails leaves
+specialists direct and says so in the startup line and in Settings.
+
 ## Built, not yet proven in anger
 
 - **Bench from a phone** — all three slices of the
@@ -251,6 +263,10 @@ reach no specialist.
   labels that read as fragments of its own brief is unproven. Model
   compliance is the risk here, not the schema — a malformed intake already
   degrades to free text rather than wedging the session.
+- **Headroom in the OpenRouter chain.** Specialists answered through
+  `/api/openrouter` keep pointing at Bench's own translation proxy; routing
+  them through Headroom as well — two proxies in one chain — is deliberately
+  not done.
 - **Concurrency.** Three specialists have run at once without incident.
   That is an observation, not a test.
 - **Changing a specialist's model mid-life.** Recorded, and the process is

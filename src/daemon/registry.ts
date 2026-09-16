@@ -10,6 +10,7 @@ import {
 } from "./worktree.js";
 import { bootstrapWorktree, BootstrapError } from "./bootstrap.js";
 import { ClaudeSession } from "./claude-session.js";
+import type { HeadroomProxy } from "./headroom.js";
 import { DevinSession } from "./devin-session.js";
 import { runtimeFor, type Session } from "./session.js";
 import { existsSync } from "node:fs";
@@ -179,6 +180,15 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   private managedRouterKeys: ManagedKey[] = [];
   private activeManagedRouterKeyId: string | null = null;
 
+  /**
+   * The compression proxy specialists may be routed through, handed in by
+   * the daemon that owns its lifetime. Read at spawn rather than watched:
+   * a proxy that comes up late simply reaches the specialists started after
+   * it, which is also what a setting flip means - environment is fixed for
+   * the life of a process, so nothing already running can be re-pointed.
+   */
+  private headroom: HeadroomProxy | null = null;
+
   /** The catalogue, once fetched. OpenRouter serves several hundred models
    * and the list changes rarely, so it is read once and kept rather than
    * fetched every time the picker opens. */
@@ -260,6 +270,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   getSettings(): Settings {
     return this.settings;
+  }
+
+  /** The daemon's handle on the proxy. Set once at startup, before restore. */
+  setHeadroom(proxy: HeadroomProxy): void {
+    this.headroom = proxy;
   }
 
   /** The key to authenticate with. Null when there is no managed key, in
@@ -504,7 +519,19 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   }
 
   async saveSettings(input: unknown): Promise<Settings> {
+    const headroomWas = this.settings.headroom;
     this.settings = await writeSettings(this.config.home, input);
+
+    // Off to on: a proxy that was never started, or failed out of a startup
+    // the developer has since fixed, gets another go. On to off stops nothing
+    // - the proxy keeps running, it is simply no longer handed out, and the
+    // specialists already pointed at it keep it until they respawn.
+    if (!headroomWas && this.settings.headroom && this.headroom !== null) {
+      const state = this.headroom.state;
+      if (state === "off" || state === "failed") {
+        void this.headroom.start();
+      }
+    }
     return this.settings;
   }
 
@@ -936,6 +963,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
             return key;
           },
           via: opts.via,
+          // Read at spawn like the key: a proxy still coming up reaches the
+          // next specialist, not this one. The setting gates the URL here so
+          // the session never has to know the toggle exists.
+          headroomUrl: () => (this.settings.headroom ? (this.headroom?.url() ?? null) : null),
         });
 
     const syncProgress = () => {

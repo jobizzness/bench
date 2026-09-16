@@ -105,6 +105,8 @@ BENCH_PROJECTS_ROOT=~/code pnpm start
 | `BENCH_TOKEN` | generated | Override the cockpit token |
 | `BENCH_LAN` | unset | `1` binds every interface, not just loopback |
 | `BENCH_HOST` | `127.0.0.1` | Bind one interface by name instead |
+| `BENCH_HEADROOM_BIN` | PATH lookup | Where the `headroom` binary is, when it is not on PATH |
+| `BENCH_HEADROOM_PORT` | `8787` | The loopback port the Headroom proxy runs on |
 
 ### Opening it from another device
 
@@ -223,6 +225,30 @@ Two things change after a restart run this way. The daemon has no terminal, so
 its output goes to `~/.bench/daemon.log`, and the restart's own progress to
 `~/.bench/restart.log`. And the terminal you originally started it in is now
 free: it printed `bench: stopping.` and exited.
+
+### Compressing prompts with Headroom
+
+[Headroom](https://github.com/headroomlabs-ai/headroom) is a local proxy that
+compresses what each turn sends before it reaches Anthropic. Install it once:
+
+```bash
+uv tool install --python 3.12 "headroom-ai[proxy]"
+```
+
+If the binary is there, the daemon starts `headroom proxy` on `127.0.0.1:8787`
+itself — or reuses one you are already running on that port, and never kills
+it. Specialists that talk to Anthropic directly are pointed at it through
+`ANTHROPIC_BASE_URL` on their next start; ones already running keep what they
+were spawned with. The proxy is run offline and with its telemetry beacon off,
+because a tool whose job is shrinking what leaves the machine should not be
+adding to it.
+
+There is a toggle in Settings, on by default since it does nothing without
+the binary. Switching it off stops handing the proxy out — it keeps running,
+and specialists pointed at it stay pointed until they respawn. Specialists
+answered by OpenRouter are not routed through it: they already go through
+Bench's own translation proxy, and stacking a second one in that chain is
+unproven. `headroom savings` shows what it is actually removing.
 
 ## The `bench` command
 

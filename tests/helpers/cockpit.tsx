@@ -54,7 +54,7 @@ export interface Fixtures {
    * to report rather than draw a tick for. */
   editorsTargeted?: number;
   /** House rules already on the daemon when the page opens. */
-  settings?: { codingStyle: string; workflowRules: string; reviewModel?: string };
+  settings?: { codingStyle: string; workflowRules: string; reviewModel?: string; headroom?: boolean };
   /** What GitHub says about the project the drawer is opened on. */
   github?: { slug: string | null; items: unknown[] };
   /** Where else this daemon answers. */
@@ -97,6 +97,9 @@ export interface Fixtures {
   remote?: RemoteState;
   /** What the daemon says when the cockpit asks it to connect or rename. */
   remoteReply?: { status: number; body: unknown };
+  /** What /api/headroom answers. Undefined is the ordinary case in a test:
+   * no binary installed, nothing running. */
+  headroom?: { installed: boolean; state: string; url: string | null; port: number; reason: string | null };
 }
 
 export interface Cockpit {
@@ -180,8 +183,8 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
     onmessage: ((e: { data: string }) => void) | null = null;
     onclose: ((e: { code: number }) => void) | null = null;
     constructor() { socket = this; }
-    send() {}
-    close() {}
+    send() { }
+    close() { }
   };
 
   (globalThis as any).fetch = async (url: string, init?: RequestInit) => {
@@ -273,7 +276,7 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       sent.push({ url, body: JSON.parse(String(init.body)) });
       // What a message sent optimistically (#86) draws while the POST
       // behind it is still on its way - never resolves either way.
-      if (fixtures.messageHangs) return new Promise<never>(() => {});
+      if (fixtures.messageHangs) return new Promise<never>(() => { });
       // "reject" is a dead link; a number is a daemon that answered with a
       // status - both used to leave the developer's text sitting nowhere.
       if (fixtures.messageFails === "reject") throw new TypeError("fetch failed");
@@ -291,7 +294,7 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
     if (url.includes("/thread")) {
       // Never settles either way - what the page draws while still waiting
       // on a real answer, told apart from #62's "answered, but badly".
-      if (fixtures.threadHangs) return new Promise<never>(() => {});
+      if (fixtures.threadHangs) return new Promise<never>(() => { });
       // A read that never lands, which on a relayed session is what several
       // reads an hour actually do. "reject" is a dead link; a number is a
       // daemon that answered with a status.
@@ -302,7 +305,7 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
       return { ok: true, status: 200, json: async () => ({ entries: fixtures.entries ?? [] }) };
     }
     if (url.includes("/report/")) {
-      if (fixtures.decisionHangs) return new Promise<never>(() => {});
+      if (fixtures.decisionHangs) return new Promise<never>(() => { });
       return {
         ok: fixtures.decision != null,
         status: fixtures.decision != null ? 200 : 404,
@@ -328,6 +331,14 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
         ok: true,
         status: 200,
         json: async () => fixtures.credit ?? { available: false, reason: "none" },
+      };
+    }
+    if (url.includes("/api/headroom")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => fixtures.headroom
+          ?? { installed: false, state: "absent", url: null, port: 8787, reason: null },
       };
     }
     if (url.includes("/api/usage")) {

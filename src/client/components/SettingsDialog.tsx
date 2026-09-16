@@ -8,6 +8,31 @@ import { HiddenProjects } from "./HiddenProjects.js";
 import { ThemePicker } from "./ThemePicker.js";
 import { Remote } from "./Remote.js";
 
+type HeadroomStatus = {
+  installed: boolean; state: string; url: string | null; port: number; reason: string | null;
+};
+
+/**
+ * The sentence under the checkbox, one per state the proxy can be in. A
+ * daemon that never answered reads as "not installed", which is the note
+ * that tells the developer what to do rather than one that misleads.
+ */
+function headroomNote(status: HeadroomStatus | null): string {
+  if (status === null || !status.installed) {
+    return 'Headroom is not installed. Install it with: uv tool install --python 3.12 "headroom-ai[proxy]"';
+  }
+  if (status.state === "up") {
+    return `Running at ${status.url ?? `http://127.0.0.1:${status.port}`} — applies to Anthropic-direct specialists on their next start. Gemini specialists are not routed through it.`;
+  }
+  if (status.state === "starting") {
+    return "Headroom is starting — applies to Anthropic-direct specialists once it is up.";
+  }
+  if (status.state === "failed") {
+    return `Headroom failed to start${status.reason ? ` (${status.reason})` : ""} — specialists run direct until it does.`;
+  }
+  return "Headroom is installed but not running — specialists run direct.";
+}
+
 const PLACEHOLDER = {
   codingStyle:
     "Comments say why, never what.\nNo new dependencies without asking.\nTests read as sentences about behaviour.",
@@ -38,6 +63,11 @@ export function SettingsDialog({ open, onClose, activeMachineName }: {
   const [draft, setDraft] = useState<Settings>(NO_SETTINGS);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // What the daemon says about the proxy, asked when the dialog opens: the
+  // note under the checkbox is a different sentence for each of the three
+  // states, and guessing would tell the developer to install a thing that
+  // is already running.
+  const [headroom, setHeadroom] = useState<HeadroomStatus | null>(null);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -56,6 +86,13 @@ export function SettingsDialog({ open, onClose, activeMachineName }: {
       // overwrites rules you had.
       if (!res.ok) { setError("Could not read your settings."); return; }
       setDraft({ ...NO_SETTINGS, ...((await res.json()).settings ?? {}) });
+    })();
+
+    void (async () => {
+      // Best effort: a daemon that predates this route (or one mid-restart)
+      // just leaves the note on its safe default.
+      const res = await authFetch("/api/headroom").catch(() => null);
+      if (res?.ok) setHeadroom(await res.json());
     })();
   }, [open]);
 
@@ -126,6 +163,17 @@ export function SettingsDialog({ open, onClose, activeMachineName }: {
           <option value="high">High</option>
         </select>
         <p className="field-note">{REASONING_EFFORT_NOTE}</p>
+
+        <div className="check">
+          <input
+            type="checkbox" id="s-headroom"
+            checked={draft.headroom}
+            disabled={headroom !== null && !headroom.installed}
+            onChange={(event) => setDraft({ ...draft, headroom: event.target.checked })}
+          />
+          <label htmlFor="s-headroom">Compress prompts with Headroom</label>
+        </div>
+        <p className="field-note" id="s-headroom-note">{headroomNote(headroom)}</p>
 
         <details id="s-preview" open={framing !== ""}>
           <summary>What a specialist is told</summary>

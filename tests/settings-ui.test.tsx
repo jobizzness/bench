@@ -73,7 +73,7 @@ describe("the house rules page", () => {
     // anything was typed - see the round-trip test below.
     expect(saved()!.body).toEqual({
       codingStyle: "terse", workflowRules: "verify first", reviewModel: "opus", roleModels: {},
-      reasoningEffort: "medium",
+      reasoningEffort: "medium", headroom: true,
     });
   });
 
@@ -87,6 +87,34 @@ describe("the house rules page", () => {
     await ui.click(ui.$("#s-save"));
 
     expect(saved()!.body.reasoningEffort).toBe("high");
+  });
+
+  it("saves the headroom toggle off when it is unchecked", async () => {
+    ui = await bootCockpit({
+      rows: [row()],
+      settings: { codingStyle: "", workflowRules: "", headroom: true },
+      headroom: { installed: true, state: "up", url: "http://127.0.0.1:8787", port: 8787, reason: null },
+    });
+    await ui.click(ui.$("#open-settings"));
+    await waitFor(() => ui.$("#s-style"), "the rules page");
+    const box = ui.$<HTMLInputElement>("#s-headroom");
+    await waitFor(() => box?.checked === true || null, "the checkbox");
+
+    await ui.click(box);
+    await ui.click(ui.$("#s-save"));
+
+    expect(saved()!.body.headroom).toBe(false);
+  });
+
+  it("disables the headroom toggle when no proxy is installed", async () => {
+    // The cockpit stub answers /api/headroom as not installed - the note has
+    // to say so rather than offering a switch that does nothing.
+    await open();
+    await waitFor(
+      () => ui.$("#s-headroom-note")?.textContent?.includes("not installed") || null,
+      "the headroom note",
+    );
+    expect(ui.$<HTMLInputElement>("#s-headroom")!.disabled).toBe(true);
   });
 
   it("keeps what was saved when it is reopened", async () => {

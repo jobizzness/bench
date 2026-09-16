@@ -17,6 +17,7 @@ import { checkKey } from "./anthropic-key.js";
 import { fetchUsage } from "./usage.js";
 import { KeySync } from "./key-sync.js";
 import { widenConnectAttempts } from "./network.js";
+import { findHeadroom, HeadroomProxy } from "./headroom.js";
 
 // Before anything reaches out: every key check, usage read and Firestore
 // call below goes through the same connect path - see network.ts.
@@ -36,6 +37,18 @@ const version = (() => {
 })();
 
 const registry = new SessionRegistry(config);
+
+/**
+ * The compression proxy specialists are routed through when it is there.
+ * An explicit BENCH_HEADROOM_BIN wins; otherwise whatever PATH offers; a
+ * machine with neither just runs specialists direct, as it always has.
+ */
+const headroom = new HeadroomProxy({
+  bin: config.headroomBin ?? findHeadroom(),
+  port: config.headroomPort,
+  logPath: join(config.home, "headroom.log"),
+});
+registry.setHeadroom(headroom);
 
 /**
  * What a command actually runs against: this daemon's own HTTP server, on
@@ -101,6 +114,7 @@ const server = createServer({
   usage: usageSource({ benchKey: () => registry.getApiKey() }),
   credit: creditSource({ key: () => registry.getRouterKey() }),
   remote,
+  headroom,
 });
 
 // Resumes a Google identity from `~/.bench/firebase.json` if remote was ever
@@ -125,6 +139,22 @@ try {
     + `  Move ${error.path} aside to start with an empty bench.\n`,
   );
   process.exit(1);
+}
+
+// Started but not awaited: the proxy settling must not hold the cockpit
+// hostage, and a specialist spawned before it answers simply runs direct.
+// The line is printed when it settles rather than at listen, so it says
+// what happened rather than what was attempted.
+if (registry.getSettings().headroom) {
+  void headroom.start().then(() => {
+    if (headroom.state === "up") {
+      process.stdout.write(`bench: headroom proxy at ${headroom.url()}\n`);
+    } else if (headroom.state === "absent") {
+      process.stdout.write("bench: headroom not installed - specialists run direct.\n");
+    } else if (headroom.state === "failed") {
+      process.stdout.write(`bench: headroom failed to start (${headroom.reason ?? "unknown"}) - specialists run direct.\n`);
+    }
+  });
 }
 
 server.listen(config.port, config.host, () => {
@@ -159,6 +189,8 @@ const shutdown = () => {
 
   restoreTerminal();
   for (const row of registry.list()) registry.stop(row.id);
+  // Only kills a proxy this daemon spawned - a borrowed one outlives us.
+  headroom.stop();
   server.closeSockets();
 
   // The sockets are gone by here in every case we know of. The timer is

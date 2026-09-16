@@ -168,6 +168,18 @@ export interface SessionOptions {
    * looking at - not in a turn that dies two minutes later.
    */
   via?: { key: string; contextLength?: number | null };
+  /**
+   * The local Headroom proxy's base URL, read at spawn like `apiKey` - a
+   * proxy that comes up after a specialist has started cannot reach it,
+   * because env is fixed for the life of a process. Null means "no proxy":
+   * the specialist talks to Anthropic directly, as it always has.
+   *
+   * Only ever handed to Anthropic-direct specialists. A `via` specialist is
+   * already going through Bench's own translation proxy for OpenRouter, and
+   * stacking a second proxy inside that chain is unproven - so `via` wins
+   * wherever the two would both write ANTHROPIC_BASE_URL.
+   */
+  headroomUrl?: () => string | null;
 }
 
 /**
@@ -283,6 +295,10 @@ export class ClaudeSession extends EventEmitter implements Session {
     // Not `?? undefined`: `??` fires on null too, which collapsed "switched
     // off" into "no opinion" and made the parked case below unreachable.
     const apiKey = via ? null : this.opts.apiKey?.();
+    // The compression proxy's address, or null when there is none. A `via`
+    // specialist never sees it: its ANTHROPIC_BASE_URL is Bench's own
+    // /api/openrouter endpoint, which the spread order below keeps winning.
+    const headroom = via ? null : (this.opts.headroomUrl?.() ?? null);
 
     // --verbose is not optional: claude -p with stream-json exits without it.
     const args = [
@@ -350,6 +366,12 @@ export class ClaudeSession extends EventEmitter implements Session {
         // credential of its own must not take away the login the daemon was
         // started with.
         ...(apiKey === undefined ? {} : { ...NO_CREDENTIAL, ...(apiKey === null ? {} : credentialEnv(apiKey)) }),
+        // Through the compression proxy, when there is one. ENABLE_TOOL_SEARCH
+        // mirrors what `headroom wrap claude` sets (issue #746 there): a custom
+        // ANTHROPIC_BASE_URL makes the CLI load every tool schema up front
+        // unless this stays on, which would hand back much of the saving the
+        // proxy is there for.
+        ...(headroom === null ? {} : { ANTHROPIC_BASE_URL: headroom, ENABLE_TOOL_SEARCH: "true" }),
         // Everything OpenRouter needs, or nothing at all. Nothing at all is
         // the Anthropic case, and it has to leave the environment exactly as
         // it found it: a bench with no key of its own must not take away the

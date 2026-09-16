@@ -34,6 +34,14 @@ export const settingsSchema = z.object({
    * Maps to Google's thinking_level or OpenAI's reasoning_effort.
    */
   reasoningEffort: z.enum(["none", "low", "medium", "high"]).default("medium"),
+  /**
+   * Route Anthropic-direct specialists through a local Headroom proxy, which
+   * compresses what each turn sends. On by default because it only takes
+   * effect when the binary is installed - a bench without headroom is
+   * unchanged either way. Applies to the next spawn; a running specialist's
+   * environment is already fixed.
+   */
+  headroom: z.boolean().default(true),
 });
 
 /**
@@ -50,17 +58,19 @@ export const settingsInputSchema = z.object({
   reviewModel: z.string().refine(isModelId, "not a model this bench offers").optional(),
   roleModels: z.record(z.string(), z.string().refine(isModelId, "not a model this bench offers")).optional(),
   reasoningEffort: z.enum(["none", "low", "medium", "high"]).optional(),
+  headroom: z.boolean().optional(),
 }).transform((s) => ({
   ...s,
   reviewModel: s.reviewModel ?? DEFAULT_MODEL,
   roleModels: s.roleModels ?? {},
   reasoningEffort: s.reasoningEffort ?? "medium",
+  headroom: s.headroom ?? true,
 }));
 
 export type Settings = z.infer<typeof settingsSchema>;
 
 export const NO_SETTINGS: Settings = {
-  codingStyle: "", workflowRules: "", reviewModel: DEFAULT_MODEL, roleModels: {}, reasoningEffort: "medium",
+  codingStyle: "", workflowRules: "", reviewModel: DEFAULT_MODEL, roleModels: {}, reasoningEffort: "medium", headroom: true,
 };
 
 /**

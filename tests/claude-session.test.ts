@@ -852,3 +852,69 @@ describe("sending a specialist an image", () => {
     session.stop();
   });
 });
+
+/** Reports the two variables the proxy routing lives on. */
+const BASE_URL_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false,
+      session_id: "fake",
+      result: "base:" + (process.env.ANTHROPIC_BASE_URL ?? "none")
+        + " tools:" + (process.env.ENABLE_TOOL_SEARCH ?? "none"),
+    }) + "\\n");
+  }
+});
+`;
+
+describe("routing through the compression proxy", () => {
+  it("points an Anthropic-direct specialist at the headroom proxy", async () => {
+    const session = await makeSession(BASE_URL_CLI, {
+      headroomUrl: () => "http://127.0.0.1:8787",
+    });
+    const replied = once(session, "reply");
+    session.open();
+    session.send("go");
+
+    // ENABLE_TOOL_SEARCH mirrors what `headroom wrap claude` sets: a custom
+    // base URL otherwise makes the CLI load every tool schema up front.
+    expect((await replied)[0]).toBe("base:http://127.0.0.1:8787 tools:true");
+    session.stop();
+  });
+
+  it("leaves an OpenRouter specialist on Bench's own proxy, not headroom's", async () => {
+    // A `via` specialist's ANTHROPIC_BASE_URL is already spoken for by the
+    // /api/openrouter translation endpoint. Stacking a second proxy inside
+    // that chain is unproven, so via wins.
+    const session = await makeSession(BASE_URL_CLI, {
+      headroomUrl: () => "http://127.0.0.1:8787",
+      via: { key: "sk-or-x" },
+    });
+    const replied = once(session, "reply");
+    session.open();
+    session.send("go");
+
+    const [text] = await replied;
+    expect(text).toContain("base:http://127.0.0.1:7420/api/openrouter/sess-1");
+    expect(text).not.toContain("8787");
+    session.stop();
+  });
+
+  it("sets no base URL at all when there is no proxy", async () => {
+    // "none" is the fake CLI's word for absent - the Anthropic default is
+    // not a value the environment should carry.
+    const session = await makeSession(BASE_URL_CLI, { headroomUrl: () => null });
+    const replied = once(session, "reply");
+    session.open();
+    session.send("go");
+
+    expect((await replied)[0]).toBe("base:none tools:none");
+    session.stop();
+  });
+});

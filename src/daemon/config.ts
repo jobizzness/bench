@@ -31,6 +31,14 @@ export interface BenchConfig {
    * on PATH, which works if the binary is installed globally.
    */
   devinBin?: string;
+  /**
+   * The headroom binary to run `headroom proxy` with. `BENCH_HEADROOM_BIN`
+   * is an override for a binary not on PATH; when neither is set the daemon
+   * searches PATH at startup and simply does without.
+   */
+  headroomBin?: string;
+  /** The loopback port the compression proxy is started on / looked for at. */
+  headroomPort: number;
   /** Where Bench itself is installed. */
   installRoot: string;
 }
@@ -55,5 +63,7 @@ export function loadConfig(): BenchConfig {
     pluginDir: join(root, "plugin"),
     hookCommand: `node ${join(root, "dist", "daemon", "hooks", "bench-hook.js")}`,
     devinBin: process.env.BENCH_DEVIN_BIN,
+    headroomBin: process.env.BENCH_HEADROOM_BIN,
+    headroomPort: Number(process.env.BENCH_HEADROOM_PORT ?? "8787"),
   };
 }
