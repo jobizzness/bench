@@ -1,4 +1,4 @@
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -22,32 +22,6 @@ const CLEAN_STOP_REASONS = new Set(["end_turn"]);
  * only end up punishing a long but healthy one.
  */
 const DEFAULT_STALL_TIMEOUT_MS = 60_000;
-
-/** How long `devin doctor --json` gets to answer before its own hang is
- * treated the same as a "not ready" verdict - an install check that never
- * comes back is not a decision Bench can wait on forever either. */
-const DEFAULT_INSTALL_CHECK_TIMEOUT_MS = 10_000;
-
-/**
- * Best-effort detail out of `devin doctor --json` for the developer-facing
- * message. No captured payload for this command was available when this was
- * written (unlike `usage_update` and the result's `usage`, both confirmed by
- * driving the real binary) - so this reads a handful of plausible field
- * names and otherwise falls back to the first line of raw output, rather
- * than assuming a schema nothing here has actually seen.
- */
-function doctorDetail(output: string): string | null {
-  const trimmed = output.trim();
-  if (trimmed === "") return null;
-  try {
-    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    const message = parsed.message ?? parsed.error ?? parsed.detail ?? parsed.reason;
-    if (typeof message === "string" && message) return message;
-  } catch {
-    // Not JSON - the raw text below is the best we have.
-  }
-  return trimmed.split("\n")[0];
-}
 
 /**
  * Read the Windsurf/Devin API key that `devin auth login` stores on disk.
@@ -88,8 +62,6 @@ export interface DevinSessionOptions {
   nudge?: () => string;
   /** Overrides `DEFAULT_STALL_TIMEOUT_MS`. Only ever set by tests. */
   stallTimeoutMs?: number;
-  /** Overrides `DEFAULT_INSTALL_CHECK_TIMEOUT_MS`. Only ever set by tests. */
-  installCheckTimeoutMs?: number;
 }
 
 interface Prompt {
@@ -315,32 +287,6 @@ export class DevinSession extends EventEmitter implements Session {
       clientCapabilities: {},
       clientInfo: { name: "bench", title: "Bench", version: "0.1.0" },
     });
-    this.verifyInstall();
-  }
-
-  /**
-   * Runs alongside the ACP handshake rather than before it: `send()` is
-   * called synchronously right after `open()` on the revive path
-   * (`registry.ts`), and `send()` throws unless `this.child` already exists,
-   * so opening cannot wait on this first. An install that is not ready is
-   * still reported promptly - `devin doctor --json` normally answers in well
-   * under a second - just not before the child is spawned.
-   */
-  private verifyInstall(): void {
-    const bin = this.opts.devinBin ?? "devin";
-    execFile(
-      bin,
-      ["doctor", "--json"],
-      { cwd: this.opts.worktree, timeout: this.opts.installCheckTimeoutMs ?? DEFAULT_INSTALL_CHECK_TIMEOUT_MS },
-      (error, stdout, stderr) => {
-        if (!this.child || !error) return;
-        const detail = doctorDetail(stdout) ?? doctorDetail(stderr) ?? error.message.split("\n")[0];
-        this.lastStderr = (this.lastStderr
-          + `\nDevin install is not ready: ${detail}. Run \`devin doctor\` to see what is missing.`
-        ).slice(-STDERR_KEPT);
-        this.stop();
-      },
-    );
   }
 
   send(text: string, images: Attachment[] = []): void {

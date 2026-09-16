@@ -9,13 +9,6 @@ import { SessionStore } from "../src/daemon/store.js";
 
 const ACP_SERVER = `#!/usr/bin/env node
 const mode = ${JSON.stringify("__MODE__")};
-// \`devin doctor --json\` is a separate invocation of this same binary, not
-// a message on the ACP wire - handled before anything opens stdin.
-if (process.argv[2] === "doctor") {
-  const notReady = mode === "not-ready";
-  process.stdout.write(JSON.stringify(notReady ? { ready: false, message: "first-run setup not completed" } : { ready: true }) + "\\n");
-  process.exit(notReady ? 1 : 0);
-}
 let carry = "";
 let prompts = 0;
 let initialized = false;
@@ -377,15 +370,6 @@ describe("DevinSession", () => {
     const result = await turn(session, "work");
     expect(result.result).toContain('"code":-32601');
     session.stop();
-  });
-
-  it("reports an install that is not ready instead of letting the first turn hang (#116)", async () => {
-    const session = await makeSession("not-ready");
-    const exited = once(session, "exit");
-    session.open();
-    const [, stderr] = await exited;
-    expect(stderr).toMatch(/Devin install is not ready/);
-    expect(stderr).toContain("first-run setup not completed");
   });
 
   it("uses byte-identical turn framing to ClaudeSession", async () => {
