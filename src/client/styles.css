@@ -2208,6 +2208,14 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
    needs" beats a list that quietly leaves out half the bench. */
 .model-option:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* The arrow keys and the mouse land on the same highlight here too - Devin's
+   rows take arrows and Enter from the search box the same as the catalogue's,
+   see `.model-row[data-active="true"]` below. */
+.model-option[data-active="true"]:not(:disabled) {
+  border-color: var(--line-firm);
+  background: var(--hover);
+}
+
 /* Thinking Effort. Its own class rather than .model-option: the two used to
    share one, which made a picker with four Anthropic models plus four effort
    levels count eight ".model-option"s where only the models were meant. */

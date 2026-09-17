@@ -175,6 +175,21 @@ export function SettingsDialog({ open, onClose, activeMachineName }: {
         </div>
         <p className="field-note" id="s-headroom-note">{headroomNote(headroom)}</p>
 
+        <div className="check">
+          <input
+            type="checkbox" id="s-open-router"
+            checked={draft.showOpenRouter}
+            onChange={(event) => setDraft({ ...draft, showOpenRouter: event.target.checked })}
+          />
+          <label htmlFor="s-open-router">Show the OpenRouter catalogue in the model picker</label>
+        </div>
+        <p className="field-note" id="s-open-router-note">
+          Off shows only Devin and Anthropic's four - neither needs a key.
+          On brings back the OpenRouter catalogue and its auto-routers.
+          Whatever the model a specialist is already on, it stays visible
+          and selectable either way.
+        </p>
+
         <details id="s-preview" open={framing !== ""}>
           <summary>What a specialist is told</summary>
           <pre id="s-framing">

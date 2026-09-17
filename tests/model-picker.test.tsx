@@ -61,11 +61,18 @@ async function openPicker(fixtures: Parameters<typeof bootCockpit>[0]) {
 
 const one = { rows: [row({ model: "opus" })], entries: [entry()] };
 
+/** The setting on - the OpenRouter catalogue and the auto-routers behave as
+ * they did before this setting existed (#141). Most of these tests are
+ * about that catalogue, not about the setting itself, so they opt back into
+ * it rather than assert against the new default. Anthropic needs no such
+ * opt-in: it is never hidden. */
+const catalogueOn = { showOpenRouter: true, codingStyle: "", workflowRules: "" };
+
 describe("the model picker", () => {
   it("draws a bounded number of models, however many there are", async () => {
     // The property that matters is that the list has a floor. Three hundred
     // rows in a modal is not a list anybody reads; it is a wall you close.
-    await openPicker({ ...one, routerKey: { present: true, hint: "…4f2a" }, models: many(300) });
+    await openPicker({ ...one, settings: catalogueOn, routerKey: { present: true, hint: "…4f2a" }, models: many(300) });
     const drawn = ui.$$("#model-dialog .model-row").length;
     expect(drawn).toBeGreaterThan(0);
     expect(drawn).toBeLessThanOrEqual(40);
@@ -73,7 +80,7 @@ describe("the model picker", () => {
 
   it("says how many it is not showing rather than stopping silently", async () => {
     // A list that stops at forty without saying so reads as a list of forty.
-    await openPicker({ ...one, routerKey: { present: true, hint: "…4f2a" }, models: many(300) });
+    await openPicker({ ...one, settings: catalogueOn, routerKey: { present: true, hint: "…4f2a" }, models: many(300) });
     expect(ui.$("#model-dialog-more")!.textContent).toContain("300");
   });
 
@@ -82,6 +89,7 @@ describe("the model picker", () => {
     // first. The answer to "gpt" is GPT.
     await openPicker({
       ...one,
+      settings: catalogueOn,
       routerKey: { present: true, hint: "…4f2a" },
       models: [
         model({ id: "meta-llama/llama-4-gpt-compat", name: "Meta: Llama 4 GPT-compat" }),
@@ -97,6 +105,7 @@ describe("the model picker", () => {
     // the id would miss it.
     await openPicker({
       ...one,
+      settings: catalogueOn,
       routerKey: { present: true, hint: "…4f2a" },
       models: [model(), model({ id: "openai/gpt-5.6-luna", name: "OpenAI: GPT-5.6 Luna" })],
     });
@@ -111,14 +120,22 @@ describe("the model picker", () => {
     // the query is lost on the way to the row.
     await openPicker({
       ...one,
+      settings: catalogueOn,
       routerKey: { present: true, hint: "…4f2a" },
       models: [model(), model({ id: "google/gemini-3.6-flash", name: "Google: Gemini 3.6 Flash" })],
     });
     const search = ui.$<HTMLInputElement>("#model-dialog-search")!;
+    // "gemini" matches neither of Devin's or Anthropic's own rows (#141), so
+    // the nav list is just the account default and these two - the query is
+    // typed for that reason as much as to narrow the catalogue.
+    await ui.type(search, "gemini");
     // Read off the list rather than assumed: two presses lands on the second
     // row, whichever way the two happen to sort.
     const second = ui.$$("#model-dialog .model-row")[1]!.getAttribute("data-model");
 
+    // One extra press over the two rows: Devin's account default takes the
+    // first stop on the way there - arrows walk through it too.
+    await ui.pressIn(search, "ArrowDown");
     await ui.pressIn(search, "ArrowDown");
     await ui.pressIn(search, "ArrowDown");
     expect(ui.$("#model-dialog .model-row[data-active='true']")!.getAttribute("data-model"))
@@ -145,6 +162,7 @@ describe("the model picker", () => {
     // where a reference figure belongs when it is not what is being decided.
     await openPicker({
       ...one,
+      settings: catalogueOn,
       routerKey: { present: true, hint: "…4f2a" },
       models: [model({ dollarsPerMillion: 1.875 })],
     });
@@ -160,6 +178,7 @@ describe("the model picker", () => {
     // worse - it would sort to the top of the cheapest-first list.
     await openPicker({
       ...one,
+      settings: catalogueOn,
       routerKey: { present: true, hint: "…4f2a" },
       models: [model({ id: "mystery/per-request", name: "Priced Per Request", dollarsPerMillion: null })],
     });
@@ -173,6 +192,7 @@ describe("the model picker", () => {
     // front of the id. Saying it again is what pushed rows onto two lines.
     await openPicker({
       ...one,
+      settings: catalogueOn,
       routerKey: { present: true, hint: "…4f2a" },
       models: [model()],
     });
@@ -186,6 +206,7 @@ describe("the model picker", () => {
     await openPicker({
       rows: [row({ model: "vendor299/model-299" })],
       entries: [entry()],
+      settings: catalogueOn,
       routerKey: { present: true, hint: "…4f2a" },
       models: [...many(300), current],
     });
@@ -196,7 +217,7 @@ describe("the model picker", () => {
   it("offers a way to add a key rather than only naming one", async () => {
     // The old note pointed at Settings and stopped there, which left the
     // developer inside a modal reading about something they could not go do.
-    await openPicker({ ...one, models: [model()] });
+    await openPicker({ ...one, settings: catalogueOn, models: [model()] });
     expect(ui.$("#model-dialog-need-key")).not.toBe(null);
 
     await ui.click(ui.$("#model-dialog-need-key"));
@@ -205,19 +226,19 @@ describe("the model picker", () => {
   });
 
   it("does not offer to add a key that is already there", async () => {
-    await openPicker({ ...one, routerKey: { present: true, hint: "…4f2a" }, models: [model()] });
+    await openPicker({ ...one, settings: catalogueOn, routerKey: { present: true, hint: "…4f2a" }, models: [model()] });
     expect(ui.$("#model-dialog-need-key")).toBe(null);
   });
 
   it("will not let a model be picked while there is no key to reach it", async () => {
-    await openPicker({ ...one, models: [model()] });
+    await openPicker({ ...one, settings: catalogueOn, models: [model()] });
     expect(ui.$<HTMLButtonElement>("#model-dialog .model-row")!.disabled).toBe(true);
   });
 
   it("still opens on Anthropic's four when OpenRouter will not answer", async () => {
     // Those go straight to Anthropic on the machine's own login, so a picker
     // that refused to open would be refusing over something that does not
-    // affect them.
+    // affect them. No setting needed - Anthropic is never behind one (#141).
     await openPicker({ ...one, models: "unreachable" });
     expect(ui.$$("#model-dialog [data-house='anthropic'] .model-option").length).toBe(4);
     expect(ui.$("#model-dialog-error")!.textContent).toContain("Anthropic's models still work");
@@ -287,5 +308,139 @@ describe("the model picker", () => {
     await openPicker({ ...one, models: [] });
     const note = ui.$("#model-dialog [data-house-note='devin']")!;
     expect(note.textContent).toContain("account default still works");
+  });
+});
+
+/**
+ * Devin first, every other house behind a setting, tap-outside to close
+ * (#141).
+ */
+describe("closing the picker from the backdrop", () => {
+  it("closes on the backdrop but not on a click inside the dialog", async () => {
+    // `event.target === dialog` fires both for a genuine backdrop tap and
+    // for a click that lands on the margin strip between two of `.sheet`'s
+    // own flex children - `.sheet` has no padding, but its children carry
+    // their own margins, so every gap between them is dialog background
+    // under the pointer too. `getBoundingClientRect` is what tells the two
+    // apart; jsdom lays nothing out, so the rect is stubbed here, matching
+    // the shape a real `.sheet` reports (#141).
+    await openPicker({ ...one, models: [] });
+    const dialog = ui.$<HTMLDialogElement>("#model-dialog")!;
+    dialog.getBoundingClientRect = () => ({ left: 370, top: 135.8, right: 910, bottom: 764.3 }) as DOMRect;
+
+    // A click on a child - the ordinary case, proven regardless of the rect.
+    await ui.click(ui.$("#model-dialog h2"));
+    expect(dialog.open).toBe(true);
+
+    // A click that reports the dialog itself as its target, but inside the
+    // rect - the gap between two children, not the backdrop.
+    await ui.run(() => {
+      dialog.dispatchEvent(new MouseEvent("click", { clientX: 640, clientY: 150, bubbles: true }));
+    });
+    expect(dialog.open).toBe(true);
+
+    // Outside the rect entirely - the genuine backdrop.
+    await ui.run(() => {
+      dialog.dispatchEvent(new MouseEvent("click", { clientX: 10, clientY: 10, bubbles: true }));
+    });
+    expect(dialog.open).toBe(false);
+  });
+});
+
+describe("the OpenRouter catalogue, behind a setting", () => {
+  it("shows Devin, Anthropic and thinking effort with the setting off, and hides the rest", async () => {
+    // Corrected from the first version of #141: Anthropic stands on its own
+    // subscription and is never behind this setting, only OpenRouter is.
+    await openPicker({ ...one, routerKey: { present: true, hint: "…4f2a" }, models: [model()] });
+
+    expect(ui.$("#model-dialog [data-house='devin']")).not.toBe(null);
+    expect(ui.$("#model-dialog [data-house='anthropic']")).not.toBe(null);
+    expect(ui.$("#model-dialog [data-house='thinking-effort']")).not.toBe(null);
+    expect(ui.$("#model-dialog [data-house='auto']")).toBe(null);
+    expect(ui.$("#model-dialog-router")).toBe(null);
+    expect(ui.$("#model-dialog-need-key")).toBe(null);
+    expect(ui.$("#model-dialog-cheapest")).toBe(null);
+  });
+
+  it("restores the catalogue and the auto-routers once the setting is turned on", async () => {
+    await openPicker({ ...one, settings: catalogueOn, routerKey: { present: true, hint: "…4f2a" }, models: [model()] });
+
+    expect(ui.$("#model-dialog-router")).not.toBe(null);
+    expect(ui.$("#model-dialog-cheapest")).not.toBe(null);
+  });
+
+  it("shows a current Anthropic model in its own house, needing no fallback", async () => {
+    // Anthropic is never hidden, so a specialist running one of its four
+    // never needs the current-model fallback the catalogue's models do.
+    await openPicker({ rows: [row({ model: "opus" })], entries: [entry()], models: [] });
+
+    const button = ui.$<HTMLButtonElement>("#model-dialog [data-house='anthropic'] [data-model='opus']");
+    expect(button).not.toBe(null);
+    expect(button!.disabled).toBe(false);
+    expect(ui.$("#model-dialog [data-house='current']")).toBe(null);
+  });
+
+  it("keeps a current OpenRouter model visible and selectable when the setting is off", async () => {
+    // Whatever the setting says, the model a specialist is already on must
+    // not become unswitchable because the catalogue is hidden.
+    const current = model({ id: "vendor299/model-299", name: "Vendor299: Model 299" });
+    await openPicker({
+      rows: [row({ model: "vendor299/model-299" })],
+      entries: [entry()],
+      models: [current],
+    });
+
+    expect(ui.$("#model-dialog-router")).toBe(null);
+    const button = ui.$<HTMLButtonElement>("#model-dialog [data-house='current'] [data-model='vendor299/model-299']");
+    expect(button).not.toBe(null);
+    expect(button!.disabled).toBe(false);
+  });
+
+  it("says nothing extra about the current model once the catalogue is shown", async () => {
+    const current = model({ id: "vendor299/model-299", name: "Vendor299: Model 299" });
+    await openPicker({
+      rows: [row({ model: "vendor299/model-299" })],
+      entries: [entry()],
+      settings: catalogueOn,
+      routerKey: { present: true, hint: "…4f2a" },
+      models: [current],
+    });
+    expect(ui.$("#model-dialog [data-house='current']")).toBe(null);
+  });
+
+  it("narrows Devin's families and Anthropic's aliases by the same query (#141)", async () => {
+    await openPicker({
+      ...one,
+      models: [],
+      devinFamilies: [{ id: "adaptive", label: "Adaptive" }, { id: "opus-devin", label: "Devin Opus" }],
+    });
+
+    await ui.type(ui.$("#model-dialog-search"), "adaptive");
+
+    const devin = ui.$("#model-dialog [data-house='devin']")!;
+    expect(devin.querySelector("[data-model='devin:adaptive']")).not.toBe(null);
+    expect(devin.querySelector("[data-model='devin:opus-devin']")).toBe(null);
+    // The account default is exempt from the query - it needs nothing from it.
+    expect(devin.querySelector("[data-model='devin']")).not.toBe(null);
+
+    // "adaptive" matches none of Anthropic's four aliases or labels.
+    expect(ui.$("#model-dialog [data-house='anthropic'] .model-option")).toBe(null);
+  });
+
+  it("reaches a Devin family with only the keyboard - arrows walk into Devin's own rows too", async () => {
+    await openPicker({
+      ...one,
+      models: [],
+      devinFamilies: [{ id: "adaptive", label: "Adaptive" }],
+    });
+    const search = ui.$<HTMLInputElement>("#model-dialog-search")!;
+
+    // Nav slot zero is the account default; one more press reaches the family.
+    await ui.pressIn(search, "ArrowDown");
+    await ui.pressIn(search, "ArrowDown");
+    await ui.pressIn(search, "Enter");
+
+    const posted = ui.sent.find((s) => s.url.includes("/model"));
+    expect(posted!.body).toEqual({ model: "devin:adaptive" });
   });
 });

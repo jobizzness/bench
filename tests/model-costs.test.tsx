@@ -62,11 +62,14 @@ async function openPicker(over: Parameters<typeof bootCockpit>[0]) {
 }
 
 /** A specialist already on Sonnet through OpenRouter, so there is a baseline
- * in the catalogue to compare the rest against. */
+ * in the catalogue to compare the rest against. The catalogue itself is
+ * behind a setting now (#141) and everything below is about it, not about
+ * that setting, so it opts back in. */
 const onSonnet = {
   rows: [row({ model: "anthropic/claude-sonnet-5" })],
   entries: [entry()],
   routerKey: { present: true, hint: "…4f2a" },
+  settings: { showOpenRouter: true, codingStyle: "", workflowRules: "" },
 };
 
 describe("what a turn would cost", () => {
@@ -154,6 +157,7 @@ describe("comparing it to what you are on", () => {
       rows: [row({ model: "sonnet" })],
       entries: [entry()],
       routerKey: { present: true, hint: "…4f2a" },
+      settings: { showOpenRouter: true, codingStyle: "", workflowRules: "" },
       models: [SONNET, KIMI],
       turnShape: MINE,
     });

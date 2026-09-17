@@ -20,6 +20,7 @@ describe("what is on disk", () => {
       reasoningEffort: "medium",
       headroom: true,
       pinnedManagedKeyId: null,
+      showOpenRouter: false,
     });
   });
 
@@ -40,7 +41,10 @@ describe("what is on disk", () => {
     const dir = await home();
     await writeFile(join(dir, "settings.json"), JSON.stringify({ codingStyle: "terse" }));
 
-    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null });
+    expect(await readSettings(dir)).toEqual({
+      codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {},
+      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, showOpenRouter: false,
+    });
   });
 
   it("refuses half a set rather than erasing the half it was not sent", async () => {
@@ -114,7 +118,10 @@ describe("which model reviews", () => {
     const dir = await home();
     await writeSettings(dir, { codingStyle: "terse", workflowRules: "" });
 
-    expect(await readSettings(dir)).toEqual({ codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {}, reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null });
+    expect(await readSettings(dir)).toEqual({
+      codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {},
+      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, showOpenRouter: false,
+    });
   });
 
   it("keeps a model written into the file by hand", async () => {
@@ -142,6 +149,24 @@ describe("the headroom toggle", () => {
     await writeSettings(dir, { codingStyle: "", workflowRules: "", headroom: false });
 
     expect((await readSettings(dir)).headroom).toBe(false);
+  });
+});
+
+describe("the show-OpenRouter toggle (#141)", () => {
+  it("is off for a settings file written before it existed", async () => {
+    // Devin and Anthropic are what this bench runs on without a key - an
+    // old file must not read as having asked for the rest of the catalogue.
+    const dir = await home();
+    await writeFile(join(dir, "settings.json"), JSON.stringify({ codingStyle: "terse" }));
+
+    expect((await readSettings(dir)).showOpenRouter).toBe(false);
+  });
+
+  it("keeps a saved on", async () => {
+    const dir = await home();
+    await writeSettings(dir, { codingStyle: "", workflowRules: "", showOpenRouter: true });
+
+    expect((await readSettings(dir)).showOpenRouter).toBe(true);
   });
 });
 

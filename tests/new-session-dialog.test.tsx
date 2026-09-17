@@ -31,8 +31,8 @@ const toggle = () => ui.$<HTMLInputElement>("#f-worktree")!;
 const note = () => ui.$("#f-worktree-note")!.textContent ?? "";
 const created = () => ui.sent.find((s) => s.url.endsWith("/api/sessions"));
 
-async function open(): Promise<Cockpit> {
-  ui = await bootCockpit({ rows: [row()], projects: PROJECTS });
+async function open(over: Partial<Parameters<typeof bootCockpit>[0]> = {}): Promise<Cockpit> {
+  ui = await bootCockpit({ rows: [row()], projects: PROJECTS, ...over });
   await ui.click(ui.$("#new-session"));
   return ui;
 }
@@ -251,7 +251,8 @@ describe("the model a role starts on", () => {
 
   it("keeps a model you picked when you change the role", async () => {
     // An inherited model should follow the role; a chosen one is a decision
-    // and has to survive.
+    // and has to survive. Anthropic is never behind the setting (#141), so
+    // no opt-in is needed to pick one of its models.
     await open();
     await waitFor(() => ui.$("#f-model"), "the model button");
     await ui.click(ui.$("#f-model"));

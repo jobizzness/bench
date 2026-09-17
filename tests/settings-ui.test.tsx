@@ -73,7 +73,7 @@ describe("the house rules page", () => {
     // anything was typed - see the round-trip test below.
     expect(saved()!.body).toEqual({
       codingStyle: "terse", workflowRules: "verify first", reviewModel: "opus", roleModels: {},
-      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null,
+      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, showOpenRouter: false,
     });
   });
 
@@ -104,6 +104,17 @@ describe("the house rules page", () => {
     await ui.click(ui.$("#s-save"));
 
     expect(saved()!.body.headroom).toBe(false);
+  });
+
+  it("saves the show-OpenRouter toggle on when it is checked (#141)", async () => {
+    await open({ showOpenRouter: false });
+    const box = ui.$<HTMLInputElement>("#s-open-router")!;
+    expect(box.checked).toBe(false);
+
+    await ui.click(box);
+    await ui.click(ui.$("#s-save"));
+
+    expect(saved()!.body.showOpenRouter).toBe(true);
   });
 
   it("disables the headroom toggle when no proxy is installed", async () => {

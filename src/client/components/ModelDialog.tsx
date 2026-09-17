@@ -4,6 +4,7 @@ import { MODELS, DEVIN_MODEL, DEVIN_PREFIX, isDevinModel, modelLabel, REASONING_
 import { costOfTurn, dollars, multipleLabel, multipleOf, type Price } from "../../shared/cost.js";
 import { AutoRouters, isAutoRouter } from "./AutoRouters.js";
 import { ModelRow, shortName, windowLabel, type Listed } from "./ModelRow.js";
+import { isOutsideDialog } from "./sheetGesture.js";
 import { useTurnShape } from "./useTurnShape.js";
 
 export type { Listed };
@@ -109,6 +110,83 @@ function score(model: Listed, needle: string): number {
 }
 
 /**
+ * The same idea as `score`, for a house's own rows - Devin's families and
+ * Anthropic's aliases - which have no vendor and no catalogue price to rank
+ * on, only an id and a label to be found by (#141).
+ */
+function houseScore(id: string, label: string, needle: string): number {
+  if (needle === "") return 1;
+  const idL = id.toLowerCase();
+  const labelL = label.toLowerCase();
+  if (idL === needle || labelL === needle) return 4;
+  if (idL.startsWith(needle) || labelL.startsWith(needle)) return 3;
+  if (idL.includes(needle) || labelL.includes(needle)) return 2;
+  return 0;
+}
+
+/**
+ * Narrows and caps one house's own rows the same way the catalogue is
+ * narrowed and capped above: ranked by `houseScore`, the one already on
+ * pinned to the top wherever it ranks, cut to `SHOWN`. Shared by Devin's
+ * families and Anthropic's aliases so a query moves both lists the same
+ * way, and neither can drift from the other's rules by accident.
+ */
+function rankHouse<T>(
+  entries: readonly T[], needle: string,
+  idOf: (item: T) => string, labelOf: (item: T) => string, modelOf: (item: T) => string,
+  current: string,
+): { rows: T[]; total: number } {
+  const scored = entries
+    .map((item) => ({ item, hit: houseScore(idOf(item), labelOf(item), needle) }))
+    .filter((row) => row.hit > 0)
+    .sort((a, b) => (a.hit !== b.hit ? b.hit - a.hit : labelOf(a.item).localeCompare(labelOf(b.item))))
+    .map((row) => row.item);
+
+  const pinned = scored.findIndex((item) => modelOf(item) === current);
+  const ordered = pinned > 0
+    ? [scored[pinned]!, ...scored.slice(0, pinned), ...scored.slice(pinned + 1)]
+    : scored;
+
+  return { rows: ordered.slice(0, SHOWN), total: scored.length };
+}
+
+/**
+ * One row in Devin's or Anthropic's own list - the same shape for both, so
+ * the two read as one searched list rather than two shapes (#141). `at` is
+ * this row's place in the combined nav list the arrows walk; absent for a
+ * row the arrows do not reach (the current-model fallback further down).
+ */
+function HouseOption({ modelId, label, subtitle, at, active, current, busy, onPick, onHover }: {
+  modelId: string;
+  label: string;
+  subtitle: string;
+  at?: number;
+  active?: boolean;
+  current: boolean;
+  busy: boolean;
+  onPick: () => void;
+  onHover?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="model-option"
+      data-model={modelId}
+      data-at={at}
+      data-active={active}
+      data-current={current}
+      aria-current={current}
+      disabled={busy}
+      onClick={onPick}
+      onMouseEnter={onHover}
+    >
+      <b>{label}</b>
+      <span>{subtitle}</span>
+    </button>
+  );
+}
+
+/**
  * Which model a specialist runs on.
  *
  * A modal rather than a dropdown because the choice stopped being four names
@@ -117,17 +195,22 @@ function score(model: Listed, needle: string): number {
  * much they hold, and whether a key is set at all. None of that fits in an
  * `<option>`.
  *
- * Anthropic's four come first and always work — they go straight to Anthropic
- * on the login this machine already has. Everything below them is reached
- * through OpenRouter and needs a key, and is shown without one rather than
- * hidden: "you could run this, here is what it needs" is worth more than a
- * list that quietly omits most of what the bench supports.
+ * Devin and Anthropic come first, both visible without a setting: neither
+ * needs a key, Anthropic's is a subscription already paid for, and Devin is
+ * what this bench runs on now (#141). The auto-routers and the OpenRouter
+ * catalogue sit behind a setting the developer turns on in Settings - shown
+ * without a key when they are shown at all rather than hidden for want of
+ * one, since "you could run this, here is what it needs" is worth more than
+ * a list that quietly omits most of what the bench supports. Whatever a
+ * specialist is already running on stays visible and pickable even with the
+ * catalogue hidden - see `currentInHiddenHouse` below.
  *
- * The list below the search is one column rather than a grid of headed blocks,
- * and it is capped. Both for the same reason: the search is how anyone gets
- * to the two hundredth model, so the list only has to be long enough to browse
- * — and a row that reads left to right, name then window then price, can be
- * scanned down a column in a way that cards in a grid cannot.
+ * The catalogue below the search is one column rather than a grid of headed
+ * blocks, and it is capped. Both for the same reason: the search is how
+ * anyone gets to the two hundredth model, so the list only has to be long
+ * enough to browse — and a row that reads left to right, name then window
+ * then price, can be scanned down a column in a way that cards in a grid
+ * cannot.
  */
 export function ModelDialog({
   open, current, onClose, onPick, onNeedKey, sessionId, standing = false, id = "model-dialog", reasoningEffort,
@@ -173,6 +256,10 @@ export function ModelDialog({
    * and the two are drawn the same way: the account default button below is
    * offered regardless, since it needs nothing from this list. */
   const [devinFamilies, setDevinFamilies] = useState<DevinFamily[]>([]);
+  /** Whether the OpenRouter catalogue and its auto-routers are shown - the
+   * developer's own setting (`shared/settings.ts`), read fresh every time
+   * the dialog opens the same way `devinFamilies` and `listed` are. */
+  const [showOpenRouter, setShowOpenRouter] = useState(false);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -220,10 +307,11 @@ export function ModelDialog({
 
     let live = true;
     void (async () => {
-      const [keyRes, modelsRes, devinRes] = await Promise.all([
+      const [keyRes, modelsRes, devinRes, settingsRes] = await Promise.all([
         authFetch("/api/openrouter/keys"),
         authFetch("/api/openrouter/models"),
         authFetch("/api/devin/models"),
+        authFetch("/api/settings"),
       ]);
       if (!live) return;
       if (keyRes.ok) setHasKey(((await keyRes.json())?.credentials ?? []).some((c: { active?: boolean }) => c.active === true));
@@ -239,6 +327,9 @@ export function ModelDialog({
       // so an empty result reads the same whether the daemon could not run
       // `devin models list` or simply found nothing else to add.
       setDevinFamilies(devinRes.ok ? ((await devinRes.json())?.families ?? []) : []);
+      // A daemon that cannot be asked reads as "catalogue hidden" - the safe
+      // default, not a picker that silently opens onto three hundred models.
+      setShowOpenRouter(settingsRes.ok ? ((await settingsRes.json())?.settings?.showOpenRouter ?? false) : false);
     })();
     return () => { live = false; };
   }, [open]);
@@ -327,9 +418,48 @@ export function ModelDialog({
     return { rows: ordered.slice(0, SHOWN), total: scored.length };
   }, [listed, query, current, cheapest, priced]);
 
+  /** Devin's families, narrowed by the same query and capped the same way as
+   * the catalogue above - the account default itself is not in this list
+   * (it needs nothing from a search) and is always drawn regardless. */
+  const { rows: devinRows, total: devinTotal } = useMemo(
+    () => rankHouse(devinFamilies, query.trim().toLowerCase(), (f) => f.id, (f) => f.label, (f) => `${DEVIN_PREFIX}${f.id}`, current),
+    [devinFamilies, query, current],
+  );
+
+  /** Anthropic's four aliases, narrowed and capped the same way (#141) - the
+   * same rows Devin's families use, so the two read as one searched list. */
+  const { rows: anthropicRows, total: anthropicTotal } = useMemo(
+    () => rankHouse(MODELS, query.trim().toLowerCase(), (m) => m.id, (m) => m.label, (m) => m.id, current),
+    [query, current],
+  );
+
+  /**
+   * Every row the arrows and Enter can land on, in the order the dialog
+   * draws them: Devin's account default, then its families, then
+   * Anthropic's aliases, then the catalogue - which is empty here whenever
+   * that house is hidden or there is no key to reach it, the same rule that
+   * disables its rows to a mouse.
+   */
+  const navRows = useMemo(() => {
+    const nav: Array<{ model: string }> = [{ model: DEVIN_MODEL }];
+    for (const family of devinRows) nav.push({ model: `${DEVIN_PREFIX}${family.id}` });
+    for (const model of anthropicRows) nav.push({ model: model.id });
+    if (showOpenRouter && hasKey) for (const model of rows) nav.push({ model: model.id });
+    return nav;
+  }, [devinRows, anthropicRows, showOpenRouter, hasKey, rows]);
+
   // An arrow key that runs off the end of a filtered list would leave the
   // highlight on a row that is no longer there.
-  useEffect(() => { setActive((at) => (at >= rows.length ? rows.length - 1 : at)); }, [rows.length]);
+  useEffect(() => { setActive((at) => (at >= navRows.length ? navRows.length - 1 : at)); }, [navRows.length]);
+
+  /**
+   * The specialist's own model, orphaned by the setting rather than by the
+   * search: Devin and Anthropic are always drawn, but the auto-routers and
+   * the OpenRouter catalogue vanish when the setting is off, and a
+   * specialist already running one of those must not lose sight of what it
+   * is on.
+   */
+  const currentInHiddenHouse = !showOpenRouter && !isDevinModel(current) && !MODELS.some((m) => m.id === current);
 
   const choose = async (model: string) => {
     if (model === current && effort === initialEffort) { onClose(); return; }
@@ -380,18 +510,18 @@ export function ModelDialog({
   const onSearchKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (rows.length === 0 || !hasKey) return;
+      if (navRows.length === 0) return;
       const step = event.key === "ArrowDown" ? 1 : -1;
       setActive((at) => {
         const next = at + step;
         if (next < 0) return -1;
-        return next >= rows.length ? rows.length - 1 : next;
+        return next >= navRows.length ? navRows.length - 1 : next;
       });
       return;
     }
-    if (event.key === "Enter" && active >= 0 && rows[active] && hasKey) {
+    if (event.key === "Enter" && active >= 0 && navRows[active]) {
       event.preventDefault();
-      void choose(rows[active]!.id);
+      void choose(navRows[active]!.model);
     }
   };
 
@@ -404,8 +534,30 @@ export function ModelDialog({
     row?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
 
+  // Devin's own rows start at nav index 1 (0 is the account default),
+  // Anthropic's pick up right after them, and the catalogue's rows, when
+  // they are drawn at all, pick up right after those.
+  const anthropicOffset = 1 + devinRows.length;
+  const catalogueOffset = anthropicOffset + anthropicRows.length;
+
   return (
-    <dialog id={id} className="sheet" ref={ref} onClose={onClose}>
+    <dialog
+      id={id}
+      className="sheet"
+      ref={ref}
+      onClose={onClose}
+      // `event.target === ref.current` is also what a click reports for any
+      // gap between the dialog's own direct children, not only the backdrop:
+      // `.sheet` is a flex column and its children carry their own margins,
+      // so every strip between them is dialog background under the pointer.
+      // `isOutsideDialog` is what tells a genuine backdrop tap apart from
+      // one that landed inside the dialog's own box (#141).
+      onClick={(event) => {
+        if (event.target !== ref.current) return;
+        const rect = ref.current?.getBoundingClientRect();
+        if (rect && isOutsideDialog(event.clientX, event.clientY, rect)) onClose();
+      }}
+    >
       <h2>Model</h2>
       <p className="field-note" id={own("note")}>
         {standing
@@ -416,32 +568,27 @@ export function ModelDialog({
             + "new model and picks the conversation up where it left off."}
       </p>
 
-      <section className="model-house" data-house="anthropic">
-        <h3>Anthropic</h3>
-        <p className="field-note" data-house-note="anthropic">
-          This machine's Claude login, or the key in your profile. Nothing else has
-          to be set up — and these are billed to your Claude plan, not per token,
-          so there is no per-turn price to quote against them.
-        </p>
-        <div className="model-options">
-          {MODELS.map((model) => (
-            <button
-              type="button"
-              key={model.id}
-              className="model-option"
-              data-model={model.id}
-              data-current={model.id === current}
-              aria-current={model.id === current}
-              disabled={busy}
-              onClick={() => void choose(model.id)}
-            >
-              <b>{model.label}</b>
-              <span>{model.resolves}</span>
-            </button>
-          ))}
-        </div>
-      </section>
+      {/* First control in the dialog, above every list it filters - Devin's
+          families, Anthropic's aliases, and, when that house is open, the
+          catalogue below them. */}
+      <input
+        id={own("search")}
+        className="model-search"
+        ref={searchRef}
+        type="search"
+        autoComplete="off"
+        spellCheck={false}
+        aria-controls={own("results")}
+        placeholder={listed.length > 0
+          ? `Search ${listed.length} models — gemini, gpt, llama…`
+          : "Search models — gemini, gpt, llama…"}
+        value={query}
+        onChange={(event) => { setQuery(event.target.value); setActive(-1); }}
+        onKeyDown={onSearchKey}
+      />
 
+      {/* First house: this is what the bench runs on now, and the one that
+          needs nothing from a setting to show up. */}
       <section className="model-house" data-house="devin">
         <h3>Devin</h3>
         <p className="field-note" data-house-note="devin">
@@ -452,50 +599,119 @@ export function ModelDialog({
           )}
         </p>
         <div className="model-options">
-          <button
-            type="button"
-            className="model-option"
-            data-model={DEVIN_MODEL}
-            data-current={current === DEVIN_MODEL}
-            aria-current={current === DEVIN_MODEL}
-            disabled={busy}
-            onClick={() => void choose(DEVIN_MODEL)}
-          >
-            <b>Account default</b>
-            <span>whatever the Devin account is set to</span>
-          </button>
-          {devinFamilies.map((family) => {
+          <HouseOption
+            modelId={DEVIN_MODEL}
+            label="Account default"
+            subtitle="whatever the Devin account is set to"
+            at={0}
+            active={active === 0}
+            current={current === DEVIN_MODEL}
+            busy={busy}
+            onPick={() => void choose(DEVIN_MODEL)}
+            onHover={() => setActive(0)}
+          />
+          {devinRows.map((family, i) => {
             const modelId = `${DEVIN_PREFIX}${family.id}`;
+            const at = i + 1;
             return (
-              <button
-                type="button"
+              <HouseOption
                 key={modelId}
-                className="model-option"
-                data-model={modelId}
-                data-current={current === modelId}
-                aria-current={current === modelId}
-                disabled={busy}
-                onClick={() => void choose(modelId)}
-              >
-                <b>{family.label}</b>
-                <span>{family.id}</span>
-              </button>
+                modelId={modelId}
+                label={family.label}
+                subtitle={family.id}
+                at={at}
+                active={active === at}
+                current={current === modelId}
+                busy={busy}
+                onPick={() => void choose(modelId)}
+                onHover={() => setActive(at)}
+              />
             );
           })}
         </div>
+        {/* Said rather than silently done, the same as the catalogue below -
+            a list that stops at forty without saying so reads as forty. */}
+        {devinTotal > devinRows.length && (
+          <p className="field-note model-tally" id={own("devin-more")}>
+            {devinRows.length} of {devinTotal}. Keep typing to narrow it.
+          </p>
+        )}
       </section>
+
+      {/* Second house, on the same shared row UI as Devin's above (#141) so
+          the two read as one searched list rather than two shapes. Visible
+          without the setting: neither needs a key, and this one is a
+          subscription already paid for. */}
+      <section className="model-house" data-house="anthropic">
+        <h3>Anthropic</h3>
+        <p className="field-note" data-house-note="anthropic">
+          This machine's Claude login, or the key in your profile. Nothing else has
+          to be set up — and these are billed to your Claude plan, not per token,
+          so there is no per-turn price to quote against them.
+        </p>
+        <div className="model-options">
+          {anthropicRows.map((model, i) => {
+            const at = anthropicOffset + i;
+            return (
+              <HouseOption
+                key={model.id}
+                modelId={model.id}
+                label={model.label}
+                subtitle={model.resolves}
+                at={at}
+                active={active === at}
+                current={current === model.id}
+                busy={busy}
+                onPick={() => void choose(model.id)}
+                onHover={() => setActive(at)}
+              />
+            );
+          })}
+        </div>
+        {anthropicTotal > anthropicRows.length && (
+          <p className="field-note model-tally" id={own("anthropic-more")}>
+            {anthropicRows.length} of {anthropicTotal}. Keep typing to narrow it.
+          </p>
+        )}
+      </section>
+
+      {/* The specialist's own model, orphaned by the setting rather than by
+          the search. The auto-routers and the catalogue disappear when the
+          setting is off - this is the one row from whichever of those it is
+          on that does not. Devin and Anthropic never need it: they are
+          never hidden. */}
+      {currentInHiddenHouse && (
+        <section className="model-house" data-house="current">
+          <h3>Current model</h3>
+          <p className="field-note" data-house-note="current">
+            The OpenRouter catalogue is hidden by the setting, but what a
+            specialist is already on always stays visible here.
+          </p>
+          <div className="model-options">
+            <HouseOption
+              modelId={current}
+              label={currentLabel}
+              subtitle={current}
+              current={true}
+              busy={busy}
+              onPick={() => void choose(current)}
+            />
+          </div>
+        </section>
+      )}
 
       {/* Above the catalogue, and only where a key can reach them. A block
           offering to route requests on an account that does not exist is a
           block that cannot do anything. */}
-      {hasKey && (
+      {showOpenRouter && hasKey && (
         <AutoRouters current={current} disabled={busy} onPick={(model) => void choose(model)} />
       )}
 
       {/* Below the models it cannot change, not above them: this has no
           effect on Anthropic's four, so it used to sit where it read as
           applying to the section directly beneath it. It sits right before
-          the catalogue it actually governs instead. */}
+          the catalogue it actually governs instead. Visible in both modes -
+          it governs Anthropic and Devin alike. */}
       <section className="model-house" data-house="thinking-effort">
         <h3>Thinking Effort</h3>
         <p className="field-note">{REASONING_EFFORT_NOTE}</p>
@@ -517,114 +733,101 @@ export function ModelDialog({
         </div>
       </section>
 
-      <section id={own("router")} className="model-house model-router">
-        <h3>Everything else</h3>
-        <p className="field-note" id={own("router-note")}>
-          {hasKey
-            ? "Reached through OpenRouter and billed to that account, not to Anthropic."
-            : "These run on your own OpenRouter account. Add a key to use them."}
-        </p>
-
-        {/* One bar, one action. The old note pointed at Settings and stopped
-            there, which left the developer in a modal reading about a thing
-            they could not go and do. */}
-        {!hasKey && onNeedKey && (
-          <button type="button" id={own("need-key")} className="model-need-key" onClick={onNeedKey}>
-            Add an OpenRouter key
-          </button>
-        )}
-
-        <input
-          id={own("search")}
-          className="model-search"
-          ref={searchRef}
-          type="search"
-          autoComplete="off"
-          spellCheck={false}
-          aria-controls={own("results")}
-          placeholder={listed.length > 0
-            ? `Search ${listed.length} models — gemini, gpt, llama…`
-            : "Search models — gemini, gpt, llama…"}
-          value={query}
-          onChange={(event) => { setQuery(event.target.value); setActive(-1); }}
-          onKeyDown={onSearchKey}
-        />
-
-        {/* One line, where a legend and a basis note used to be two. The
-            legend existed to decode three bare dollar figures on every row;
-            the rows say what they mean now, so it has nothing left to
-            explain. What remains is the one thing a price cannot say about
-            itself: which turn it is the price of. */}
-        <div className="model-strip">
-          <p className="model-basis" id={own("basis")}>
-            Cost of one turn{" "}
-            {turns > 1 && <>like your last {turns}</>}
-            {turns === 1 && <>like the one this bench has run</>}
-            {turns === 0 && <>on an assumed turn, until this bench has run some</>}
-            , against {currentLabel}.
+      {showOpenRouter && (
+        <section id={own("router")} className="model-house model-router">
+          <h3>Everything else</h3>
+          <p className="field-note" id={own("router-note")}>
+            {hasKey
+              ? "Reached through OpenRouter and billed to that account, not to Anthropic."
+              : "These run on your own OpenRouter account. Add a key to use them."}
           </p>
-          {/* Labelled as the thing it will do, not as the state it is in. A
-              toggle that names its own state reads as a claim about the list
-              you are looking at. */}
-          <button
-            type="button"
-            id={own("cheapest")}
-            className="model-sort"
-            aria-pressed={cheapest}
-            onClick={() => { setCheapest((on) => !on); setActive(-1); }}
-          >
-            {cheapest ? "Sort by match" : "Sort by price"}
-          </button>
-        </div>
 
-        {/* The saving, said out loud rather than left to be noticed. It is
-            arithmetic, not a recommendation: cheap is not the same as able,
-            and the window is the one part of "able" a catalogue can answer. */}
-        {saving && (
-          <p className="field-note model-saving" id={own("saving")}>
-            <b>{shortName(saving.model)}</b> is the cheapest here that still
-            holds {windowLabel(saving.window)} —{" "}
-            {saving.turn === 0 ? "free" : dollars(saving.turn)} a turn against{" "}
-            {dollars(saving.now)}.
-          </p>
-        )}
+          {/* One bar, one action. The old note pointed at Settings and stopped
+              there, which left the developer in a modal reading about a thing
+              they could not go and do. */}
+          {!hasKey && onNeedKey && (
+            <button type="button" id={own("need-key")} className="model-need-key" onClick={onNeedKey}>
+              Add an OpenRouter key
+            </button>
+          )}
 
-        {rows.length === 0 && listed.length > 0 && (
-          <p className="field-note model-tally" id={own("none")}>Nothing matches “{query}”.</p>
-        )}
+          {/* One line, where a legend and a basis note used to be two. The
+              legend existed to decode three bare dollar figures on every row;
+              the rows say what they mean now, so it has nothing left to
+              explain. What remains is the one thing a price cannot say about
+              itself: which turn it is the price of. */}
+          <div className="model-strip">
+            <p className="model-basis" id={own("basis")}>
+              Cost of one turn{" "}
+              {turns > 1 && <>like your last {turns}</>}
+              {turns === 1 && <>like the one this bench has run</>}
+              {turns === 0 && <>on an assumed turn, until this bench has run some</>}
+              , against {currentLabel}.
+            </p>
+            {/* Labelled as the thing it will do, not as the state it is in. A
+                toggle that names its own state reads as a claim about the list
+                you are looking at. */}
+            <button
+              type="button"
+              id={own("cheapest")}
+              className="model-sort"
+              aria-pressed={cheapest}
+              onClick={() => { setCheapest((on) => !on); setActive(-1); }}
+            >
+              {cheapest ? "Sort by match" : "Sort by price"}
+            </button>
+          </div>
 
-        <div id={own("results")} role="listbox" className="model-rows">
-          {rows.map((model, at) => {
-            // The vendor is said once per run of rows rather than on every
-            // one, so grouping survives without sixty headed blocks.
-            const heads = at === 0 || rows[at - 1]!.vendor !== model.vendor;
-            return (
-              <div key={model.id} className="model-run">
-                {heads && <h4 className="model-vendor">{vendorName(model.vendor)}</h4>}
-                <ModelRow
-                  model={model}
-                  at={at}
-                  active={at === active}
-                  current={model.id === current}
-                  disabled={busy || !hasKey}
-                  turn={priced.get(model.id)?.turn ?? null}
-                  multiple={priced.get(model.id)?.multiple ?? null}
-                  onPick={() => void choose(model.id)}
-                  onHover={() => setActive(at)}
-                />
-              </div>
-            );
-          })}
-        </div>
+          {/* The saving, said out loud rather than left to be noticed. It is
+              arithmetic, not a recommendation: cheap is not the same as able,
+              and the window is the one part of "able" a catalogue can answer. */}
+          {saving && (
+            <p className="field-note model-saving" id={own("saving")}>
+              <b>{shortName(saving.model)}</b> is the cheapest here that still
+              holds {windowLabel(saving.window)} —{" "}
+              {saving.turn === 0 ? "free" : dollars(saving.turn)} a turn against{" "}
+              {dollars(saving.now)}.
+            </p>
+          )}
 
-        {/* Said rather than silently done. A list that stops at forty without
-            saying so reads as a list of forty. */}
-        {total > rows.length && (
-          <p className="field-note model-tally" id={own("more")}>
-            {rows.length} of {total}. Keep typing to narrow it.
-          </p>
-        )}
-      </section>
+          {rows.length === 0 && listed.length > 0 && (
+            <p className="field-note model-tally" id={own("none")}>Nothing matches “{query}”.</p>
+          )}
+
+          <div id={own("results")} role="listbox" className="model-rows">
+            {rows.map((model, i) => {
+              // The vendor is said once per run of rows rather than on every
+              // one, so grouping survives without sixty headed blocks.
+              const heads = i === 0 || rows[i - 1]!.vendor !== model.vendor;
+              const at = catalogueOffset + i;
+              return (
+                <div key={model.id} className="model-run">
+                  {heads && <h4 className="model-vendor">{vendorName(model.vendor)}</h4>}
+                  <ModelRow
+                    model={model}
+                    at={at}
+                    active={at === active}
+                    current={model.id === current}
+                    disabled={busy || !hasKey}
+                    turn={priced.get(model.id)?.turn ?? null}
+                    multiple={priced.get(model.id)?.multiple ?? null}
+                    onPick={() => void choose(model.id)}
+                    onHover={() => setActive(at)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Said rather than silently done. A list that stops at forty without
+              saying so reads as a list of forty. */}
+          {total > rows.length && (
+            <p className="field-note model-tally" id={own("more")}>
+              {rows.length} of {total}. Keep typing to narrow it.
+            </p>
+          )}
+        </section>
+      )}
 
       {error && <p id={own("error")} className="error">{error}</p>}
 
