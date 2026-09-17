@@ -4,11 +4,15 @@ import { chmod, cp, mkdtemp, mkdir, readdir, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
+import WebSocket from "ws";
 import { createServer, formatIntake } from "../src/daemon/server.js";
+import { waitFor } from "./helpers/wait-for.js";
 import { type KeyCheck, type ManagedKey } from "../src/daemon/anthropic-key.js";
 import type { Usage } from "../src/daemon/usage.js";
 import type { Credit } from "../src/shared/credit.js";
 import type { IntakeAnswer, RosterRow } from "../src/shared/types.js";
+import type { SelfUpdateStatus } from "../src/shared/self-update.js";
+import type { UpdateResult } from "../src/daemon/self-update-run.js";
 
 const TOKEN = "test-token-abc";
 
@@ -141,6 +145,17 @@ let usage: Usage = { available: false, reason: "none" };
 let keyUsage: Record<string, Usage> = {};
 /** The same, for the OpenRouter credit meter. */
 let credit: Credit = { available: false, reason: "none" };
+/** What the self-update watcher is pretending the checkout looks like. */
+let selfUpdateStatus: SelfUpdateStatus = { action: { kind: "none" }, fetchError: null };
+let selfUpdateTicks = 0;
+/** What `runSelfUpdate` is pretending the pull-and-build came back as. */
+let updateResult: UpdateResult = { ok: true };
+let updateCalls: Array<{ root: string; home: string }> = [];
+let restartCalls: Array<{ home: string; build: boolean; cliPath: string }> = [];
+/** Held so a test can keep `runSelfUpdate` pending on purpose - proving the
+ * concurrency lock needs a request that has not resolved yet to land a
+ * second one against. */
+let updateGate: Promise<void> | null = null;
 
 beforeAll(async () => {
   registry = new StubRegistry();
@@ -171,7 +186,10 @@ beforeAll(async () => {
   await writeFile(join(clientDir, "app.js"), "/* built bundle */\n");
   await writeFile(join(clientDir, "sw.js"), "/* built worker */\n");
 
-  config = { home: "/tmp/bench", port: 0, token: TOKEN, pluginDir: "/tmp/plugin", hookCommand: "node hook.js", projectsRoot } as any;
+  config = {
+    home: "/tmp/bench", port: 0, token: TOKEN, pluginDir: "/tmp/plugin", hookCommand: "node hook.js", projectsRoot,
+    installRoot: "/tmp/bench-install",
+  } as any;
   server = createServer({
     config: config as any,
     registry: registry as any,
@@ -181,6 +199,12 @@ beforeAll(async () => {
     keyUsage: async (key) => keyUsage[key] ?? { available: false, reason: "unreachable" },
     usage: async () => usage,
     credit: async () => credit,
+    selfUpdate: {
+      current: () => selfUpdateStatus,
+      tick: async () => { selfUpdateTicks += 1; },
+    },
+    runSelfUpdate: async (deps) => { updateCalls.push(deps); if (updateGate) await updateGate; return updateResult; },
+    askForRestart: (home, build, cliPath) => { restartCalls.push({ home, build, cliPath }); },
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -1435,5 +1459,96 @@ describe("reading an attached image back", () => {
     );
 
     expect(res.status).toBe(404);
+  });
+});
+
+describe("updating Bench's own checkout (#146)", () => {
+  beforeEach(() => {
+    selfUpdateStatus = { action: { kind: "update", behind: 2 }, fetchError: null };
+    selfUpdateTicks = 0;
+    updateResult = { ok: true };
+    updateCalls = [];
+    restartCalls = [];
+    updateGate = null;
+  });
+
+  it("pulls and builds, then reruns the watcher immediately rather than waiting out its interval", async () => {
+    const res = await fetch(`${base}/api/update`, { method: "POST", ...auth });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(updateCalls).toEqual([{ root: "/tmp/bench-install", home: "/tmp/bench" }]);
+    expect(selfUpdateTicks).toBe(1);
+  });
+
+  it("refuses a second update while one is still running, rather than running two builds at once", async () => {
+    let releaseFirst: (() => void) | undefined;
+    updateGate = new Promise((resolve) => { releaseFirst = resolve; });
+
+    const first = fetch(`${base}/api/update`, { method: "POST", ...auth });
+    // Only released once the second request has already landed - proving
+    // the lock, not just a lucky ordering of two fetches.
+    await waitFor(() => (updateCalls.length > 0 ? true : undefined), "the first update to have started");
+
+    const second = await fetch(`${base}/api/update`, { method: "POST", ...auth });
+    expect(second.status).toBe(409);
+    expect((await second.json()).error).toMatch(/already running/);
+    // Never touched runSelfUpdate a second time - the lock refused it
+    // before it got anywhere near the checkout.
+    expect(updateCalls).toHaveLength(1);
+
+    releaseFirst?.();
+    expect((await first).status).toBe(200);
+  });
+
+  it("answers the refusal reason in the body when the tree is dirty", async () => {
+    updateResult = { ok: false, error: "the checkout has uncommitted changes" };
+
+    const res = await fetch(`${base}/api/update`, { method: "POST", ...auth });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "the checkout has uncommitted changes" });
+    // A refusal is not a reason to re-poll early - nothing changed.
+    expect(selfUpdateTicks).toBe(0);
+  });
+
+  it("answers the refusal reason in the body when the merge would not fast-forward", async () => {
+    updateResult = { ok: false, error: "the branch has diverged from its remote and cannot fast-forward" };
+
+    const res = await fetch(`${base}/api/update`, { method: "POST", ...auth });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/diverged/);
+  });
+
+  it("requires a token, same as every other route", async () => {
+    const res = await fetch(`${base}/api/update`, { method: "POST" });
+    expect(res.status).toBe(401);
+  });
+
+  it("calls askForRestart with build: false - the first tap already built", async () => {
+    const res = await fetch(`${base}/api/update/restart`, { method: "POST", ...auth });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(restartCalls).toEqual([{ home: "/tmp/bench", build: false, cliPath: "/tmp/bench-install/dist/cli/bench.js" }]);
+  });
+
+  it("pushes the watcher's status alongside the roster, the same way pinnedKeyNotice is", async () => {
+    selfUpdateStatus = { action: { kind: "restart" }, fetchError: null };
+
+    const events: any[] = [];
+    const ws = new WebSocket(`${base.replace("http", "ws")}/events?token=${TOKEN}`);
+    // Attached before `open` resolves, not after - the server sends the
+    // first roster push the instant the connection handler runs, which can
+    // land before this client's own "open" callback gets scheduled. A
+    // listener added only after awaiting "open" can miss it outright.
+    ws.on("message", (data) => events.push(JSON.parse(String(data))));
+    await new Promise<void>((resolve) => ws.on("open", resolve));
+
+    const first = await waitFor(() => events[0], "the first roster push");
+    ws.close();
+
+    expect(first.selfUpdate).toEqual({ action: { kind: "restart" }, fetchError: null });
   });
 });

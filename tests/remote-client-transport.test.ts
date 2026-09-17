@@ -92,6 +92,26 @@ describe("authFetch, routed by session", () => {
   });
 
   /**
+   * `useSelfUpdate.ts`'s two routes (#146): a pull-and-build has to land on
+   * the daemon that served this page, never on whichever machine's tab is
+   * open, which is exactly the #139 bug this flag exists to prevent.
+   */
+  it("keeps the self-update routes local even with a remote machine active", async () => {
+    sendCommand.mockResolvedValue({ status: 200, contentType: "application/json", text: "{}" });
+    const realFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+
+    setActiveMachine(MACHINE);
+    await postJson("/api/update", {}, { local: true });
+    await postJson("/api/update/restart", {}, { local: true });
+
+    expect(sendCommand).not.toHaveBeenCalled();
+    expect(realFetch).toHaveBeenCalledTimes(2);
+
+    setActiveMachine(null);
+    realFetch.mockRestore();
+  });
+
+  /**
    * `ModelDialog.tsx` asks this exact route, with no `local` flag, about the
    * machine a *session* would run a specialist on - a different question
    * from the Profile dialog's, that happens to share a path. Without this

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getAuth } from "firebase/auth";
 import type { Firestore } from "firebase/firestore";
 import type { RosterRow } from "../../shared/types.js";
+import type { SelfUpdateStatus } from "../../shared/self-update.js";
 import { eventsUrl, linkIsStale, routeSession, setActiveMachine } from "../api.js";
 import { shouldReconnect } from "../reconnect.js";
 import { firebaseApp, firestore } from "../firebase-app.js";
@@ -41,6 +42,11 @@ export interface Roster {
    * actually running - `null` when there is nothing to say. See
    * `pinnedKeyNotice` in registry.ts. */
   pinnedKeyNotice: string | null;
+  /** Whether Bench's own checkout is behind its remote or has moved past the
+   * commit this daemon booted from - `null` before the first push, or on a
+   * daemon that could not read its own git state. See `SelfUpdateStatus`
+   * and `UpdateButton.tsx` (#146). */
+  selfUpdate: SelfUpdateStatus | null;
   /** Ids that were not on any roster this client has held before now - one
    * push's worth, not cumulative. `Row.tsx` reads this once, at its own
    * mount, to decide whether it is a specialist genuinely appearing rather
@@ -65,10 +71,11 @@ export interface Roster {
  * top, and it is a true no-op with nobody signed into Firebase in this
  * browser: no listener, no heartbeat, no Firestore call at all.
  */
-function useLocalRoster(): Pick<Roster, "rows" | "live" | "pinnedKeyNotice"> {
+function useLocalRoster(): Pick<Roster, "rows" | "live" | "pinnedKeyNotice" | "selfUpdate"> {
   const [rows, setRows] = useState<RosterRow[]>([]);
   const [live, setLive] = useState<boolean | null>(null);
   const [pinnedKeyNotice, setPinnedKeyNotice] = useState<string | null>(null);
+  const [selfUpdate, setSelfUpdate] = useState<SelfUpdateStatus | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -89,6 +96,7 @@ function useLocalRoster(): Pick<Roster, "rows" | "live" | "pinnedKeyNotice"> {
         if (message.type === "roster") {
           setRows(message.rows as RosterRow[]);
           setPinnedKeyNotice((message.pinnedKeyNotice as string | null | undefined) ?? null);
+          setSelfUpdate((message.selfUpdate as SelfUpdateStatus | null | undefined) ?? null);
         }
       };
 
@@ -111,7 +119,7 @@ function useLocalRoster(): Pick<Roster, "rows" | "live" | "pinnedKeyNotice"> {
     };
   }, []);
 
-  return { rows, live, pinnedKeyNotice };
+  return { rows, live, pinnedKeyNotice, selfUpdate };
 }
 
 /**
@@ -382,5 +390,6 @@ export function useRoster(watching: string | null = null): Roster {
     activeMachineName: watchedRow?.machine?.name ?? null,
     newIds,
     pinnedKeyNotice: local.pinnedKeyNotice,
+    selfUpdate: local.selfUpdate,
   };
 }

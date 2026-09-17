@@ -32,6 +32,9 @@ import { cockpitOrigins, isLoopback } from "./urls.js";
 import type { RemoteControllerLike } from "./remote/controller.js";
 import { REMOTE_OFF as REMOTE_OFF_STATE } from "../shared/remote.js";
 import type { EditEvent, IntakeAnswer, RosterRow, StoredAttachment } from "../shared/types.js";
+import type { SelfUpdateStatus } from "../shared/self-update.js";
+import { runSelfUpdate, type UpdateResult } from "./self-update-run.js";
+import { askForRestart } from "../cli/restart.js";
 import {
   attachmentPath, attachmentProblem, mediaTypeForName, readAttachments, storeAttachments,
   MAX_BODY_BYTES,
@@ -318,6 +321,15 @@ export function createServer(opts: {
   /** The daemon's handle on the compression proxy, for the status line the
    * settings dialog shows. Absent in tests, which report it as not there. */
   headroom?: HeadroomProxy;
+  /** Whether this checkout is behind its remote, pushed alongside the
+   * roster - see `pinnedKeyNotice` above and `SelfUpdateWatcher` (#146).
+   * Absent on a daemon that could not read its own git state at startup, in
+   * which case the two routes below answer 404 rather than pretending. */
+  selfUpdate?: { current(): SelfUpdateStatus; tick(): Promise<void> };
+  /** Injected by the tests, which must not run a real `git`/`pnpm`. */
+  runSelfUpdate?: (deps: { root: string; home: string }) => Promise<UpdateResult>;
+  /** Injected by the tests, which must not spawn a real detached worker. */
+  askForRestart?: (home: string, build: boolean, cliPath: string) => void;
 }) {
   const { config, registry } = opts;
   const index = opts.refs ?? new RefIndex();
@@ -330,6 +342,15 @@ export function createServer(opts: {
   const routerSpent = opts.credit ?? creditSource({ key: () => null });
   const remote = opts.remote ?? REMOTE_OFF;
   const headroom = opts.headroom;
+  const selfUpdate = opts.selfUpdate;
+  const runUpdate = opts.runSelfUpdate ?? runSelfUpdate;
+  const restart = opts.askForRestart ?? askForRestart;
+  /** Held for the life of one `runUpdate` call - a second tap, a second tab,
+   * or a retried request must never run `pnpm install`/`pnpm build` in the
+   * same checkout while the first is still writing to it. Cleared in a
+   * `finally` so a throw cannot wedge every future tap behind a lock nobody
+   * will ever release. */
+  let updateInFlight: Promise<UpdateResult> | null = null;
 
   /**
    * A throw inside an async request handler is not caught by anything: node
@@ -739,6 +760,44 @@ export function createServer(opts: {
 
     if (path === "/api/roster" && req.method === "GET") {
       json(res, 200, { rows: registry.list() });
+      return;
+    }
+
+    /**
+     * The first tap of the update button (#146). Machine-global, so the
+     * client must send it with `local: true` - see `api.ts` and #139, the
+     * bug this exists not to repeat. Refuses outright on a dirty tree or a
+     * merge that would not fast-forward; never stashes, never touches
+     * uncommitted work. On success this has already pulled and built -
+     * `selfUpdate.tick()` reruns the watcher immediately rather than
+     * leaving the cockpit to wait out its five-minute interval to notice.
+     */
+    if (path === "/api/update" && req.method === "POST") {
+      if (!selfUpdate) { json(res, 404, { error: "this daemon could not read its own git state" }); return; }
+      if (updateInFlight) { json(res, 409, { error: "an update is already running on this daemon" }); return; }
+      let result: UpdateResult;
+      try {
+        updateInFlight = runUpdate({ root: config.installRoot, home: config.home });
+        result = await updateInFlight;
+      } finally {
+        updateInFlight = null;
+      }
+      if (!result.ok) { json(res, 400, { error: result.error ?? "update failed" }); return; }
+      await selfUpdate.tick();
+      json(res, 200, { ok: true });
+      return;
+    }
+
+    /**
+     * The second tap. `build: false` - the first tap already built; see
+     * `askForRestart`'s own header comment for what "asking to be killed"
+     * means from in here. Answers before any of that happens: the wait
+     * belongs to the cockpit, which shows it, not to this response.
+     */
+    if (path === "/api/update/restart" && req.method === "POST") {
+      if (!selfUpdate) { json(res, 404, { error: "this daemon could not read its own git state" }); return; }
+      restart(config.home, false, join(config.installRoot, "dist", "cli", "bench.js"));
+      json(res, 200, { ok: true });
       return;
     }
 
@@ -1250,6 +1309,7 @@ export function createServer(opts: {
 
     const send = () => socket.send(JSON.stringify({
       type: "roster", rows: registry.list(), pinnedKeyNotice: registry.pinnedKeyNotice(),
+      selfUpdate: selfUpdate?.current() ?? null,
     }));
     send();
     registry.on("roster", send);
