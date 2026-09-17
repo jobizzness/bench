@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  * @vitest-environment-options { "url": "http://localhost/?token=t" }
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { bootCockpit, row, type Cockpit } from "./helpers/cockpit.js";
 
 /**
@@ -27,17 +27,25 @@ function setNarrow(narrow: boolean): void {
   })) as unknown as (query: string) => MediaQueryList;
 }
 
+/** No layout involved - `useRosterWidth` reads only `window.innerWidth`, so
+ * this is enough to stand in for an actual window resize (#145 comment). */
+function setViewportWidth(width: number): void {
+  Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: width });
+}
+
 const rows = [row({ id: "a", label: "ui-designer", project: "/var/www/bench" })];
 
 const rosterWidthProperty = () => document.documentElement.style.getPropertyValue("--roster-width");
 const handle = () => ui.$<HTMLDivElement>("#roster-handle");
 
 let ui: Cockpit;
+beforeEach(() => { setViewportWidth(1280); });
 afterEach(() => {
   ui?.unmount();
   localStorage.clear();
   document.documentElement.style.removeProperty("--roster-width");
   delete (window as { matchMedia?: unknown }).matchMedia;
+  setViewportWidth(1280);
 });
 
 describe("the roster width, nothing remembered", () => {
@@ -96,6 +104,17 @@ describe("the handle", () => {
     expect(afterThree).toBeLessThan(326);
   });
 
+  it("double-click never exceeds the cap, even in a window just above 720px where 45vw already undercuts 326", async () => {
+    // 723 * 0.45 = 325.35, just under the 326 default (#145 comment).
+    setViewportWidth(723);
+    localStorage.setItem("bench:roster-width", JSON.stringify(450));
+    ui = await bootCockpit({ rows });
+    expect(rosterWidthProperty()).toBe("325.35px");
+
+    await ui.run(() => { handle()!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
+    expect(rosterWidthProperty()).toBe("325.35px");
+  });
+
   it("double-click returns the roster to 326px and forgets the remembered value", async () => {
     localStorage.setItem("bench:roster-width", JSON.stringify(450));
     ui = await bootCockpit({ rows });
@@ -108,6 +127,31 @@ describe("the handle", () => {
 
     ui.unmount();
     ui = await bootCockpit({ rows });
+    expect(rosterWidthProperty()).toBe("326px");
+  });
+});
+
+describe("the window narrowing and widening", () => {
+  it("keeps the chosen width - only the display is constrained meanwhile, and storage is never touched by a resize", async () => {
+    localStorage.setItem("bench:roster-width", JSON.stringify(500));
+    ui = await bootCockpit({ rows });
+    expect(rosterWidthProperty()).toBe("500px");
+
+    await ui.run(() => { setViewportWidth(900); window.dispatchEvent(new Event("resize")); });
+    // 900 * 0.45 = 405, under the 500 chosen.
+    expect(rosterWidthProperty()).toBe("405px");
+    expect(JSON.parse(localStorage.getItem("bench:roster-width")!)).toBe(500);
+
+    await ui.run(() => { setViewportWidth(1280); window.dispatchEvent(new Event("resize")); });
+    expect(rosterWidthProperty()).toBe("500px");
+  });
+
+  it("the same default, with the default itself as the chosen width and a trip below 720 on the way", async () => {
+    ui = await bootCockpit({ rows });
+    expect(rosterWidthProperty()).toBe("326px");
+
+    await ui.run(() => { setViewportWidth(700); window.dispatchEvent(new Event("resize")); });
+    await ui.run(() => { setViewportWidth(1280); window.dispatchEvent(new Event("resize")); });
     expect(rosterWidthProperty()).toBe("326px");
   });
 });

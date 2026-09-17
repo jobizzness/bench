@@ -5,8 +5,16 @@ import { useNarrowViewport } from "./useNarrowViewport.js";
 
 const STORAGE_KEY = "roster-width";
 
-function viewportWidth(): number {
-  return typeof window === "undefined" ? DEFAULT_ROSTER_WIDTH : window.innerWidth;
+function liveViewportWidth(): number {
+  return typeof window === "undefined" ? Number.POSITIVE_INFINITY : window.innerWidth;
+}
+
+/** The developer's own preference, clamped only to the two flat bounds - not
+ * to a viewport, which is `clampRosterWidth`'s other job. Passing `Infinity`
+ * as the viewport width makes the viewport-relative cap in `maxRosterWidth`
+ * moot without a second clamp to keep in step with the first (#145). */
+function ownPreference(width: number): number {
+  return clampRosterWidth(width, Number.POSITIVE_INFINITY);
 }
 
 function storedWidth(): number {
@@ -26,11 +34,22 @@ export interface RosterWidth {
 }
 
 /**
- * Owns the roster's width: what this browser last left it at, clamped to
- * whatever the window currently allows, and mirrored onto `--roster-width`
- * on the root element - `styles.css` reads that custom property with the
- * same 326px fallback as its own literal default, the same split
- * `useVisualViewportHeight.ts` uses, so the stylesheet still stands alone.
+ * Owns the roster's width: what this browser last left it at, and what the
+ * current window actually has room for - two different things, kept as two
+ * different pieces of state. `chosen` is the developer's preference, touched
+ * only by a drag, an arrow key or a reset; `width`, what is actually
+ * rendered, is `chosen` clamped against the *live* viewport width on every
+ * render. A window narrowed past `chosen` therefore only ever constrains the
+ * display - `chosen` (and the storage it is mirrored to) never changes on a
+ * resize, so growing the window back recovers the original width without
+ * needing a reload. An earlier version of this hook clamped `chosen` itself
+ * on resize, which meant a shrink-then-grow could not recover it at all -
+ * only a reload (re-reading storage from scratch) could.
+ *
+ * `width` is mirrored onto `--roster-width` on the root element -
+ * `styles.css` reads that custom property with the same 326px fallback as
+ * its own literal default, the same split `useVisualViewportHeight.ts` uses,
+ * so the stylesheet still stands alone.
  *
  * `useLayoutEffect`, not `useEffect`: the property has to land before the
  * browser paints, or a remembered width flashes the CSS default first.
@@ -41,7 +60,10 @@ export interface RosterWidth {
  */
 export function useRosterWidth(): RosterWidth {
   const narrow = useNarrowViewport();
-  const [width, setWidthState] = useState(() => clampRosterWidth(storedWidth(), viewportWidth()));
+  const [chosen, setChosen] = useState(() => ownPreference(storedWidth()));
+  const [viewport, setViewport] = useState(liveViewportWidth);
+
+  const width = clampRosterWidth(chosen, viewport);
 
   useLayoutEffect(() => {
     if (narrow) {
@@ -52,21 +74,20 @@ export function useRosterWidth(): RosterWidth {
     return () => { document.documentElement.style.removeProperty("--roster-width"); };
   }, [width, narrow]);
 
-  // A window narrowed after the fact can put an already-chosen width out of
-  // range (the clamp's own last case) - re-clamped against the live width
-  // rather than the remembered one, and not written back to storage: a
-  // preference should survive the window growing again, not be trimmed down
-  // permanently by a transient resize.
   useLayoutEffect(() => {
     if (narrow) return;
-    const onResize = () => setWidthState((current) => clampRosterWidth(current, window.innerWidth));
+    // Resynced on every entry above the breakpoint, not just read once at
+    // mount - a window that changed size while this was inert (narrow, or
+    // not yet mounted) would otherwise render one stale frame off it.
+    setViewport(window.innerWidth);
+    const onResize = () => setViewport(window.innerWidth);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [narrow]);
 
   const setWidth = useCallback((next: number) => {
-    setWidthState(() => {
-      const clamped = clampRosterWidth(next, viewportWidth());
+    setChosen(() => {
+      const clamped = ownPreference(next);
       remember(STORAGE_KEY, clamped);
       return clamped;
     });
@@ -74,7 +95,7 @@ export function useRosterWidth(): RosterWidth {
 
   const reset = useCallback(() => {
     forget(STORAGE_KEY);
-    setWidthState(DEFAULT_ROSTER_WIDTH);
+    setChosen(ownPreference(DEFAULT_ROSTER_WIDTH));
   }, []);
 
   return { narrow, width, setWidth, reset };
