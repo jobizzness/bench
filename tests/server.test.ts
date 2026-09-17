@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { EventEmitter } from "node:events";
-import { cp, mkdtemp, mkdir, readdir, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdtemp, mkdir, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -125,6 +125,11 @@ let base: string;
 let registry: StubRegistry;
 let projectsRoot: string;
 let clientDir: string;
+/** The same object `createServer` was given - mutated per test so the route
+ * that reads `config.devinBin` at request time (not a hardcoded array or a
+ * cached catalogue, see `devin-models.ts`) can be pointed at a fake binary
+ * without tearing the server down and rebuilding it for every test. */
+let config: { devinBin?: string };
 /** What the API is pretending to say about a key. The tests must not reach
  * Anthropic any more than they reach GitHub. */
 let verdict: KeyCheck = "ok";
@@ -166,8 +171,9 @@ beforeAll(async () => {
   await writeFile(join(clientDir, "app.js"), "/* built bundle */\n");
   await writeFile(join(clientDir, "sw.js"), "/* built worker */\n");
 
+  config = { home: "/tmp/bench", port: 0, token: TOKEN, pluginDir: "/tmp/plugin", hookCommand: "node hook.js", projectsRoot } as any;
   server = createServer({
-    config: { home: "/tmp/bench", port: 0, token: TOKEN, pluginDir: "/tmp/plugin", hookCommand: "node hook.js", projectsRoot },
+    config: config as any,
     registry: registry as any,
     clientDir,
     checkKey: async () => verdict,
@@ -1057,6 +1063,49 @@ describe("the model catalogue", () => {
 
   it("is behind the token like everything else", async () => {
     expect((await fetch(`${base}/api/openrouter/models`)).status).toBe(401);
+  });
+});
+
+/** A fake `devin` binary for `/api/devin/models` (#114) - `devin models
+ * list --format json`'s real shape has not been observed directly, since
+ * `server.codeium.com` refused every attempt made on this machine while
+ * building this, so these exercise the route against a controlled stand-in
+ * rather than the real CLI. */
+async function fakeDevinBin(stdout: string, code = 0): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "bench-srv-devin-"));
+  const path = join(dir, "fake-devin.mjs");
+  await writeFile(path, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(stdout)});\nprocess.exit(${code});\n`);
+  await chmod(path, 0o755);
+  return path;
+}
+
+describe("Devin's model families (#114)", () => {
+  it("serves what the machine reports, grouped by family", async () => {
+    config.devinBin = await fakeDevinBin(JSON.stringify([
+      { family: "adaptive", label: "Adaptive" },
+      { family: "opus", label: "Opus" },
+    ]));
+
+    const body = await (await fetch(`${base}/api/devin/models`, auth)).json();
+    expect(body.families).toEqual([
+      { id: "adaptive", label: "Adaptive" },
+      { id: "opus", label: "Opus" },
+    ]);
+  });
+
+  it("serves an empty list rather than failing when the CLI refuses", async () => {
+    // The observed failure mode on this machine (#114): server.codeium.com
+    // refuses the request. The account default still needs nothing from
+    // this list, so this is 200 with nothing in it, not an error status.
+    config.devinBin = await fakeDevinBin("Error: Connection failed\n", 1);
+
+    const res = await fetch(`${base}/api/devin/models`, auth);
+    expect(res.status).toBe(200);
+    expect((await res.json()).families).toEqual([]);
+  });
+
+  it("is behind the token like everything else", async () => {
+    expect((await fetch(`${base}/api/devin/models`)).status).toBe(401);
   });
 });
 

@@ -23,6 +23,13 @@ import { isAutoRouter } from "./auto-routers.js";
  * `DEVIN_MODEL` ("devin") is the first. `isModelId` accepts them explicitly;
  * `isProxied` correctly returns false for them; `modelLabel` gives them a
  * human name.
+ *
+ * Devin's own models are namespaced under it: `devin:adaptive`,
+ * `devin:opus`, `devin:swe-2` (#114). A colon, not a slash, on purpose -
+ * `isProxied` treats any id containing `/` as an OpenRouter model, and a
+ * slash here would make every Devin model demand an OpenRouter key. Bare
+ * `devin` stays valid and means "the account default", so a record written
+ * before this existed keeps working unchanged.
  */
 export interface Model {
   /** What is passed to `claude --model`. */
@@ -40,6 +47,32 @@ export interface Model {
  * `viaFor` returns undefined without needing an OpenRouter key.
  */
 export const DEVIN_MODEL = "devin";
+
+/** What namespaces a Devin model id: `devin:adaptive`, not `devin/adaptive`
+ * — see the note on MODELS above for why the colon matters. */
+export const DEVIN_PREFIX = "devin:";
+
+/** Whether this id names the Devin runtime at all — the bare account
+ * default or one of its namespaced families. The one place both spellings
+ * are recognised together, so `runtimeFor` and `runningModelLabel` cannot
+ * drift apart on what counts. */
+export function isDevinModel(id: string): boolean {
+  return id === DEVIN_MODEL || id.startsWith(DEVIN_PREFIX);
+}
+
+/**
+ * The family to ask Devin for, from a namespaced id — `"adaptive"` from
+ * `"devin:adaptive"`. `devin acp --model` takes this fuzzy family slug
+ * directly (family, alias, or partial name) and resolves the effort variant
+ * itself, which is the detail the picker offering families rather than all
+ * 385 variants is deliberately not making the developer choose.
+ *
+ * Undefined for the bare account default and for anything not a Devin id —
+ * both mean "nothing to override", which is what an absent `--model` is.
+ */
+export function devinFamilyOf(id: string): string | undefined {
+  return id.startsWith(DEVIN_PREFIX) ? id.slice(DEVIN_PREFIX.length) : undefined;
+}
 
 export const MODELS: readonly Model[] = [
   { id: "opus", label: "Opus 5", resolves: "claude-opus-5" },
@@ -76,6 +109,7 @@ export const REASONING_EFFORT_NOTE =
  */
 export function isModelId(value: unknown): value is string {
   if (typeof value !== "string" || value === "") return false;
+  if (value.startsWith(DEVIN_PREFIX)) return value.length > DEVIN_PREFIX.length;
   return MODELS.some((m) => m.id === value) || value === DEVIN_MODEL || value.includes("/");
 }
 
@@ -96,6 +130,7 @@ export function isProxied(id: string): boolean {
  */
 export function modelLabel(id: string): string {
   if (id === DEVIN_MODEL) return "Devin";
+  if (id.startsWith(DEVIN_PREFIX)) return `Devin: ${id.slice(DEVIN_PREFIX.length)}`;
   const known = MODELS.find((m) => m.id === id);
   if (known) return known.label;
   const slash = id.indexOf("/");
@@ -111,8 +146,19 @@ export function modelLabel(id: string): string {
  * rather than dropped. A router that changed its mind mid-turn can have
  * answered under more than one model; the first is shown, in the order it was
  * first seen, which is the same ordering `turnAnsweredBy` already keeps.
+ *
+ * Devin gets the same treatment for a different reason: `devin:adaptive`
+ * names a family, not the effort variant it actually runs a turn on, and
+ * bare `devin` names no model at all, only "whatever the account default
+ * is". Once a turn has actually answered, `DevinSession` reports what it
+ * resolved to (read off the ACP session's own `configOptions`), and that is
+ * the more honest thing to show - not tagged `<auto>`, because picking
+ * `devin:adaptive` was a real choice, unlike an OpenRouter auto router.
  */
 export function runningModelLabel(model: string, answeredBy: readonly string[] | null | undefined): string {
+  if (isDevinModel(model)) {
+    return answeredBy && answeredBy.length > 0 ? modelLabel(answeredBy[0]) : modelLabel(model);
+  }
   if (!isAutoRouter(model) || !answeredBy || answeredBy.length === 0) return modelLabel(model);
   return `${modelLabel(answeredBy[0])} <auto>`;
 }
