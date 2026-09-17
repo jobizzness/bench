@@ -317,13 +317,32 @@ describe("the model picker", () => {
  */
 describe("closing the picker from the backdrop", () => {
   it("closes on the backdrop but not on a click inside the dialog", async () => {
+    // `event.target === dialog` fires both for a genuine backdrop tap and
+    // for a click that lands on the margin strip between two of `.sheet`'s
+    // own flex children - `.sheet` has no padding, but its children carry
+    // their own margins, so every gap between them is dialog background
+    // under the pointer too. `getBoundingClientRect` is what tells the two
+    // apart; jsdom lays nothing out, so the rect is stubbed here, matching
+    // the shape a real `.sheet` reports (#141).
     await openPicker({ ...one, models: [] });
     const dialog = ui.$<HTMLDialogElement>("#model-dialog")!;
+    dialog.getBoundingClientRect = () => ({ left: 370, top: 135.8, right: 910, bottom: 764.3 }) as DOMRect;
 
+    // A click on a child - the ordinary case, proven regardless of the rect.
     await ui.click(ui.$("#model-dialog h2"));
     expect(dialog.open).toBe(true);
 
-    await ui.click(dialog);
+    // A click that reports the dialog itself as its target, but inside the
+    // rect - the gap between two children, not the backdrop.
+    await ui.run(() => {
+      dialog.dispatchEvent(new MouseEvent("click", { clientX: 640, clientY: 150, bubbles: true }));
+    });
+    expect(dialog.open).toBe(true);
+
+    // Outside the rect entirely - the genuine backdrop.
+    await ui.run(() => {
+      dialog.dispatchEvent(new MouseEvent("click", { clientX: 10, clientY: 10, bubbles: true }));
+    });
     expect(dialog.open).toBe(false);
   });
 });

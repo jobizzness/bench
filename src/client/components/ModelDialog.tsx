@@ -4,6 +4,7 @@ import { MODELS, DEVIN_MODEL, DEVIN_PREFIX, isDevinModel, modelLabel, REASONING_
 import { costOfTurn, dollars, multipleLabel, multipleOf, type Price } from "../../shared/cost.js";
 import { AutoRouters, isAutoRouter } from "./AutoRouters.js";
 import { ModelRow, shortName, windowLabel, type Listed } from "./ModelRow.js";
+import { isOutsideDialog } from "./sheetGesture.js";
 import { useTurnShape } from "./useTurnShape.js";
 
 export type { Listed };
@@ -545,7 +546,17 @@ export function ModelDialog({
       className="sheet"
       ref={ref}
       onClose={onClose}
-      onClick={(event) => { if (event.target === ref.current) onClose(); }}
+      // `event.target === ref.current` is also what a click reports for any
+      // gap between the dialog's own direct children, not only the backdrop:
+      // `.sheet` is a flex column and its children carry their own margins,
+      // so every strip between them is dialog background under the pointer.
+      // `isOutsideDialog` is what tells a genuine backdrop tap apart from
+      // one that landed inside the dialog's own box (#141).
+      onClick={(event) => {
+        if (event.target !== ref.current) return;
+        const rect = ref.current?.getBoundingClientRect();
+        if (rect && isOutsideDialog(event.clientX, event.clientY, rect)) onClose();
+      }}
     >
       <h2>Model</h2>
       <p className="field-note" id={own("note")}>
