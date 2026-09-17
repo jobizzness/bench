@@ -39,6 +39,20 @@ const NO_CREDENTIAL = {
 } satisfies NodeJS.ProcessEnv;
 
 /**
+ * Both variables the compression proxy routes on, switched off.
+ *
+ * Undefined for the same reason as NO_CREDENTIAL: absent is the only state the
+ * CLI reads as "not set", and an empty base URL is still a base URL it would
+ * try to reach. A daemon started from inside a bench tab already carries both,
+ * so "no proxy" has to take them away rather than merely decline to add them -
+ * otherwise the setting can only ever switch the proxy on.
+ */
+const NO_PROXY = {
+  ANTHROPIC_BASE_URL: undefined,
+  ENABLE_TOOL_SEARCH: undefined,
+} satisfies NodeJS.ProcessEnv;
+
+/**
  * Several prompts arrived while one turn was running. Answering each as its
  * own turn would resend the whole conversation once per message instead of
  * once for the lot - exactly the cost holding them in a queue was supposed
@@ -371,7 +385,7 @@ export class ClaudeSession extends EventEmitter implements Session {
         // ANTHROPIC_BASE_URL makes the CLI load every tool schema up front
         // unless this stays on, which would hand back much of the saving the
         // proxy is there for.
-        ...(headroom === null ? {} : { ANTHROPIC_BASE_URL: headroom, ENABLE_TOOL_SEARCH: "true" }),
+        ...(headroom === null ? NO_PROXY : { ANTHROPIC_BASE_URL: headroom, ENABLE_TOOL_SEARCH: "true" }),
         // Everything OpenRouter needs, or nothing at all. Nothing at all is
         // the Anthropic case, and it has to leave the environment exactly as
         // it found it: a bench with no key of its own must not take away the

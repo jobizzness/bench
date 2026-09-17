@@ -917,4 +917,54 @@ describe("routing through the compression proxy", () => {
     expect((await replied)[0]).toBe("base:none tools:none");
     session.stop();
   });
+
+  it("takes an inherited base URL away from a specialist with no proxy", async () => {
+    // The whole point of the switch. Bench runs its specialists inside bench,
+    // so a daemon started from a tab with headroom on carries both variables
+    // itself - and a setting that can only add them would route every child
+    // through a proxy it says is off.
+    const beforeBase = process.env.ANTHROPIC_BASE_URL;
+    const beforeTools = process.env.ENABLE_TOOL_SEARCH;
+    process.env.ANTHROPIC_BASE_URL = "http://127.0.0.1:8787";
+    process.env.ENABLE_TOOL_SEARCH = "true";
+    try {
+      const session = await makeSession(BASE_URL_CLI, { headroomUrl: () => null });
+      const replied = once(session, "reply");
+      session.open();
+      session.send("go");
+
+      expect((await replied)[0]).toBe("base:none tools:none");
+      session.stop();
+    } finally {
+      if (beforeBase === undefined) delete process.env.ANTHROPIC_BASE_URL;
+      else process.env.ANTHROPIC_BASE_URL = beforeBase;
+      if (beforeTools === undefined) delete process.env.ENABLE_TOOL_SEARCH;
+      else process.env.ENABLE_TOOL_SEARCH = beforeTools;
+    }
+  });
+
+  it("leaves an inherited base URL to via, which owns it anyway", async () => {
+    // Clearing must not outrank `via`: the OpenRouter translation endpoint is
+    // set after it, so the specialist still reaches Bench's own proxy rather
+    // than losing its base URL along with the inherited one.
+    const before = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_BASE_URL = "http://127.0.0.1:8787";
+    try {
+      const session = await makeSession(BASE_URL_CLI, {
+        headroomUrl: () => null,
+        via: { key: "sk-or-x" },
+      });
+      const replied = once(session, "reply");
+      session.open();
+      session.send("go");
+
+      const [text] = await replied;
+      expect(text).toContain("base:http://127.0.0.1:7420/api/openrouter/sess-1");
+      expect(text).not.toContain("8787");
+      session.stop();
+    } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_BASE_URL;
+      else process.env.ANTHROPIC_BASE_URL = before;
+    }
+  });
 });
