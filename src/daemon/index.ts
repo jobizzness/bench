@@ -18,6 +18,7 @@ import { fetchUsage } from "./usage.js";
 import { KeySync } from "./key-sync.js";
 import { widenConnectAttempts } from "./network.js";
 import { findHeadroom, HeadroomProxy } from "./headroom.js";
+import { execGit, SelfUpdateWatcher } from "./self-update-watcher.js";
 
 // Before anything reaches out: every key check, usage read and Firestore
 // call below goes through the same connect path - see network.ts.
@@ -37,6 +38,28 @@ const version = (() => {
 })();
 
 const registry = new SessionRegistry(config);
+
+/**
+ * What "a restart is pending" means: derived from the commit this process
+ * booted from, never remembered, so it survives reloads, new tabs and a
+ * phone (#146). `null` when this checkout is not a git repository at all -
+ * a global install, say - in which case the button simply never appears
+ * rather than the daemon refusing to start over it.
+ */
+const selfUpdate = await (async () => {
+  try {
+    const sha = (await execGit(["rev-parse", "HEAD"], config.installRoot)).stdout.trim();
+    const branch = (await execGit(["rev-parse", "--abbrev-ref", "HEAD"], config.installRoot)).stdout.trim();
+    return new SelfUpdateWatcher({
+      root: config.installRoot,
+      bootSha: sha,
+      branch,
+      onChange: () => registry.emit("roster"),
+    });
+  } catch {
+    return null;
+  }
+})();
 
 /**
  * The compression proxy specialists are routed through when it is there.
@@ -116,6 +139,7 @@ const server = createServer({
   credit: creditSource({ key: () => registry.getRouterKey() }),
   remote,
   headroom,
+  selfUpdate: selfUpdate ?? undefined,
 });
 
 // Specialists outlive the daemon: the roster comes back from disk before
@@ -141,6 +165,8 @@ try {
 // hostage, and a specialist spawned before it answers simply runs direct.
 // The line is printed when it settles rather than at listen, so it says
 // what happened rather than what was attempted.
+selfUpdate?.start();
+
 if (registry.getSettings().headroom) {
   void headroom.start().then(() => {
     if (headroom.state === "up") {
@@ -197,6 +223,7 @@ const shutdown = () => {
 
   restoreTerminal();
   for (const row of registry.list()) registry.stop(row.id);
+  selfUpdate?.stop();
   // Only kills a proxy this daemon spawned - a borrowed one outlives us.
   headroom.stop();
   server.closeSockets();
