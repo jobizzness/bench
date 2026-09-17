@@ -54,8 +54,9 @@ registry.setHeadroom(headroom);
  * What a command actually runs against: this daemon's own HTTP server, on
  * loopback, carrying its own token - never the registry directly. Built from
  * `config` alone, so it exists (and is safe to hand to `RemoteController`)
- * before `server.listen()` below has run; nothing calls it until a viewer has
- * shown up, which cannot happen before this process has been up for a while.
+ * before `server.listen()` below has run. Nothing calls it before then only
+ * because remote is not resumed until the server is listening - a viewer's
+ * presence survives a restart, so "no viewer yet" is not what guards it.
  */
 const callLocal: LocalCaller = async (method, path, body) => {
   const res = await fetch(`http://127.0.0.1:${config.port}${path}`, {
@@ -117,11 +118,6 @@ const server = createServer({
   headroom,
 });
 
-// Resumes a Google identity from `~/.bench/firebase.json` if remote was ever
-// turned on. Never throws - a dead or missing credential just leaves remote
-// off, the same as a fresh install.
-await remote.resume();
-
 // Specialists outlive the daemon: the roster comes back from disk before
 // anyone can ask for it.
 try {
@@ -162,6 +158,14 @@ if (registry.getSettings().headroom) {
 }
 
 server.listen(config.port, config.host, () => {
+  // Resumes a Google identity from `~/.bench/firebase.json` if remote was ever
+  // turned on. Never throws - a dead or missing credential just leaves remote
+  // off, the same as a fresh install. Only once listening: resuming starts the
+  // bridge, and the bridge serves a viewer by calling this server - a phone
+  // still watching from before a restart made that ECONNREFUSED while
+  // `restore()` was filling the roster.
+  void remote.resume();
+
   const urls = cockpitUrls({ host: config.host, port: config.port, token: config.token });
   for (const url of urls) process.stdout.write(`bench: ${url}\n`);
 
