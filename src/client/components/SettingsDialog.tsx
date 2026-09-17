@@ -175,6 +175,21 @@ export function SettingsDialog({ open, onClose, activeMachineName }: {
         </div>
         <p className="field-note" id="s-headroom-note">{headroomNote(headroom)}</p>
 
+        <div className="check">
+          <input
+            type="checkbox" id="s-all-houses"
+            checked={draft.allHouses}
+            onChange={(event) => setDraft({ ...draft, allHouses: event.target.checked })}
+          />
+          <label htmlFor="s-all-houses">Show every model house in the picker</label>
+        </div>
+        <p className="field-note" id="s-all-houses-note">
+          Off shows only Devin — what this bench runs on. On brings back
+          Anthropic's four, the auto-routers, and the OpenRouter catalogue.
+          Whatever the model a specialist is already on, it stays visible
+          and selectable either way.
+        </p>
+
         <details id="s-preview" open={framing !== ""}>
           <summary>What a specialist is told</summary>
           <pre id="s-framing">

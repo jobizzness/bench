@@ -31,8 +31,8 @@ const toggle = () => ui.$<HTMLInputElement>("#f-worktree")!;
 const note = () => ui.$("#f-worktree-note")!.textContent ?? "";
 const created = () => ui.sent.find((s) => s.url.endsWith("/api/sessions"));
 
-async function open(): Promise<Cockpit> {
-  ui = await bootCockpit({ rows: [row()], projects: PROJECTS });
+async function open(over: Partial<Parameters<typeof bootCockpit>[0]> = {}): Promise<Cockpit> {
+  ui = await bootCockpit({ rows: [row()], projects: PROJECTS, ...over });
   await ui.click(ui.$("#new-session"));
   return ui;
 }
@@ -251,8 +251,10 @@ describe("the model a role starts on", () => {
 
   it("keeps a model you picked when you change the role", async () => {
     // An inherited model should follow the role; a chosen one is a decision
-    // and has to survive.
-    await open();
+    // and has to survive. Anthropic's house is behind a setting now (#141),
+    // and picking one of its models is what this test is about, not that
+    // setting - so it opts back in.
+    await open({ settings: { allHouses: true, codingStyle: "", workflowRules: "" } });
     await waitFor(() => ui.$("#f-model"), "the model button");
     await ui.click(ui.$("#f-model"));
     await waitFor(() => ui.$("#f-model-dialog-search"), "the picker");

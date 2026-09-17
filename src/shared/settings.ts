@@ -52,6 +52,17 @@ export const settingsSchema = z.object({
    * see `pickManagedKey` in `registry.ts`.
    */
   pinnedManagedKeyId: z.string().nullable().default(null),
+  /**
+   * Show every house in the model picker - Anthropic's four, the
+   * auto-routers, and the OpenRouter catalogue - rather than just Devin.
+   *
+   * Off by default: Devin is what this bench runs on now, and a picker
+   * offering three hundred models nobody has a key for is a picker that
+   * buries the one house that always works under the ones that mostly
+   * don't. The model a specialist is already on is exempt - see
+   * `ModelDialog.tsx`.
+   */
+  allHouses: z.boolean().default(false),
 });
 
 /**
@@ -70,6 +81,7 @@ export const settingsInputSchema = z.object({
   reasoningEffort: z.enum(["none", "low", "medium", "high"]).optional(),
   headroom: z.boolean().optional(),
   pinnedManagedKeyId: z.string().nullable().optional(),
+  allHouses: z.boolean().optional(),
 }).transform((s) => ({
   ...s,
   reviewModel: s.reviewModel ?? DEFAULT_MODEL,
@@ -77,13 +89,14 @@ export const settingsInputSchema = z.object({
   reasoningEffort: s.reasoningEffort ?? "medium",
   headroom: s.headroom ?? true,
   pinnedManagedKeyId: s.pinnedManagedKeyId ?? null,
+  allHouses: s.allHouses ?? false,
 }));
 
 export type Settings = z.infer<typeof settingsSchema>;
 
 export const NO_SETTINGS: Settings = {
   codingStyle: "", workflowRules: "", reviewModel: DEFAULT_MODEL, roleModels: {}, reasoningEffort: "medium", headroom: true,
-  pinnedManagedKeyId: null,
+  pinnedManagedKeyId: null, allHouses: false,
 };
 
 /**

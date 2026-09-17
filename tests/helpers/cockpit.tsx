@@ -54,7 +54,12 @@ export interface Fixtures {
    * to report rather than draw a tick for. */
   editorsTargeted?: number;
   /** House rules already on the daemon when the page opens. */
-  settings?: { codingStyle: string; workflowRules: string; reviewModel?: string; headroom?: boolean };
+  settings?: {
+    codingStyle: string; workflowRules: string; reviewModel?: string; headroom?: boolean;
+    /** Whether the model picker shows every house or just Devin (#141).
+     * Undefined behaves as false, the same default the schema itself has. */
+    allHouses?: boolean;
+  };
   /** What GitHub says about the project the drawer is opened on. */
   github?: { slug: string | null; items: unknown[] };
   /** Where else this daemon answers. */
