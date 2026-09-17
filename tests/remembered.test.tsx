@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { bootCockpit, row, type Cockpit } from "./helpers/cockpit.js";
-import { recall, remember } from "../src/client/remembered.js";
+import { forget, recall, remember } from "../src/client/remembered.js";
 
 /**
  * How one person has arranged the view in front of them belongs to the
@@ -96,5 +96,16 @@ describe("the store itself", () => {
   it("keeps its keys to itself", () => {
     remember("thing", 1);
     expect(localStorage.getItem("bench:thing")).toBe("1");
+  });
+
+  it("forget removes a key outright, rather than pinning it to whatever default overwrote it", () => {
+    remember("thing", 1);
+    forget("thing");
+    expect(localStorage.getItem("bench:thing")).toBeNull();
+    expect(recall("thing", "fallback")).toBe("fallback");
+  });
+
+  it("forget does nothing, quietly, when there was nothing remembered", () => {
+    expect(() => forget("thing")).not.toThrow();
   });
 });

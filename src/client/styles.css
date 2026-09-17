@@ -450,7 +450,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 276px 1fr;
+  /* 326px is the plain default - 276px plus the 50 the ticket asked for -
+     not merely a `var()` fallback: it is what the grid reads before
+     `useRosterWidth.ts` has run a single effect, so there is nothing for a
+     later-arriving remembered width to visibly replace (#145). The custom
+     property, once set, overrides it with whatever this browser last chose. */
+  grid-template-columns: var(--roster-width, 326px) 1fr;
   /* dvh, not vh: on a phone the toolbars come and go, and 100vh is the tall
      measurement, so the composer sits under the browser's own chrome. */
   height: 100vh;
@@ -479,6 +484,23 @@ button, input, textarea, select { font: inherit; color: inherit; }
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+/* The draggable divider (#145). Absolutely positioned over #roster's own
+   border-right, above, rather than a grid track of its own - a few pixels
+   wide so it is easy to grab without visibly widening the line it sits on.
+   Only ever in the DOM above the phone breakpoint (see RosterHandle.tsx and
+   App.tsx); nothing here needs to account for narrower widths. */
+#roster-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--roster-width, 326px);
+  width: 9px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
 }
 
 /* Transparent, not panel-coloured: the column has a gradient now and a solid
