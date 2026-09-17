@@ -4,6 +4,10 @@ import { spawn } from "node:child_process";
 export interface DevinFamily {
   id: string;
   label: string;
+  aliases: string[];
+  /** The largest `max_context_tokens` across the family's variants; null
+   * when no variant reports one. */
+  contextWindow: number | null;
 }
 
 const TIMEOUT_MS = 10_000;
@@ -68,14 +72,24 @@ function run(bin: string, args: string[]): Promise<string> {
 }
 
 /**
- * `devin models list --format json`'s exact shape has not been directly
- * observed while building this - `server.codeium.com` refused every attempt
- * made on this machine (#114) - so this reads tolerantly rather than
- * assuming one field layout: whichever of a bare top-level array, a
- * `families` array or a `models` array is present, and whichever of
- * `family`/`slug`/`id`/`name` names each entry and `label`/`name`/`title`
- * describes it. A shape this cannot make sense of comes back as no
- * families, the same as the command failing outright - see `devinFamilies`.
+ * `devin models list --format json`, captured from devin 3000.10.23:
+ *
+ * ```json
+ * { "families": [ {
+ *     "family_label": "Claude Opus 5", "family_uid": "claude-opus-5",
+ *     "slug": "claude-opus-5", "aliases": ["opus"],
+ *     "variants": [ { "model_uid": "...", "label": "...",
+ *       "max_context_tokens": 200000, "max_output_tokens": 64000,
+ *       "cost_tier": "...", "cost_summary": "...", "is_new": true,
+ *       "is_beta": false } ] } ] }
+ * ```
+ *
+ * The picker's `id` is the `slug` (what `DEVIN_MODEL`/`devin --model` takes),
+ * the `label` is `family_label`, and `contextWindow` is the largest
+ * `max_context_tokens` across variants. The alternate keys (`family`, `id`,
+ * `label`, `name`) survive only as fallbacks for an older or newer CLI; a
+ * shape this cannot make sense of still comes back as no families, the same
+ * as the command failing outright - see `devinFamilies`.
  */
 function parseFamilies(text: string): DevinFamily[] {
   let data: unknown;
@@ -97,10 +111,23 @@ function parseFamilies(text: string): DevinFamily[] {
   const byId = new Map<string, DevinFamily>();
   for (const entry of list) {
     if (!isRecord(entry)) continue;
-    const id = firstString(entry, ["family", "slug", "id", "name"]);
+    const id = firstString(entry, ["slug", "family", "family_uid", "id", "name"]);
     if (!id || byId.has(id)) continue;
-    const label = firstString(entry, ["label", "name", "title"]) ?? id;
-    byId.set(id, { id, label });
+    const label = firstString(entry, ["family_label", "label", "name", "title"]) ?? id;
+    const aliases = Array.isArray(entry.aliases)
+      ? entry.aliases.filter((a): a is string => typeof a === "string")
+      : [];
+    let contextWindow: number | null = null;
+    if (Array.isArray(entry.variants)) {
+      for (const variant of entry.variants) {
+        if (!isRecord(variant)) continue;
+        const tokens = variant.max_context_tokens;
+        if (typeof tokens === "number" && Number.isFinite(tokens) && (contextWindow === null || tokens > contextWindow)) {
+          contextWindow = tokens;
+        }
+      }
+    }
+    byId.set(id, { id, label, aliases, contextWindow });
   }
   return [...byId.values()];
 }

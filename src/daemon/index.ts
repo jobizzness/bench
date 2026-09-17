@@ -18,6 +18,7 @@ import { fetchUsage } from "./usage.js";
 import { KeySync } from "./key-sync.js";
 import { widenConnectAttempts } from "./network.js";
 import { findHeadroom, HeadroomProxy } from "./headroom.js";
+import { installDevinSkills } from "./devin-skills.js";
 
 // Before anything reaches out: every key check, usage read and Firestore
 // call below goes through the same connect path - see network.ts.
@@ -156,6 +157,18 @@ if (registry.getSettings().headroom) {
     }
   });
 }
+
+// Devin has no `--plugin-dir` equivalent - its skills live in its own
+// config tree, so the plugin's are linked in here rather than passed on a
+// command line. Best effort: a failure installs nothing and must not stop
+// the daemon, the same as a machine with no Devin installed at all.
+void installDevinSkills(config.pluginDir).then(({ installed, skipped }) => {
+  if (installed.length === 0 && skipped.length === 0) return;
+  const parts = [];
+  if (installed.length > 0) parts.push(`installed ${installed.join(", ")}`);
+  if (skipped.length > 0) parts.push(`left alone (already present): ${skipped.join(", ")}`);
+  process.stdout.write(`bench: devin skills - ${parts.join("; ")}.\n`);
+}).catch(() => {});
 
 server.listen(config.port, config.host, () => {
   // Resumes a Google identity from `~/.bench/firebase.json` if remote was ever

@@ -256,6 +256,23 @@ describe("the model picker", () => {
     expect(section.querySelector("[data-model='devin']")).not.toBe(null);
   });
 
+  it("finds a Devin family by its alias, not only its slug", async () => {
+    // `devin --model opus` names a family by alias, so a search that only
+    // looked at slugs and labels would hide it.
+    await openPicker({
+      ...one,
+      models: [],
+      devinFamilies: [
+        { id: "claude-opus-5", label: "Claude Opus 5", aliases: ["opus"] },
+        { id: "swe-2", label: "SWE-2" },
+      ],
+    });
+    await ui.type(ui.$("#model-dialog-search"), "opus");
+    const section = ui.$("#model-dialog [data-house='devin']")!;
+    expect(section.querySelector("[data-model='devin:claude-opus-5']")).not.toBe(null);
+    expect(section.querySelector("[data-model='devin:swe-2']")).toBe(null);
+  });
+
   it("marks the family a specialist is already on as current", async () => {
     await openPicker({
       rows: [row({ model: "devin:adaptive" })],

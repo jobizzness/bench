@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { evaluateCommit } from "../src/daemon/gates/commit-attribution.js";
-import { buildSettings } from "../src/daemon/gates/settings.js";
+import { buildDevinHooks, buildSettings } from "../src/daemon/gates/settings.js";
 
 describe("evaluateCommit", () => {
   it("denies a Co-Authored-By trailer", () => {
@@ -72,5 +72,19 @@ describe("buildSettings", () => {
   it("serialises to JSON, since it is passed to --settings as a string", () => {
     const settings = buildSettings({ hookCommand: "node /opt/bench/hook.js" });
     expect(() => JSON.parse(JSON.stringify(settings))).not.toThrow();
+  });
+});
+
+describe("buildDevinHooks", () => {
+  it("registers the same commit-attribution gate on Devin's `exec` tool", () => {
+    // Devin's hooks file is the hooks object itself, no wrapper key, and
+    // its matcher is a regex on tool_name - the shell tool is `exec`, not
+    // Claude's `Bash`.
+    const hooks = buildDevinHooks({ hookCommand: "node /opt/bench/hook.js" }) as any;
+
+    const pre = hooks.PreToolUse;
+    expect(pre[0].matcher).toBe("exec");
+    expect(pre[0].hooks[0].command).toBe("node /opt/bench/hook.js commit-attribution");
+    expect(hooks.hooks).toBeUndefined();
   });
 });

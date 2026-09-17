@@ -92,7 +92,7 @@ export interface Fixtures {
   /** Devin's model families (#114). Undefined behaves as an empty list -
    * `devin models list` refusing, or simply a machine with none configured -
    * which is what a picker offering only the account default looks like. */
-  devinFamilies?: Array<{ id: string; label: string }>;
+  devinFamilies?: Array<{ id: string; label: string; aliases?: string[]; contextWindow?: number | null }>;
   /** The turn the picker prices every model against. Undefined is a daemon
    * that has recorded none, which is the ordinary case in a test. */
   turnShape?: { shape: unknown; turns: number };

@@ -1,0 +1,123 @@
+{
+  "families": [
+    {
+      "family_label": "Claude Opus 5",
+      "family_uid": "claude-opus-5",
+      "slug": "claude-opus-5",
+      "aliases": [
+        "opus"
+      ],
+      "variants": [
+        {
+          "model_uid": "claude-opus-5-medium",
+          "label": "Claude Opus 5 Medium",
+          "max_context_tokens": 1000000,
+          "max_output_tokens": 128000,
+          "cost_tier": "High cost",
+          "cost_summary": "$5 / 1M Input · $0.5 / 1M Cached input · $25 / 1M Output",
+          "is_new": false,
+          "is_beta": false
+        },
+        {
+          "model_uid": "claude-opus-5-low",
+          "label": "Claude Opus 5 Low",
+          "max_context_tokens": 1000000,
+          "max_output_tokens": 128000,
+          "cost_tier": "High cost",
+          "cost_summary": "$5 / 1M Input · $0.5 / 1M Cached input · $25 / 1M Output",
+          "is_new": false,
+          "is_beta": false
+        },
+        {
+          "model_uid": "claude-opus-5-high",
+          "label": "Claude Opus 5 High",
+          "max_context_tokens": 1000000,
+          "max_output_tokens": 128000,
+          "cost_tier": "High cost",
+          "cost_summary": "$5 / 1M Input · $0.5 / 1M Cached input · $25 / 1M Output",
+          "is_new": false,
+          "is_beta": false
+        }
+      ]
+    },
+    {
+      "family_label": "Claude Fable 5.1",
+      "family_uid": "claude-fable-5-1",
+      "slug": "claude-fable-5.1",
+      "aliases": [],
+      "variants": [
+        {
+          "model_uid": "claude-fable-5-1-medium",
+          "label": "Claude Fable 5.1 Medium",
+          "max_context_tokens": 1000000,
+          "max_output_tokens": 128000,
+          "cost_tier": "High cost",
+          "cost_summary": "$10 / 1M Input · $0.25 / 1M Cached input · $50 / 1M Output",
+          "is_new": false,
+          "is_beta": false
+        },
+        {
+          "model_uid": "claude-fable-5-1-low",
+          "label": "Claude Fable 5.1 Low",
+          "max_context_tokens": 1000000,
+          "max_output_tokens": 128000,
+          "cost_tier": "High cost",
+          "cost_summary": "$10 / 1M Input · $0.25 / 1M Cached input · $50 / 1M Output",
+          "is_new": false,
+          "is_beta": false
+        },
+        {
+          "model_uid": "claude-fable-5-1-high",
+          "label": "Claude Fable 5.1 High",
+          "max_context_tokens": 1000000,
+          "max_output_tokens": 128000,
+          "cost_tier": "High cost",
+          "cost_summary": "$10 / 1M Input · $0.25 / 1M Cached input · $50 / 1M Output",
+          "is_new": false,
+          "is_beta": false
+        }
+      ]
+    },
+    {
+      "family_label": "Claude Sonnet 5",
+      "family_uid": "claude-sonnet-5",
+      "slug": "claude-sonnet-5",
+      "aliases": [
+        "claude",
+        "sonnet"
+      ],
+      "variants": [
+        {
+          "model_uid": "claude-sonnet-5-medium",
+          "label": "Claude Sonnet 5 Medium",
+          "max_context_tokens": 1000000,
+          "max_output_tokens": 128000,
+          "cost_tier": "Med cost",
+          "cost_summary": "$2 / 1M Input · $0.2 / 1M Cached input · $10 / 1M Output",
+          "is_new": false,
+          "is_beta": false
+        },
+        {
+          "model_uid": "claude-sonnet-5-low",
+          "label": "Claude Sonnet 5 Low",
+          "max_context_tokens": 1000000,
+          "max_output_tokens": 128000,
+          "cost_tier": "Med cost",
+          "cost_summary": "$2 / 1M Input · $0.2 / 1M Cached input · $10 / 1M Output",
+          "is_new": false,
+          "is_beta": false
+        },
+        {
+          "model_uid": "claude-sonnet-5-high",
+          "label": "Claude Sonnet 5 High",
+          "max_context_tokens": 1000000,
+          "max_output_tokens": 128000,
+          "cost_tier": "Med cost",
+          "cost_summary": "$2 / 1M Input · $0.2 / 1M Cached input · $10 / 1M Output",
+          "is_new": false,
+          "is_beta": false
+        }
+      ]
+    }
+  ]
+}
