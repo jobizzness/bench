@@ -29,10 +29,13 @@ export interface Roster {
    * write budget faster than it would like - see "The write budget" in the
    * design. The cockpit says so rather than quietly slowing down unnoticed. */
   degradedMachines: RemoteMachine[];
-  /** Which machine the machine-global routes currently answer for, in a
-   * word - `null` for the machine that served this page, a name for
-   * anything else. See "Machine-global routes" in the design and
-   * `SettingsDialog.tsx`, the one place this is shown. */
+  /** Which machine Settings currently answers for, in a word - `null` for
+   * the machine that served this page, a name for anything else. See
+   * "Machine-global routes" in the design and `SettingsDialog.tsx`, the one
+   * place this is shown. The Profile dialog's routes do not follow this -
+   * they pass `local: true` to `authFetch`/`postJson` instead, see
+   * `CredentialSection.tsx` and `api.ts` - so this name describes Settings
+   * alone, not "the machine-global routes" as a whole (#139). */
   activeMachineName: string | null;
   /** Said when the developer's pinned Anthropic credential is not the one
    * actually running - `null` when there is nothing to say. See
@@ -358,11 +361,14 @@ export function useRoster(watching: string | null = null): Roster {
 
   const newIds = useNewRosterIds(rows);
 
-  // Machine-global routes - Settings, the keys, the project list - follow
-  // whichever machine the open specialist is on, defaulting to local; see
+  // Machine-global routes - Settings, the project list - follow whichever
+  // machine the open specialist is on, defaulting to local; see
   // "Machine-global routes" in the design. Kept in sync here rather than
   // asking every caller of a machine-global route to know which machine that
-  // is - the same reasoning as `routeSession` above.
+  // is - the same reasoning as `routeSession` above. The Profile dialog's
+  // keys are deliberately not among these routes - they pass `local: true`
+  // instead, see `CredentialSection.tsx` and `api.ts` (#139) - so setting
+  // this has no effect on them.
   const watchedRow = rows.find((r) => r.id === watching) ?? null;
   useEffect(() => {
     setActiveMachine(watchedRow?.machine && remote.uid ? { uid: remote.uid, machineId: watchedRow.machine.id } : null);

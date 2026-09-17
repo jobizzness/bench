@@ -82,11 +82,17 @@ export function getSessionMachine(sessionId: string): MachineRef | null {
 }
 
 /**
- * Which machine the machine-global routes - Settings, the API keys, the
- * project list, the spend meters - answer for. Follows the specialist
- * currently open, defaulting to local; see "Machine-global routes" in the
- * design. Set by `useRoster.ts` alongside `routeSession`, from the same
- * merged roster.
+ * Which machine the machine-global routes - Settings, the project list, the
+ * spend meters - answer for. Follows the specialist currently open,
+ * defaulting to local; see "Machine-global routes" in the design. Set by
+ * `useRoster.ts` alongside `routeSession`, from the same merged roster.
+ *
+ * The Profile dialog's three routes are the one exception: they pass `local:
+ * true` to `authFetch`/`postJson` instead (see below) and never reach this at
+ * all. `/api/openrouter/keys` is not a safe way to tell the two apart by path
+ * alone - `ModelDialog.tsx` calls that same route to ask whether the machine
+ * a specialist would run *on* has a key, which is exactly the session-relative
+ * question this variable exists to answer, and has to keep following it.
  */
 export function setActiveMachine(machine: MachineRef | null): void {
   activeMachine = machine;
@@ -121,9 +127,18 @@ export function linkIsStale(): void {
  * above and `remote-transport.ts`. The caller never has to know: both paths
  * end in a real `Response`, so every one of the 45 call sites elsewhere reads
  * `.ok`, `.status` and `.json()` exactly as before.
+ *
+ * `local: true` skips `machineFor` altogether and goes direct regardless of
+ * `activeMachine` - the Profile dialog's three routes (`CredentialSection.tsx`)
+ * are the only callers that pass it, because a pin has to land on the daemon
+ * `pickManagedKey` reads a moment later, never on whichever machine's tab
+ * happens to be open (#139). No path is forced local by name: the same
+ * `/api/openrouter/keys` route is also asked, without this flag, by
+ * `ModelDialog.tsx` about the machine a *session* would run on, which must
+ * keep following `activeMachine`.
  */
-export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
-  const machine = machineFor(path);
+export async function authFetch(path: string, init?: RequestInit, opts?: { local?: boolean }): Promise<Response> {
+  const machine = opts?.local ? null : machineFor(path);
   if (machine !== null) {
     const body = typeof init?.body === "string" && init.body !== "" ? JSON.parse(init.body) : undefined;
     const result = await sendCommand(machine.uid, machine.machineId, init?.method ?? "GET", path, body);
@@ -152,12 +167,12 @@ export const artifactUrl = (sessionId: string, seq: number, file: string): strin
   apiUrl(`/r/${sessionId}/${seq}/${file}?token=${encodeURIComponent(token())}`
     + `&theme=${encodeURIComponent(currentTheme())}`);
 
-export const postJson = (path: string, body: unknown): Promise<Response> =>
+export const postJson = (path: string, body: unknown, opts?: { local?: boolean }): Promise<Response> =>
   authFetch(path, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }, opts);
 
 /**
  * A report either has a URL to hand an `<iframe>` (local: unchanged from

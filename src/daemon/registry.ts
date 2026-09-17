@@ -374,13 +374,21 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * being told is exactly what a pin exists to prevent. `null` covers both
    * "no pin" and "the pin is exactly who is active" - nothing to say either
    * way.
+   *
+   * A pin whose id matches nothing in `managedApiKeys` - including an empty
+   * list, on a daemon that has not been synced with since it last
+   * restarted (#139) - used to fall through to the same `null`, which reads
+   * identically to "no pin". It is not: the pin is recorded in `settings`
+   * either way, so this says so instead of staying quiet about it.
    */
   pinnedKeyNotice(): string | null {
     const pinnedId = this.settings.pinnedManagedKeyId;
     if (pinnedId === null || pinnedId === this.activeManagedKeyId) return null;
-    const pinned = this.managedApiKeys.find((item) => item.id === pinnedId);
-    if (!pinned) return null;
     const active = this.managedApiKeys.find((item) => item.id === this.activeManagedKeyId);
+    const pinned = this.managedApiKeys.find((item) => item.id === pinnedId);
+    if (!pinned) {
+      return `Pinned key is not among this daemon's credentials yet; running on ${active?.label ?? "this machine's Claude login"} instead.`;
+    }
     return `Pinned key "${pinned.label}" is ${pinned.status}; running on ${active?.label ?? "another key"} instead.`;
   }
 
