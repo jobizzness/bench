@@ -30,6 +30,12 @@ function changed(next: Credential, prior: Credential): boolean {
 /**
  * One list of credentials - Anthropic or OpenRouter - synced to Firestore and
  * to the daemon that spends them.
+ *
+ * Every call here passes `local: true` (#139): this section is reached from
+ * the Profile dialog, which has no session of its own to route by, so
+ * without it these would follow `activeMachine` - whichever specialist's tab
+ * happens to be open - and a pin could land on a daemon other than the one
+ * that served this page.
  */
 export function CredentialSection({
   user, title, collection, endpoint, placeholder, noneNote, addLabel, fallbackLabel, billedNote, pinnable,
@@ -63,7 +69,7 @@ export function CredentialSection({
     const res = await postJson(endpoint, {
       credentials: stored.map(({ id, key: value, label: name, status, checkedAt, resetsAt }) =>
         ({ id, key: value, label: name, status, checkedAt, resetsAt })),
-    });
+    }, { local: true });
     if (!res.ok) throw new Error("active Bench could not load credentials");
     const body = await res.json() as { credentials?: DaemonState[] };
     const states = new Map((body.credentials ?? []).map((item) => [item.id, item]));
@@ -84,7 +90,7 @@ export function CredentialSection({
 
     const timer = setInterval(async () => {
       try {
-        const res = await authFetch(endpoint);
+        const res = await authFetch(endpoint, undefined, { local: true });
         if (!res.ok) return;
         const body = await res.json() as { credentials?: DaemonState[] };
         const reported = body.credentials ?? [];
@@ -139,7 +145,9 @@ export function CredentialSection({
     setPinning(credential.id);
     setError("");
     try {
-      const res = await postJson("/api/anthropic-keys/pin", { id: credential.pinned ? null : credential.id });
+      const res = await postJson(
+        "/api/anthropic-keys/pin", { id: credential.pinned ? null : credential.id }, { local: true },
+      );
       if (!res.ok) throw new Error("could not set pin");
       const body = await res.json() as { credentials?: DaemonState[] };
       const states = new Map((body.credentials ?? []).map((item) => [item.id, item]));

@@ -1705,6 +1705,50 @@ describe("pinning an Anthropic credential", () => {
     expect(second.getApiKey()).toBe(A);
     expect(second.managedApiKeyStates().find((k) => k.id === "a")!.pinned).toBe(true);
   });
+
+  /**
+   * #139: a pin that names an id this daemon does not currently hold used to
+   * resolve to `null` - identical to "nothing pinned" - which is exactly the
+   * silence the ticket is about. Covers both ways that happens: a restart
+   * with nothing synced yet (`managedApiKeys` empty), and a pin left over
+   * for a key that has since been removed from the profile.
+   */
+  describe("pinnedKeyNotice when the pinned id is not one this daemon holds", () => {
+    it("says so rather than staying silent when nothing has synced since a restart", async () => {
+      const { config } = await setup();
+      const first = new SessionRegistry({ ...config } as any);
+      await first.restore();
+      first.setManagedApiKeys([managed("available", "a", A)]);
+      await first.setPinnedManagedKey("a");
+
+      const second = new SessionRegistry({ ...config } as any);
+      await second.restore();
+
+      expect((second as any).managedApiKeys).toEqual([]);
+      expect(second.pinnedKeyNotice()).not.toBeNull();
+      expect(second.pinnedKeyNotice()).toContain("Pinned key is not among this daemon's credentials");
+    });
+
+    it("says so when the pinned key has since dropped out of the profile", async () => {
+      const { config } = await setup();
+      const registry = new SessionRegistry({ ...config } as any);
+      registry.setManagedApiKeys([managed("available", "a", A), managed("available", "b", B)]);
+      await registry.setPinnedManagedKey("a");
+
+      registry.setManagedApiKeys([managed("available", "b", B)]);
+
+      expect(registry.pinnedKeyNotice()).not.toBeNull();
+      expect(registry.pinnedKeyNotice()).toContain("Pinned key is not among this daemon's credentials");
+    });
+
+    it("still says nothing when there is no pin at all", async () => {
+      const { config } = await setup();
+      const registry = new SessionRegistry({ ...config } as any);
+      registry.setManagedApiKeys([]);
+
+      expect(registry.pinnedKeyNotice()).toBeNull();
+    });
+  });
 });
 
 describe("what a new specialist runs on", () => {

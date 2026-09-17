@@ -63,6 +63,54 @@ describe("authFetch, routed by session", () => {
     expect(realFetch).toHaveBeenCalled();
     realFetch.mockRestore();
   });
+
+  /**
+   * Stands in for the second machine #139 needed and this suite has no way
+   * to spin up: `setActiveMachine` is exactly what `useRoster.ts` calls when
+   * a remote row is the one being watched, so setting it here is the same
+   * state the cockpit would be in with that remote specialist open. The
+   * Profile dialog's three routes (`CredentialSection.tsx`, via `local:
+   * true`) must ignore it - a pin has to land on the daemon `pickManagedKey`
+   * reads, not on whichever machine's tab is open - while an ordinary
+   * machine-global route like `/api/settings` still follows it, unchanged
+   * from the test above.
+   */
+  it("keeps the Profile dialog's routes local even with a remote machine active", async () => {
+    sendCommand.mockResolvedValue({ status: 200, contentType: "application/json", text: "{}" });
+    const realFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+
+    setActiveMachine(MACHINE);
+    await authFetch("/api/anthropic-keys", undefined, { local: true });
+    await postJson("/api/anthropic-keys/pin", { id: "a" }, { local: true });
+    await authFetch("/api/openrouter/keys", undefined, { local: true });
+
+    expect(sendCommand).not.toHaveBeenCalled();
+    expect(realFetch).toHaveBeenCalledTimes(3);
+
+    setActiveMachine(null);
+    realFetch.mockRestore();
+  });
+
+  /**
+   * `ModelDialog.tsx` asks this exact route, with no `local` flag, about the
+   * machine a *session* would run a specialist on - a different question
+   * from the Profile dialog's, that happens to share a path. Without this
+   * test, forcing `/api/openrouter/keys` local by path alone (the fix's
+   * first draft) would have passed every other #139 test while silently
+   * breaking model selection for a remote specialist.
+   */
+  it("still routes /api/openrouter/keys by the active machine when local is not requested", async () => {
+    sendCommand.mockResolvedValue({ status: 200, contentType: "application/json", text: "{}" });
+    const realFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+
+    setActiveMachine(MACHINE);
+    await authFetch("/api/openrouter/keys");
+    expect(sendCommand).toHaveBeenCalledWith(MACHINE.uid, MACHINE.machineId, "GET", "/api/openrouter/keys", undefined);
+    expect(realFetch).not.toHaveBeenCalled();
+
+    setActiveMachine(null);
+    realFetch.mockRestore();
+  });
 });
 
 describe("loadArtifact", () => {
