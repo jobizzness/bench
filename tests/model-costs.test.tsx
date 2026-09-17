@@ -69,7 +69,7 @@ const onSonnet = {
   rows: [row({ model: "anthropic/claude-sonnet-5" })],
   entries: [entry()],
   routerKey: { present: true, hint: "…4f2a" },
-  settings: { allHouses: true, codingStyle: "", workflowRules: "" },
+  settings: { showOpenRouter: true, codingStyle: "", workflowRules: "" },
 };
 
 describe("what a turn would cost", () => {
@@ -157,7 +157,7 @@ describe("comparing it to what you are on", () => {
       rows: [row({ model: "sonnet" })],
       entries: [entry()],
       routerKey: { present: true, hint: "…4f2a" },
-      settings: { allHouses: true, codingStyle: "", workflowRules: "" },
+      settings: { showOpenRouter: true, codingStyle: "", workflowRules: "" },
       models: [SONNET, KIMI],
       turnShape: MINE,
     });

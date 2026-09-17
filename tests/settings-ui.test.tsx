@@ -73,7 +73,7 @@ describe("the house rules page", () => {
     // anything was typed - see the round-trip test below.
     expect(saved()!.body).toEqual({
       codingStyle: "terse", workflowRules: "verify first", reviewModel: "opus", roleModels: {},
-      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, allHouses: false,
+      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, showOpenRouter: false,
     });
   });
 
@@ -106,15 +106,15 @@ describe("the house rules page", () => {
     expect(saved()!.body.headroom).toBe(false);
   });
 
-  it("saves the every-house toggle on when it is checked (#141)", async () => {
-    await open({ allHouses: false });
-    const box = ui.$<HTMLInputElement>("#s-all-houses")!;
+  it("saves the show-OpenRouter toggle on when it is checked (#141)", async () => {
+    await open({ showOpenRouter: false });
+    const box = ui.$<HTMLInputElement>("#s-open-router")!;
     expect(box.checked).toBe(false);
 
     await ui.click(box);
     await ui.click(ui.$("#s-save"));
 
-    expect(saved()!.body.allHouses).toBe(true);
+    expect(saved()!.body.showOpenRouter).toBe(true);
   });
 
   it("disables the headroom toggle when no proxy is installed", async () => {
@@ -208,9 +208,7 @@ describe("picking a model in Settings", () => {
   });
 
   it("records the model that was picked", async () => {
-    // Anthropic's house is behind a setting now (#141); picking one of its
-    // models is what this test is about, not that setting.
-    await open({ allHouses: true });
+    await open();
     await ui.click(ui.$('.s-role[data-role="researcher"] .s-role-model'));
     await waitFor(() => ui.$("#s-role-dialog-search"), "the picker");
 
@@ -220,7 +218,7 @@ describe("picking a model in Settings", () => {
   });
 
   it("saves it with the rest of the rules", async () => {
-    await open({ allHouses: true });
+    await open();
     await ui.click(ui.$('.s-role[data-role="researcher"] .s-role-model'));
     await waitFor(() => ui.$("#s-role-dialog-search"), "the picker");
     await ui.click(ui.$("#s-role-dialog .model-option[data-model='haiku']"));
@@ -253,7 +251,7 @@ describe("picking a model in Settings", () => {
   });
 
   it("changes only the role that was open", async () => {
-    await open({ allHouses: true });
+    await open();
     await ui.click(ui.$('.s-role[data-role="reviewer"] .s-role-model'));
     await waitFor(() => ui.$("#s-role-dialog-search"), "the picker");
     await ui.click(ui.$("#s-role-dialog .model-option[data-model='sonnet']"));

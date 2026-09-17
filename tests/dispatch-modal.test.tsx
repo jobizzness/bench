@@ -140,13 +140,8 @@ describe("moving a held tab off the model it inherited", () => {
   });
 
   it("moves the held tab, not the one being read", async () => {
-    // Switching to a different Anthropic model, whose house is behind a
-    // setting now (#141) - not what this test is about, so it opts back in.
-    ui = await bootCockpit({
-      ...held,
-      routerKey: { present: true, hint: "…key" },
-      settings: { allHouses: true, codingStyle: "", workflowRules: "" },
-    });
+    // Anthropic is never behind the setting (#141) - no opt-in needed.
+    ui = await bootCockpit({ ...held, routerKey: { present: true, hint: "…key" } });
     await ui.open("auth");
     await ui.click(ui.$("#dispatch-model"));
 
@@ -189,7 +184,7 @@ describe("moving a held tab off the model it inherited", () => {
   it("offers the way to a key when there is none, rather than a dead list", async () => {
     // The need-key button lives in the OpenRouter house, behind the setting
     // now (#141) - not what this test is about, so it opts back in.
-    ui = await bootCockpit({ ...held, settings: { allHouses: true, codingStyle: "", workflowRules: "" } });
+    ui = await bootCockpit({ ...held, settings: { showOpenRouter: true, codingStyle: "", workflowRules: "" } });
     await ui.open("auth");
     await ui.click(ui.$("#dispatch-model"));
 

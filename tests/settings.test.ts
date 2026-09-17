@@ -20,7 +20,7 @@ describe("what is on disk", () => {
       reasoningEffort: "medium",
       headroom: true,
       pinnedManagedKeyId: null,
-      allHouses: false,
+      showOpenRouter: false,
     });
   });
 
@@ -43,7 +43,7 @@ describe("what is on disk", () => {
 
     expect(await readSettings(dir)).toEqual({
       codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {},
-      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, allHouses: false,
+      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, showOpenRouter: false,
     });
   });
 
@@ -120,7 +120,7 @@ describe("which model reviews", () => {
 
     expect(await readSettings(dir)).toEqual({
       codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {},
-      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, allHouses: false,
+      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, showOpenRouter: false,
     });
   });
 
@@ -152,21 +152,21 @@ describe("the headroom toggle", () => {
   });
 });
 
-describe("the every-house toggle (#141)", () => {
+describe("the show-OpenRouter toggle (#141)", () => {
   it("is off for a settings file written before it existed", async () => {
-    // Devin is what this bench runs on now - an old file must not read as
-    // having asked for the rest of the catalogue back.
+    // Devin and Anthropic are what this bench runs on without a key - an
+    // old file must not read as having asked for the rest of the catalogue.
     const dir = await home();
     await writeFile(join(dir, "settings.json"), JSON.stringify({ codingStyle: "terse" }));
 
-    expect((await readSettings(dir)).allHouses).toBe(false);
+    expect((await readSettings(dir)).showOpenRouter).toBe(false);
   });
 
   it("keeps a saved on", async () => {
     const dir = await home();
-    await writeSettings(dir, { codingStyle: "", workflowRules: "", allHouses: true });
+    await writeSettings(dir, { codingStyle: "", workflowRules: "", showOpenRouter: true });
 
-    expect((await readSettings(dir)).allHouses).toBe(true);
+    expect((await readSettings(dir)).showOpenRouter).toBe(true);
   });
 });
 

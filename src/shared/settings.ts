@@ -53,16 +53,19 @@ export const settingsSchema = z.object({
    */
   pinnedManagedKeyId: z.string().nullable().default(null),
   /**
-   * Show every house in the model picker - Anthropic's four, the
-   * auto-routers, and the OpenRouter catalogue - rather than just Devin.
+   * Show the OpenRouter catalogue in the model picker - its three hundred
+   * models, the auto-routers, and the machinery that only exists to serve
+   * them (the price-sort toggle, the "needs a key" button).
    *
-   * Off by default: Devin is what this bench runs on now, and a picker
-   * offering three hundred models nobody has a key for is a picker that
-   * buries the one house that always works under the ones that mostly
-   * don't. The model a specialist is already on is exempt - see
+   * Off by default: Devin and Anthropic's four both stand on their own -
+   * neither needs a key, and Anthropic's is a subscription already paid
+   * for - so a picker offering three hundred models nobody has a key for is
+   * a picker that buries the two houses that always work under the one
+   * that mostly doesn't. Whatever a specialist is already running on stays
+   * visible and pickable regardless - see `currentInHiddenHouse` in
    * `ModelDialog.tsx`.
    */
-  allHouses: z.boolean().default(false),
+  showOpenRouter: z.boolean().default(false),
 });
 
 /**
@@ -81,7 +84,7 @@ export const settingsInputSchema = z.object({
   reasoningEffort: z.enum(["none", "low", "medium", "high"]).optional(),
   headroom: z.boolean().optional(),
   pinnedManagedKeyId: z.string().nullable().optional(),
-  allHouses: z.boolean().optional(),
+  showOpenRouter: z.boolean().optional(),
 }).transform((s) => ({
   ...s,
   reviewModel: s.reviewModel ?? DEFAULT_MODEL,
@@ -89,14 +92,14 @@ export const settingsInputSchema = z.object({
   reasoningEffort: s.reasoningEffort ?? "medium",
   headroom: s.headroom ?? true,
   pinnedManagedKeyId: s.pinnedManagedKeyId ?? null,
-  allHouses: s.allHouses ?? false,
+  showOpenRouter: s.showOpenRouter ?? false,
 }));
 
 export type Settings = z.infer<typeof settingsSchema>;
 
 export const NO_SETTINGS: Settings = {
   codingStyle: "", workflowRules: "", reviewModel: DEFAULT_MODEL, roleModels: {}, reasoningEffort: "medium", headroom: true,
-  pinnedManagedKeyId: null, allHouses: false,
+  pinnedManagedKeyId: null, showOpenRouter: false,
 };
 
 /**
