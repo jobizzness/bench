@@ -991,6 +991,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           port: opts.port,
           cockpitUrl: `http://127.0.0.1:${this.config.port}`,
           devinBin: this.config.devinBin,
+          hookCommand: this.config.hookCommand,
           model: devinFamilyOf(opts.model),
           startTurn: opts.startTurn,
           resumeSessionId: opts.resumeSessionId,

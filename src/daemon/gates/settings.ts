@@ -45,3 +45,23 @@ export function buildSettings(opts: { hookCommand: string }): object {
     },
   };
 }
+
+/**
+ * The same gate for a Devin specialist, in Devin's own hooks format. Devin
+ * reads hooks from the worktree rather than from a command-line flag, so
+ * `DevinSession` writes this to `<worktree>/.devin/hooks.v1.json` - a file
+ * whose whole content is the hooks object, no wrapper key (see the Devin
+ * CLI's hooks docs). The matcher is a regex on `tool_name` and Devin's shell
+ * tool is `exec`; the payload and the `hookSpecificOutput` decision shape are
+ * the ones bench-hook already reads and writes.
+ */
+export function buildDevinHooks(opts: { hookCommand: string }): object {
+  return {
+    PreToolUse: [
+      {
+        matcher: "exec",
+        hooks: [{ type: "command", command: `${opts.hookCommand} commit-attribution` }],
+      },
+    ],
+  };
+}

@@ -1,5 +1,6 @@
 import { once } from "node:events";
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -113,6 +114,36 @@ process.stdin.on("data", (chunk) => {
         send({ jsonrpc: "2.0", id: request.id, result });
       };
       if (mode === "slow") setTimeout(finish, 150); else finish();
+    }
+  }
+});
+`;
+
+/**
+ * A fake that advertises an auth method, so the session has to authenticate
+ * before session/new. It reports back the api_key it was handed, verbatim.
+ */
+const ACP_AUTH = `#!/usr/bin/env node
+let carry = "";
+let key = null;
+const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const request = JSON.parse(line);
+    if (request.method === "initialize") {
+      send({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: 1, authMethods: [{ id: "devin-browser" }] } });
+    } else if (request.method === "authenticate") {
+      key = request.params._meta.api_key;
+      send({ jsonrpc: "2.0", id: request.id, result: {} });
+    } else if (request.method === "session/new") {
+      send({ jsonrpc: "2.0", id: request.id, result: { sessionId: "devin-session" } });
+    } else if (request.method === "session/prompt") {
+      send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "devin-session", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "key=" + key } } } });
+      send({ jsonrpc: "2.0", id: request.id, result: { stopReason: "end_turn" } });
     }
   }
 });
@@ -433,5 +464,62 @@ describe("DevinSession", () => {
     expect(devinText.slice(devinText.indexOf(frameStart))).toBe(claudeText);
     claude.stop();
     devin.stop();
+  });
+
+  it("writes .devin/hooks.v1.json into the worktree and git-excludes it", async () => {
+    const worktree = await mkdtemp(join(tmpdir(), "bench-devin-wt-"));
+    spawnSync("git", ["init"], { cwd: worktree });
+    const session = await makeSession("clean", { worktree, hookCommand: "node /opt/bench/hook.js" });
+    session.open();
+
+    const hooks = JSON.parse(await readFile(join(worktree, ".devin", "hooks.v1.json"), "utf8"));
+    expect(hooks).toEqual({
+      PreToolUse: [{
+        matcher: "exec",
+        hooks: [{ type: "command", command: "node /opt/bench/hook.js commit-attribution" }],
+      }],
+    });
+
+    const commonDir = String(spawnSync("git", ["-C", worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"]).stdout).trim();
+    const exclude = await readFile(join(commonDir, "info", "exclude"), "utf8");
+    expect(exclude.split("\n")).toContain(".devin/hooks.v1.json");
+    // Excluded, so the specialist's own diff never carries it.
+    expect(String(spawnSync("git", ["-C", worktree, "status", "--porcelain"]).stdout)).toBe("");
+    session.stop();
+  });
+
+  it("leaves a project-tracked .devin/hooks.v1.json alone", async () => {
+    const worktree = await mkdtemp(join(tmpdir(), "bench-devin-wt-"));
+    spawnSync("git", ["init"], { cwd: worktree });
+    const hooksPath = join(worktree, ".devin", "hooks.v1.json");
+    await mkdir(join(worktree, ".devin"), { recursive: true });
+    await writeFile(hooksPath, `{"the":"project's own"}\n`);
+    spawnSync("git", ["-C", worktree, "add", ".devin/hooks.v1.json"]);
+
+    const session = await makeSession("clean", { worktree, hookCommand: "node /opt/bench/hook.js" });
+    const exited = once(session, "exit");
+    session.open();
+
+    expect(await readFile(hooksPath, "utf8")).toBe(`{"the":"project's own"}\n`);
+    session.stop();
+    const [, stderr] = await exited;
+    expect(stderr).toContain("tracked in this repo");
+  });
+
+  it("passes WINDSURF_API_KEY to authenticate ahead of the credentials file", async () => {
+    const devinBin = await executable(ACP_AUTH, "fake-devin.mjs");
+    const worktree = await mkdtemp(join(tmpdir(), "bench-devin-wt-"));
+    const previous = process.env.WINDSURF_API_KEY;
+    process.env.WINDSURF_API_KEY = "env-key-123";
+    try {
+      const session = new DevinSession({ id: "bench-session", worktree, reportsDir: join(worktree, ".bench", "reports", "bench-session"), devinBin });
+      session.open();
+      const result = await turn(session, "hello");
+      expect(result.result).toBe("key=env-key-123");
+      session.stop();
+    } finally {
+      if (previous === undefined) delete process.env.WINDSURF_API_KEY;
+      else process.env.WINDSURF_API_KEY = previous;
+    }
   });
 });

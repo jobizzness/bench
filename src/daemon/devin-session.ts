@@ -1,8 +1,9 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { buildDevinHooks } from "./gates/settings.js";
 import type { Context } from "../shared/context-window.js";
 import { COST_AWARENESS_BRIEF, DEFAULT_ROLE, ROLE_BRIEF, type Role } from "../shared/roles.js";
 import type { Attachment } from "../shared/types.js";
@@ -27,8 +28,12 @@ const DEFAULT_STALL_TIMEOUT_MS = 60_000;
  * Read the Windsurf/Devin API key that `devin auth login` stores on disk.
  * The real `devin acp` process ignores local CLI credentials in ACP mode and
  * requires the host to call `authenticate` — this is what we pass there.
+ * `WINDSURF_API_KEY` is checked first: it is the CLI's documented primary
+ * source, ahead of the credentials file `devin auth login` writes.
  */
 function readDevinApiKey(): string | null {
+  const envKey = process.env.WINDSURF_API_KEY;
+  if (envKey) return envKey;
   try {
     const xdgData = process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
     const content = readFileSync(join(xdgData, "devin", "credentials.toml"), "utf8");
@@ -67,6 +72,14 @@ export interface DevinSessionOptions {
   onSessionId?: (sessionId: string) => void | Promise<void>;
   rules?: () => string;
   nudge?: () => string;
+  /**
+   * The bench-hook command line (without a gate argument), the same value
+   * `ClaudeSession` gets. Devin has no `--settings` flag - it reads hooks
+   * from `<worktree>/.devin/hooks.v1.json` - so when set, `open()` writes
+   * that file before spawning and git-excludes it to keep it out of the
+   * specialist's diff.
+   */
+  hookCommand?: string;
   /** Overrides `DEFAULT_STALL_TIMEOUT_MS`. Only ever set by tests. */
   stallTimeoutMs?: number;
 }
@@ -295,6 +308,7 @@ export class DevinSession extends EventEmitter implements Session {
 
   open(): void {
     if (this.child) throw new Error("session already started");
+    this.installHooks();
     this.child = spawn(this.opts.devinBin ?? "devin", ["acp"], {
       cwd: this.opts.worktree,
       env: {
@@ -337,6 +351,56 @@ export class DevinSession extends EventEmitter implements Session {
       clientCapabilities: {},
       clientInfo: { name: "bench", title: "Bench", version: "0.1.0" },
     });
+  }
+
+  /**
+   * Write the worktree's `.devin/hooks.v1.json` - the only place `devin acp`
+   * will pick Bench's gates up, since nothing like `claude --settings`
+   * exists on the Devin side.
+   *
+   * The file is Bench's: this worktree is one Bench made, so an existing
+   * file with different content is overwritten rather than merged. The one
+   * exception is a file the project itself tracks - that is the project's
+   * own hooks, and overwriting it would fight the project; the gate simply
+   * goes uninstalled, said out loud on stderr rather than silently.
+   *
+   * Whatever happens, a `.devin/` entry is appended to the repo's own
+   * `info/exclude` (not `.gitignore`, which the specialist would then have
+   * to commit or carry as an unstaged change) so the hooks file never shows
+   * up in its diff.
+   */
+  private installHooks(): void {
+    if (!this.opts.hookCommand) return;
+    try {
+      const hooksPath = join(this.opts.worktree, ".devin", "hooks.v1.json");
+      const git = (args: string[]) =>
+        spawnSync("git", ["-C", this.opts.worktree, ...args], { encoding: "utf8" });
+
+      if (git(["ls-files", "--error-unmatch", ".devin/hooks.v1.json"]).status === 0) {
+        this.lastStderr = (this.lastStderr
+          + "\n.devin/hooks.v1.json is tracked in this repo - leaving the project's own hooks alone; commit-attribution gate not installed."
+        ).slice(-STDERR_KEPT);
+      } else {
+        const content = `${JSON.stringify(buildDevinHooks({ hookCommand: this.opts.hookCommand }), null, 2)}\n`;
+        if (!existsSync(hooksPath) || readFileSync(hooksPath, "utf8") !== content) {
+          mkdirSync(join(this.opts.worktree, ".devin"), { recursive: true });
+          writeFileSync(hooksPath, content);
+        }
+      }
+
+      const commonDir = (git(["rev-parse", "--path-format=absolute", "--git-common-dir"]).stdout ?? "").trim();
+      if (commonDir !== "") {
+        const excludePath = join(commonDir, "info", "exclude");
+        const exclude = existsSync(excludePath) ? readFileSync(excludePath, "utf8") : "";
+        if (!exclude.split("\n").includes(".devin/hooks.v1.json")) {
+          mkdirSync(join(commonDir, "info"), { recursive: true });
+          appendFileSync(excludePath, ".devin/hooks.v1.json\n");
+        }
+      }
+    } catch (error) {
+      // A gate that cannot be installed must not stop the session opening.
+      this.lastStderr = (this.lastStderr + `\nCould not install .devin/hooks.v1.json: ${String(error)}`).slice(-STDERR_KEPT);
+    }
   }
 
   send(text: string, images: Attachment[] = []): void {

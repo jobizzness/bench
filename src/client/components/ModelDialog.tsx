@@ -15,6 +15,8 @@ export type { Listed };
 interface DevinFamily {
   id: string;
   label: string;
+  aliases: string[];
+  contextWindow: number | null;
 }
 
 /** Vendors worth putting at the top. Everything else follows alphabetically —
@@ -105,6 +107,21 @@ function score(model: Listed, needle: string): number {
   // "Gemini 3.7 Flash" as readily as "gemini" does.
   if (new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(name)) return 3;
   if (id.includes(needle) || name.includes(needle)) return 2;
+  return 0;
+}
+
+/**
+ * The same ranking as `score`, for Devin's families: the haystack is the
+ * family's slug, its label and its aliases, since the CLI lets a family be
+ * named by an alias (`devin --model opus`) and a picker that could not find
+ * one by it would hide a real choice.
+ */
+function devinScore(family: DevinFamily, needle: string): number {
+  if (needle === "") return 1;
+  const names = [family.id, family.label, ...(family.aliases ?? [])].map((value) => value.toLowerCase());
+  if (names.some((value) => value === needle)) return 4;
+  if (names.some((value) => value.startsWith(needle))) return 3;
+  if (names.some((value) => value.includes(needle))) return 2;
   return 0;
 }
 
@@ -327,6 +344,16 @@ export function ModelDialog({
     return { rows: ordered.slice(0, SHOWN), total: scored.length };
   }, [listed, query, current, cheapest, priced]);
 
+  /** The Devin families, narrowed by the same search the catalogue obeys. */
+  const devinRows = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return devinFamilies
+      .map((family) => ({ family, hit: devinScore(family, needle) }))
+      .filter((row) => row.hit > 0)
+      .sort((a, b) => b.hit - a.hit || a.family.label.localeCompare(b.family.label))
+      .map((row) => row.family);
+  }, [devinFamilies, query]);
+
   // An arrow key that runs off the end of a filtered list would leave the
   // highlight on a row that is no longer there.
   useEffect(() => { setActive((at) => (at >= rows.length ? rows.length - 1 : at)); }, [rows.length]);
@@ -464,7 +491,7 @@ export function ModelDialog({
             <b>Account default</b>
             <span>whatever the Devin account is set to</span>
           </button>
-          {devinFamilies.map((family) => {
+          {devinRows.map((family) => {
             const modelId = `${DEVIN_PREFIX}${family.id}`;
             return (
               <button

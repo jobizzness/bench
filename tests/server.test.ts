@@ -1067,10 +1067,9 @@ describe("the model catalogue", () => {
 });
 
 /** A fake `devin` binary for `/api/devin/models` (#114) - `devin models
- * list --format json`'s real shape has not been observed directly, since
- * `server.codeium.com` refused every attempt made on this machine while
- * building this, so these exercise the route against a controlled stand-in
- * rather than the real CLI. */
+ * list --format json`'s real shape is captured in
+ * `fixtures/devin-models.json`; this exercises the route against a
+ * controlled stand-in rather than the real CLI. */
 async function fakeDevinBin(stdout: string, code = 0): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "bench-srv-devin-"));
   const path = join(dir, "fake-devin.mjs");
@@ -1088,8 +1087,8 @@ describe("Devin's model families (#114)", () => {
 
     const body = await (await fetch(`${base}/api/devin/models`, auth)).json();
     expect(body.families).toEqual([
-      { id: "adaptive", label: "Adaptive" },
-      { id: "opus", label: "Opus" },
+      { id: "adaptive", label: "Adaptive", aliases: [], contextWindow: null },
+      { id: "opus", label: "Opus", aliases: [], contextWindow: null },
     ]);
   });
 
