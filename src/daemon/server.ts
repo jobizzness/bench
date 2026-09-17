@@ -345,6 +345,12 @@ export function createServer(opts: {
   const selfUpdate = opts.selfUpdate;
   const runUpdate = opts.runSelfUpdate ?? runSelfUpdate;
   const restart = opts.askForRestart ?? askForRestart;
+  /** Held for the life of one `runUpdate` call - a second tap, a second tab,
+   * or a retried request must never run `pnpm install`/`pnpm build` in the
+   * same checkout while the first is still writing to it. Cleared in a
+   * `finally` so a throw cannot wedge every future tap behind a lock nobody
+   * will ever release. */
+  let updateInFlight: Promise<UpdateResult> | null = null;
 
   /**
    * A throw inside an async request handler is not caught by anything: node
@@ -768,7 +774,14 @@ export function createServer(opts: {
      */
     if (path === "/api/update" && req.method === "POST") {
       if (!selfUpdate) { json(res, 404, { error: "this daemon could not read its own git state" }); return; }
-      const result = await runUpdate({ root: config.installRoot, home: config.home });
+      if (updateInFlight) { json(res, 409, { error: "an update is already running on this daemon" }); return; }
+      let result: UpdateResult;
+      try {
+        updateInFlight = runUpdate({ root: config.installRoot, home: config.home });
+        result = await updateInFlight;
+      } finally {
+        updateInFlight = null;
+      }
       if (!result.ok) { json(res, 400, { error: result.error ?? "update failed" }); return; }
       await selfUpdate.tick();
       json(res, 200, { ok: true });

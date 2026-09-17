@@ -152,6 +152,10 @@ let selfUpdateTicks = 0;
 let updateResult: UpdateResult = { ok: true };
 let updateCalls: Array<{ root: string; home: string }> = [];
 let restartCalls: Array<{ home: string; build: boolean; cliPath: string }> = [];
+/** Held so a test can keep `runSelfUpdate` pending on purpose - proving the
+ * concurrency lock needs a request that has not resolved yet to land a
+ * second one against. */
+let updateGate: Promise<void> | null = null;
 
 beforeAll(async () => {
   registry = new StubRegistry();
@@ -199,7 +203,7 @@ beforeAll(async () => {
       current: () => selfUpdateStatus,
       tick: async () => { selfUpdateTicks += 1; },
     },
-    runSelfUpdate: async (deps) => { updateCalls.push(deps); return updateResult; },
+    runSelfUpdate: async (deps) => { updateCalls.push(deps); if (updateGate) await updateGate; return updateResult; },
     askForRestart: (home, build, cliPath) => { restartCalls.push({ home, build, cliPath }); },
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -1465,6 +1469,7 @@ describe("updating Bench's own checkout (#146)", () => {
     updateResult = { ok: true };
     updateCalls = [];
     restartCalls = [];
+    updateGate = null;
   });
 
   it("pulls and builds, then reruns the watcher immediately rather than waiting out its interval", async () => {
@@ -1474,6 +1479,26 @@ describe("updating Bench's own checkout (#146)", () => {
     expect(await res.json()).toEqual({ ok: true });
     expect(updateCalls).toEqual([{ root: "/tmp/bench-install", home: "/tmp/bench" }]);
     expect(selfUpdateTicks).toBe(1);
+  });
+
+  it("refuses a second update while one is still running, rather than running two builds at once", async () => {
+    let releaseFirst: (() => void) | undefined;
+    updateGate = new Promise((resolve) => { releaseFirst = resolve; });
+
+    const first = fetch(`${base}/api/update`, { method: "POST", ...auth });
+    // Only released once the second request has already landed - proving
+    // the lock, not just a lucky ordering of two fetches.
+    await waitFor(() => (updateCalls.length > 0 ? true : undefined), "the first update to have started");
+
+    const second = await fetch(`${base}/api/update`, { method: "POST", ...auth });
+    expect(second.status).toBe(409);
+    expect((await second.json()).error).toMatch(/already running/);
+    // Never touched runSelfUpdate a second time - the lock refused it
+    // before it got anywhere near the checkout.
+    expect(updateCalls).toHaveLength(1);
+
+    releaseFirst?.();
+    expect((await first).status).toBe(200);
   });
 
   it("answers the refusal reason in the body when the tree is dirty", async () => {
@@ -1514,8 +1539,12 @@ describe("updating Bench's own checkout (#146)", () => {
 
     const events: any[] = [];
     const ws = new WebSocket(`${base.replace("http", "ws")}/events?token=${TOKEN}`);
-    await new Promise<void>((resolve) => ws.on("open", resolve));
+    // Attached before `open` resolves, not after - the server sends the
+    // first roster push the instant the connection handler runs, which can
+    // land before this client's own "open" callback gets scheduled. A
+    // listener added only after awaiting "open" can miss it outright.
     ws.on("message", (data) => events.push(JSON.parse(String(data))));
+    await new Promise<void>((resolve) => ws.on("open", resolve));
 
     const first = await waitFor(() => events[0], "the first roster push");
     ws.close();

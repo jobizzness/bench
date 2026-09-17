@@ -20,17 +20,29 @@ function fakeGit(answers: Record<string, string | Error>, calls: string[] = []):
   };
 }
 
-/** A spawn that never runs a real process - it just reports the exit code
- * the test wants, after emitting on `close` the way a real `ChildProcess`
- * would. */
-function fakeSpawner(codeByCommand: Record<string, number>): ProcSpawner {
+/**
+ * A spawn that never runs a real process - it just reports the exit code the
+ * test wants, after emitting on `close` the way a real `ChildProcess` would.
+ *
+ * Each command may script more than one code, consumed in order - the
+ * recovery path (#146 review) runs `pnpm install`/`pnpm build` a second time
+ * after a rollback, and a test proving the recovery build succeeds where the
+ * original one failed needs the same key to answer differently twice. The
+ * one function instance returned here must be reused across calls (not
+ * reconstructed per call) for that queue to mean anything.
+ */
+function fakeSpawner(codesByCommand: Record<string, number | number[]>): ProcSpawner {
+  const queues: Record<string, number[]> = Object.fromEntries(
+    Object.entries(codesByCommand).map(([k, v]) => [k, Array.isArray(v) ? [...v] : [v]]),
+  );
   return (cmd, args) => {
     const child = new EventEmitter() as unknown as ChildProcess;
     (child as any).stdout = new EventEmitter();
     (child as any).stderr = new EventEmitter();
     (child as any).kill = vi.fn();
     const key = `${cmd} ${args.join(" ")}`;
-    const code = codeByCommand[key] ?? 0;
+    const queue = queues[key];
+    const code = queue && queue.length > 0 ? queue.shift()! : 0;
     queueMicrotask(() => child.emit("close", code));
     return child;
   };
@@ -140,12 +152,12 @@ describe("runSelfUpdate", () => {
     expect(spawnCalls).toEqual(["pnpm install --frozen-lockfile", "pnpm build"]);
   });
 
-  it("rolls the checkout back to the old HEAD when the build fails, and says so", async () => {
-    const resetCalls: string[] = [];
+  /** A git double for the rollback tests below: everything up to the build
+   * step behaves, with no lockfile change in the pulled range, and answers
+   * `reset --hard sha-old` so the recovery path can actually run against it. */
+  function rollbackGit(resetCalls: string[]): GitRunner {
     let headCalls = 0;
-    const spawnProc: ProcSpawner = fakeSpawner({ "pnpm build": 1 });
-    const home$ = await home();
-    const git: GitRunner = async (args) => {
+    return async (args) => {
       const key = args.join(" ");
       if (key === "rev-parse HEAD") { headCalls += 1; return { stdout: headCalls === 1 ? "sha-old" : "sha-new" }; }
       if (key === "diff --name-only sha-old..sha-new") return { stdout: "src/x.ts\n" };
@@ -158,16 +170,96 @@ describe("runSelfUpdate", () => {
       if (key in answers) return { stdout: answers[key] };
       throw new Error(`unscripted: ${key}`);
     };
+  }
 
-    const result = await runSelfUpdate({ root: "/repo", home: home$, git, spawnProc });
+  it("rolls the checkout back to the old HEAD when the build fails, and says so", async () => {
+    const resetCalls: string[] = [];
+    const home$ = await home();
+    // The recovery rebuild (run against the now-reverted source) succeeds -
+    // this is the ordinary case: whatever broke the build was in the
+    // commits just rolled back out of.
+    const spawnProc = fakeSpawner({ "pnpm build": [1, 0] });
+
+    const result = await runSelfUpdate({ root: "/repo", home: home$, git: rollbackGit(resetCalls), spawnProc });
 
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/pnpm build failed \(exit 1\)/);
-    expect(result.error).toMatch(/sha-old/);
+    expect(result.error).toMatch(/rolled the checkout back to sha-old/);
+    expect(result.error).toMatch(/rebuilt/);
     expect(resetCalls).toEqual(["reset --hard sha-old"]);
 
     const log = await readFile(join(home$, "update.log"), "utf8");
     expect(log).toContain("pnpm build");
+  });
+
+  it("says the restart will not come back cleanly when even the recovery rebuild fails", async () => {
+    const resetCalls: string[] = [];
+    // Fails both as the original build and as the recovery rebuild -
+    // whatever is wrong is not specific to the commits just pulled.
+    const spawnProc = fakeSpawner({ "pnpm build": [1, 1] });
+
+    const result = await runSelfUpdate({ root: "/repo", home: await home(), git: rollbackGit(resetCalls), spawnProc });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/dist\/ could not be rebuilt/);
+    expect(result.error).toMatch(/will not come back cleanly/);
+    expect(resetCalls).toEqual(["reset --hard sha-old"]);
+  });
+
+  it("re-installs and rebuilds on rollback when the lockfile had changed, not just the source", async () => {
+    const resetCalls: string[] = [];
+    let headCalls = 0;
+    const spawnCalls: string[] = [];
+    const inner = fakeSpawner({ "pnpm install --frozen-lockfile": [0, 0], "pnpm build": [1, 0] });
+    const spawnProc: ProcSpawner = (cmd, args, cwd) => { spawnCalls.push(`${cmd} ${args.join(" ")}`); return inner(cmd, args, cwd); };
+    const git: GitRunner = async (args) => {
+      const key = args.join(" ");
+      if (key === "rev-parse HEAD") { headCalls += 1; return { stdout: headCalls === 1 ? "sha-old" : "sha-new" }; }
+      if (key === "diff --name-only sha-old..sha-new") return { stdout: "pnpm-lock.yaml\nsrc/x.ts\n" };
+      if (key === "reset --hard sha-old") { resetCalls.push(key); return { stdout: "" }; }
+      const answers: Record<string, string> = {
+        "status --porcelain": "", "rev-parse --abbrev-ref HEAD": "main",
+        "fetch --quiet origin main": "", "merge-base --is-ancestor HEAD origin/main": "",
+        "merge --ff-only origin/main": "",
+      };
+      if (key in answers) return { stdout: answers[key] };
+      throw new Error(`unscripted: ${key}`);
+    };
+
+    const result = await runSelfUpdate({ root: "/repo", home: await home(), git, spawnProc });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/rebuilt/);
+    expect(spawnCalls).toEqual([
+      "pnpm install --frozen-lockfile", "pnpm build",
+      "pnpm install --frozen-lockfile", "pnpm build",
+    ]);
+  });
+
+  it("says node_modules may not match when the recovery re-install itself fails", async () => {
+    const resetCalls: string[] = [];
+    let headCalls = 0;
+    const spawnProc = fakeSpawner({ "pnpm install --frozen-lockfile": [1, 1] });
+    const git: GitRunner = async (args) => {
+      const key = args.join(" ");
+      if (key === "rev-parse HEAD") { headCalls += 1; return { stdout: headCalls === 1 ? "sha-old" : "sha-new" }; }
+      if (key === "diff --name-only sha-old..sha-new") return { stdout: "pnpm-lock.yaml\nsrc/x.ts\n" };
+      if (key === "reset --hard sha-old") { resetCalls.push(key); return { stdout: "" }; }
+      const answers: Record<string, string> = {
+        "status --porcelain": "", "rev-parse --abbrev-ref HEAD": "main",
+        "fetch --quiet origin main": "", "merge-base --is-ancestor HEAD origin/main": "",
+        "merge --ff-only origin/main": "",
+      };
+      if (key in answers) return { stdout: answers[key] };
+      throw new Error(`unscripted: ${key}`);
+    };
+
+    const result = await runSelfUpdate({ root: "/repo", home: await home(), git, spawnProc });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/pnpm install failed \(exit 1\)/);
+    expect(result.error).toMatch(/node_modules could not be restored/);
+    expect(result.error).toMatch(/may not come back cleanly/);
   });
 
   it("does nothing further when the merge landed no new commits", async () => {

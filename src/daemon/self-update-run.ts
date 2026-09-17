@@ -75,10 +75,6 @@ export async function runSelfUpdate(deps: {
   const append = async (line: string) => {
     await appendFile(log, `${new Date().toISOString()} ${line}\n`).catch(() => {});
   };
-  const rollback = async (reason: string): Promise<UpdateResult> => {
-    await git(["reset", "--hard", oldHead], root);
-    return { ok: false, error: `${reason} - rolled the checkout back to ${oldHead.slice(0, 8)}. See ${log}` };
-  };
 
   const changedFiles = (await git(["diff", "--name-only", `${oldHead}..${newHead}`], root)).stdout;
   const lockfileChanged = changedFiles.split("\n").some((f) => f.trim() === "pnpm-lock.yaml");
@@ -92,6 +88,45 @@ export async function runSelfUpdate(deps: {
     child.on("close", (code) => { clearTimeout(timer); resolve(code ?? 1); });
     child.on("error", (error) => { clearTimeout(timer); void append(message(error)); resolve(1); });
   });
+
+  /**
+   * A failure here - install or build - is answered by putting the source
+   * back, then best-effort putting `node_modules` and `dist/` back in sync
+   * with it too: by the time either step failed, `pnpm install` may already
+   * have moved `node_modules` onto the new lockfile, and `pnpm build` may
+   * already have started overwriting `dist/`, which the running daemon is
+   * still lazily importing from. `git reset --hard` alone fixes the source
+   * and leaves those two exactly as inconsistent with it as they were the
+   * moment the failure happened.
+   */
+  const rollback = async (reason: string): Promise<UpdateResult> => {
+    await git(["reset", "--hard", oldHead], root);
+    const rolledBack = `rolled the checkout back to ${oldHead.slice(0, 8)}`;
+
+    if (lockfileChanged) {
+      await append("$ pnpm install --frozen-lockfile (recovery)");
+      const code = await run("pnpm", ["install", "--frozen-lockfile"]);
+      if (code !== 0) {
+        return {
+          ok: false,
+          error: `${reason} - ${rolledBack}, but node_modules could not be restored to match it `
+            + `(pnpm install exited ${code}). A restart may not come back cleanly. See ${log}`,
+        };
+      }
+    }
+
+    await append("$ pnpm build (recovery)");
+    const code = await run("pnpm", ["build"]);
+    if (code !== 0) {
+      return {
+        ok: false,
+        error: `${reason} - ${rolledBack}, but dist/ could not be rebuilt from it `
+          + `(pnpm build exited ${code}). A restart will not come back cleanly. See ${log}`,
+      };
+    }
+
+    return { ok: false, error: `${reason} - ${rolledBack} and rebuilt. See ${log}` };
+  };
 
   if (lockfileChanged) {
     await append("$ pnpm install --frozen-lockfile");
