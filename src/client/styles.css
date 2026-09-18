@@ -743,6 +743,19 @@ button, input, textarea, select { font: inherit; color: inherit; }
   }
 }
 
+/* The roster's own unprompted notices - waking, degraded, pinned-key,
+   self-update (App.tsx) - are plain `.field-note`s dropped straight into the
+   flex column, so with no padding of their own they ran edge to edge where
+   every row and group heading around them keeps 18px off the side. Flush
+   left and right instead, and a border to read as its own line the way a
+   row's does, rather than loose text bleeding into the list. */
+#roster > .field-note {
+  flex: none;
+  margin: 0;
+  padding: 10px 18px;
+  border-top: 1px solid var(--line);
+}
+
 /* The settings row. Quiet, and the same height whatever the roster is doing
    above it, so it is somewhere the eye can go back to. */
 #roster-foot {
