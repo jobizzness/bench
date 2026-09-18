@@ -17,7 +17,8 @@ export type UpdateAction =
 export interface UpdateInputs {
   /** Commits on `origin/<branch>` not yet on `HEAD`. */
   behind: number;
-  /** `git status --porcelain` found something. */
+  /** `git status --porcelain --untracked-files=no` found something - a
+   * tracked file modified or staged. Untracked files do not count; see #149. */
   dirty: boolean;
   /** `HEAD` is an ancestor of `origin/<branch>` - a `--ff-only` merge would
    * succeed. */

@@ -49,7 +49,7 @@ function fakeSpawner(codesByCommand: Record<string, number | number[]>): ProcSpa
 }
 
 const CLEAN_UP_TO_DATE = {
-  "status --porcelain": "",
+  "status --porcelain --untracked-files=no": "",
   "rev-parse --abbrev-ref HEAD": "main",
   "rev-parse HEAD": "sha-old",
   "fetch --quiet origin main": "",
@@ -60,18 +60,31 @@ const CLEAN_UP_TO_DATE = {
 describe("runSelfUpdate", () => {
   it("refuses a dirty tree before touching git at all", async () => {
     const calls: string[] = [];
-    const git = fakeGit({ "status --porcelain": " M src/daemon/index.ts\n" }, calls);
+    const git = fakeGit({ "status --porcelain --untracked-files=no": " M src/daemon/index.ts\n" }, calls);
     const result = await runSelfUpdate({ root: "/repo", home: await home(), git });
 
     expect(result).toEqual({ ok: false, error: "the checkout has uncommitted changes" });
     // Only the check itself ran - never a fetch, never a merge.
-    expect(calls).toEqual(["status --porcelain"]);
+    expect(calls).toEqual(["status --porcelain --untracked-files=no"]);
+  });
+
+  it("does not refuse on an untracked file - only tracked changes block an update", async () => {
+    const calls: string[] = [];
+    const git = fakeGit({ ...CLEAN_UP_TO_DATE }, calls);
+
+    const result = await runSelfUpdate({ root: "/repo", home: await home(), git });
+
+    expect(result).toEqual({ ok: true });
+    // The status check itself asked git to leave untracked files out - an
+    // untracked file (e.g. a stray `node_modules` symlink, see #149) never
+    // appears in what it answered, so this never had a chance to look dirty.
+    expect(calls[0]).toBe("status --porcelain --untracked-files=no");
   });
 
   it("refuses a merge that would not fast-forward, and never merges", async () => {
     const calls: string[] = [];
     const git = fakeGit({
-      "status --porcelain": "",
+      "status --porcelain --untracked-files=no": "",
       "rev-parse --abbrev-ref HEAD": "main",
       "rev-parse HEAD": "sha-old",
       "fetch --quiet origin main": "",
@@ -86,7 +99,7 @@ describe("runSelfUpdate", () => {
 
   it("reports a fetch failure by its own message, rather than a generic refusal", async () => {
     const git = fakeGit({
-      "status --porcelain": "",
+      "status --porcelain --untracked-files=no": "",
       "rev-parse --abbrev-ref HEAD": "main",
       "rev-parse HEAD": "sha-old",
       "fetch --quiet origin main": new Error("Could not resolve host"),
@@ -138,7 +151,7 @@ describe("runSelfUpdate", () => {
       if (key === "rev-parse HEAD") { headCalls += 1; return { stdout: headCalls === 1 ? "sha-old" : "sha-new" }; }
       if (key === "diff --name-only sha-old..sha-new") return { stdout: "pnpm-lock.yaml\nsrc/x.ts\n" };
       const answers: Record<string, string> = {
-        "status --porcelain": "", "rev-parse --abbrev-ref HEAD": "main",
+        "status --porcelain --untracked-files=no": "", "rev-parse --abbrev-ref HEAD": "main",
         "fetch --quiet origin main": "", "merge-base --is-ancestor HEAD origin/main": "",
         "merge --ff-only origin/main": "",
       };
@@ -163,7 +176,7 @@ describe("runSelfUpdate", () => {
       if (key === "diff --name-only sha-old..sha-new") return { stdout: "src/x.ts\n" };
       if (key === "reset --hard sha-old") { resetCalls.push(key); return { stdout: "" }; }
       const answers: Record<string, string> = {
-        "status --porcelain": "", "rev-parse --abbrev-ref HEAD": "main",
+        "status --porcelain --untracked-files=no": "", "rev-parse --abbrev-ref HEAD": "main",
         "fetch --quiet origin main": "", "merge-base --is-ancestor HEAD origin/main": "",
         "merge --ff-only origin/main": "",
       };
@@ -218,7 +231,7 @@ describe("runSelfUpdate", () => {
       if (key === "diff --name-only sha-old..sha-new") return { stdout: "pnpm-lock.yaml\nsrc/x.ts\n" };
       if (key === "reset --hard sha-old") { resetCalls.push(key); return { stdout: "" }; }
       const answers: Record<string, string> = {
-        "status --porcelain": "", "rev-parse --abbrev-ref HEAD": "main",
+        "status --porcelain --untracked-files=no": "", "rev-parse --abbrev-ref HEAD": "main",
         "fetch --quiet origin main": "", "merge-base --is-ancestor HEAD origin/main": "",
         "merge --ff-only origin/main": "",
       };
@@ -246,7 +259,7 @@ describe("runSelfUpdate", () => {
       if (key === "diff --name-only sha-old..sha-new") return { stdout: "pnpm-lock.yaml\nsrc/x.ts\n" };
       if (key === "reset --hard sha-old") { resetCalls.push(key); return { stdout: "" }; }
       const answers: Record<string, string> = {
-        "status --porcelain": "", "rev-parse --abbrev-ref HEAD": "main",
+        "status --porcelain --untracked-files=no": "", "rev-parse --abbrev-ref HEAD": "main",
         "fetch --quiet origin main": "", "merge-base --is-ancestor HEAD origin/main": "",
         "merge --ff-only origin/main": "",
       };

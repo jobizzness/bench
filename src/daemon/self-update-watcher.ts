@@ -93,7 +93,10 @@ export class SelfUpdateWatcher {
 
   private async run(): Promise<void> {
     const headSha = (await this.git(["rev-parse", "HEAD"], this.root)).stdout.trim();
-    const statusOut = (await this.git(["status", "--porcelain"], this.root)).stdout;
+    // `--untracked-files=no` - kept identical to the check `runSelfUpdate`
+    // itself makes (see #149), so `dirty` here never disagrees with what the
+    // route would actually do.
+    const statusOut = (await this.git(["status", "--porcelain", "--untracked-files=no"], this.root)).stdout;
     const dirty = statusOut.trim() !== "";
 
     let behind = this.behindOf(this.status);
