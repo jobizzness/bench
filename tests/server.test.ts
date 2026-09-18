@@ -146,8 +146,11 @@ let keyUsage: Record<string, Usage> = {};
 /** The same, for the OpenRouter credit meter. */
 let credit: Credit = { available: false, reason: "none" };
 /** What the self-update watcher is pretending the checkout looks like. */
-let selfUpdateStatus: SelfUpdateStatus = { action: { kind: "none" }, fetchError: null };
+let selfUpdateStatus: SelfUpdateStatus = { action: { kind: "none" }, fetchError: null, running: false, runError: null };
 let selfUpdateTicks = 0;
+/** Every value `setRunError` was called with, in order - so a test can prove
+ * a refusal reached the pushed status rather than the response body. */
+let selfUpdateRunErrors: string[] = [];
 /** What `runSelfUpdate` is pretending the pull-and-build came back as. */
 let updateResult: UpdateResult = { ok: true };
 let updateCalls: Array<{ root: string; home: string }> = [];
@@ -202,6 +205,13 @@ beforeAll(async () => {
     selfUpdate: {
       current: () => selfUpdateStatus,
       tick: async () => { selfUpdateTicks += 1; },
+      setRunning: (running: boolean) => {
+        selfUpdateStatus = { ...selfUpdateStatus, running, ...(running ? { runError: null } : {}) };
+      },
+      setRunError: (error: string) => {
+        selfUpdateRunErrors.push(error);
+        selfUpdateStatus = { ...selfUpdateStatus, runError: error };
+      },
     },
     runSelfUpdate: async (deps) => { updateCalls.push(deps); if (updateGate) await updateGate; return updateResult; },
     askForRestart: (home, build, cliPath) => { restartCalls.push({ home, build, cliPath }); },
@@ -1464,28 +1474,47 @@ describe("reading an attached image back", () => {
 
 describe("updating Bench's own checkout (#146)", () => {
   beforeEach(() => {
-    selfUpdateStatus = { action: { kind: "update", behind: 2 }, fetchError: null };
+    selfUpdateStatus = { action: { kind: "update", behind: 2 }, fetchError: null, running: false, runError: null };
     selfUpdateTicks = 0;
+    selfUpdateRunErrors = [];
     updateResult = { ok: true };
     updateCalls = [];
     restartCalls = [];
     updateGate = null;
   });
 
-  it("pulls and builds, then reruns the watcher immediately rather than waiting out its interval", async () => {
+  it("answers as soon as the run has started, then reruns the watcher once it lands (#150)", async () => {
     const res = await fetch(`${base}/api/update`, { method: "POST", ...auth });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(await res.json()).toEqual({ ok: true });
     expect(updateCalls).toEqual([{ root: "/tmp/bench-install", home: "/tmp/bench" }]);
-    expect(selfUpdateTicks).toBe(1);
+    await waitFor(() => (selfUpdateTicks === 1 ? true : undefined), "the watcher to rerun once the run lands");
+    expect(selfUpdateStatus.running).toBe(false);
+  });
+
+  it("marks the pushed status as running before answering, not after (#150)", async () => {
+    let release: (() => void) | undefined;
+    updateGate = new Promise((resolve) => { release = resolve; });
+
+    const res = await fetch(`${base}/api/update`, { method: "POST", ...auth });
+
+    expect(res.status).toBe(202);
+    // Set before the answer went out - a push racing this response already
+    // agrees with it, which is the whole point: a second tab or a phone
+    // must never be able to see "not running" while this one just started it.
+    expect(selfUpdateStatus.running).toBe(true);
+
+    release?.();
+    await waitFor(() => (selfUpdateTicks === 1 ? true : undefined), "the run to land and clear the lock");
   });
 
   it("refuses a second update while one is still running, rather than running two builds at once", async () => {
     let releaseFirst: (() => void) | undefined;
     updateGate = new Promise((resolve) => { releaseFirst = resolve; });
 
-    const first = fetch(`${base}/api/update`, { method: "POST", ...auth });
+    const first = await fetch(`${base}/api/update`, { method: "POST", ...auth });
+    expect(first.status).toBe(202);
     // Only released once the second request has already landed - proving
     // the lock, not just a lucky ordering of two fetches.
     await waitFor(() => (updateCalls.length > 0 ? true : undefined), "the first update to have started");
@@ -1498,27 +1527,30 @@ describe("updating Bench's own checkout (#146)", () => {
     expect(updateCalls).toHaveLength(1);
 
     releaseFirst?.();
-    expect((await first).status).toBe(200);
+    await waitFor(() => (selfUpdateTicks === 1 ? true : undefined), "the first run to land and clear the lock");
   });
 
-  it("answers the refusal reason in the body when the tree is dirty", async () => {
+  it("pushes the refusal reason once a dirty-tree run lands, rather than answering it in the body (#150)", async () => {
     updateResult = { ok: false, error: "the checkout has uncommitted changes" };
 
     const res = await fetch(`${base}/api/update`, { method: "POST", ...auth });
 
-    expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "the checkout has uncommitted changes" });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ ok: true });
+    await waitFor(() => (selfUpdateRunErrors.length > 0 ? true : undefined), "the refusal to be pushed");
+    expect(selfUpdateRunErrors).toEqual(["the checkout has uncommitted changes"]);
+    expect(selfUpdateStatus.running).toBe(false);
     // A refusal is not a reason to re-poll early - nothing changed.
     expect(selfUpdateTicks).toBe(0);
   });
 
-  it("answers the refusal reason in the body when the merge would not fast-forward", async () => {
+  it("pushes the refusal reason once a run that cannot fast-forward lands", async () => {
     updateResult = { ok: false, error: "the branch has diverged from its remote and cannot fast-forward" };
 
-    const res = await fetch(`${base}/api/update`, { method: "POST", ...auth });
+    await fetch(`${base}/api/update`, { method: "POST", ...auth });
 
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/diverged/);
+    await waitFor(() => (selfUpdateRunErrors.length > 0 ? true : undefined), "the refusal to be pushed");
+    expect(selfUpdateRunErrors[0]).toMatch(/diverged/);
   });
 
   it("requires a token, same as every other route", async () => {
@@ -1535,7 +1567,7 @@ describe("updating Bench's own checkout (#146)", () => {
   });
 
   it("pushes the watcher's status alongside the roster, the same way pinnedKeyNotice is", async () => {
-    selfUpdateStatus = { action: { kind: "restart" }, fetchError: null };
+    selfUpdateStatus = { action: { kind: "restart" }, fetchError: null, running: false, runError: null };
 
     const events: any[] = [];
     const ws = new WebSocket(`${base.replace("http", "ws")}/events?token=${TOKEN}`);
@@ -1549,6 +1581,6 @@ describe("updating Bench's own checkout (#146)", () => {
     const first = await waitFor(() => events[0], "the first roster push");
     ws.close();
 
-    expect(first.selfUpdate).toEqual({ action: { kind: "restart" }, fetchError: null });
+    expect(first.selfUpdate).toEqual({ action: { kind: "restart" }, fetchError: null, running: false, runError: null });
   });
 });
