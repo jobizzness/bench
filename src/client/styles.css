@@ -549,27 +549,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
   }
 }
 
-/* Same shape as #new-session next to it - the two are peers in the header,
-   and this one only appears at all when there is something to say (#146). */
-#self-update {
-  background: transparent;
-  border: 1px solid var(--line-firm);
-  border-radius: 5px;
-  padding: 5px 11px;
-  font: 500 11px/1 var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  cursor: pointer;
-  transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
-}
-@media (hover: hover) {
-  #self-update:not(:disabled):hover {
-    color: var(--text); border-color: var(--wants-dim); background: var(--hover);
-  }
-}
-#self-update:disabled { cursor: default; opacity: 0.6; }
-
 #open-profile {
   width: 29px; height: 29px; padding: 0;
   display: grid; place-items: center;
@@ -689,6 +668,30 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* Above the breakpoint the roster is already on screen beside the stage, so
    there is nothing this button would go back to. */
 #stage-back { display: none; }
+
+/* The one member of the group that says a word rather than showing an icon -
+   "Update"/"Restart" cannot be a glyph - so it keeps a text button's padding
+   and label instead of the icon shape above it, but takes the same hairline
+   box and hover colour so the two still read as one group (#152). Absent
+   entirely when there is nothing to say - see `UpdateButton.tsx` (#146). */
+#self-update {
+  padding: 5px 11px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--faint);
+  cursor: pointer;
+  transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
+}
+@media (hover: hover) {
+  #self-update:not(:disabled):hover {
+    color: var(--text); border-color: var(--wants-dim); background: var(--hover);
+  }
+}
+#self-update:disabled { cursor: default; opacity: 0.6; }
 
 /* The phone's own screen for something tapped that wants you. Hidden by
    default the same way #stage-back is: above the breakpoint the roster and
@@ -1310,9 +1313,12 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   border-color: var(--line-firm);
   outline: none;
 }
-/* The pair sits together at the right, so the gap goes before the first of
-   them rather than between them. */
+/* The group sits together at the right, so the gap goes before the first of
+   them rather than between them - Update/Restart when it exists, Broadcast
+   when it does not (#152). */
+#stage-head #self-update,
 #stage-head #broadcast-toggle { margin-left: auto; }
+#stage-head #self-update + #broadcast-toggle { margin-left: 0; }
 
 /* The one window that stops a specialist without warning, said on the
    header itself once it is past the point of being worth interrupting
@@ -4218,7 +4224,8 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
      directly instead. */
   #open-github,
   #broadcast-toggle,
-  #stage-back {
+  #stage-back,
+  #self-update {
     min-width: 44px;
     min-height: 44px;
     padding: 10px;
