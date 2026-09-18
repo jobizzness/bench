@@ -1104,6 +1104,35 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       if (entry && !opts.resume && !entry.resumable && /already in use/i.test(stderr ?? "")) {
         entry.resumable = true;
         this.remember(this.store.markResumable(id));
+
+        // Unlike the sibling below, revive right here rather than waiting for
+        // a prompt that may never come - a tab that crashed idle should not
+        // sit crashed until a human happens to notice it. `revive()` reads
+        // the flag just flipped and asks the CLI for `--resume`, which is the
+        // whole point (see `revive`). Guarded by `!entry.resumable` above, so
+        // a second collision on the revive itself cannot re-enter this branch
+        // and loop.
+        //
+        // Only for a plain Claude model: an OpenRouter one needs `via`
+        // re-resolved first, which is what `deliver()` does on the developer's
+        // next prompt - so here it is left healed and crashed for that prompt
+        // to pick up, same asymmetry the sibling below has.
+        if (!isOpenRouterModel(entry.model)) {
+          this.revive(id, entry, undefined);
+          const retry = this.retryPrompts.get(id);
+          if (retry) {
+            entry.session!.send(retry.text, retry.images);
+            this.update(id, "working", "resuming after a session id collision");
+          } else {
+            this.update(id, "awaiting_decision", "resumed after a session id collision");
+          }
+          return;
+        }
+
+        // Healed but not revived here - the row would otherwise sit on the
+        // CLI's raw refusal with no hint that the fix is one prompt away.
+        this.update(id, "crashed", "session id collision healed - send it anything to resume");
+        return;
       }
 
       // The opposite lie: `resumable` said there was a conversation to
