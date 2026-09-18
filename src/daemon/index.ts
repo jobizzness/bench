@@ -9,7 +9,7 @@ import { usageSource } from "./usage.js";
 import { creditSource } from "./gemini.js";
 import { CorruptIndex } from "./store.js";
 import { onStopKey } from "./stop-key.js";
-import { cockpitUrls, isLoopback } from "./urls.js";
+import { announceCockpitUrls } from "./urls.js";
 import { RemoteController } from "./remote/controller.js";
 import type { LocalCaller } from "./remote/command-runner.js";
 import { FIREBASE_WEB_CONFIG } from "../shared/firebase-config.js";
@@ -183,6 +183,10 @@ if (registry.getSettings().headroom) {
   });
 }
 
+// The address announcer keeps polling after listen when the network is
+// still coming up; shutdown stops it beside everything else it outlives.
+let announcer: { stop(): void } | undefined;
+
 server.listen(config.port, config.host, () => {
   // Resumes a Google identity from `~/.bench/firebase.json` if remote was ever
   // turned on. Never throws - a dead or missing credential just leaves remote
@@ -192,18 +196,12 @@ server.listen(config.port, config.host, () => {
   // `restore()` was filling the roster.
   void remote.resume();
 
-  const urls = cockpitUrls({ host: config.host, port: config.port, token: config.token });
-  for (const url of urls) process.stdout.write(`bench: ${url}\n`);
-
-  if (!isLoopback(config.host)) {
-    // Said plainly and once. The token is the whole of the authentication,
-    // it travels in the URL over plain HTTP, and a specialist has a full
-    // shell - so anyone on this network holding it can run anything here.
-    process.stdout.write(
-      "bench: reachable on this network. The token in that URL is the only thing"
-      + " standing in front of a shell on this machine.\n",
-    );
-  }
+  announcer = announceCockpitUrls({
+    host: config.host,
+    port: config.port,
+    token: config.token,
+    write: (line) => process.stdout.write(`${line}\n`),
+  });
 
   // Last, because it is the only line here that is an instruction rather
   // than a fact - and because it is the one you look for when you are done.
@@ -226,6 +224,7 @@ const shutdown = () => {
   selfUpdate?.stop();
   // Only kills a proxy this daemon spawned - a borrowed one outlives us.
   headroom.stop();
+  announcer?.stop();
   server.closeSockets();
 
   // The sockets are gone by here in every case we know of. The timer is
