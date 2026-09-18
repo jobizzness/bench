@@ -40,7 +40,7 @@ describe("SelfUpdateWatcher", () => {
   it("starts level with origin and pushes once", async () => {
     const { watcher, onChange } = rig(LEVEL);
     await watcher.tick();
-    expect(watcher.current()).toEqual({ action: { kind: "none" }, fetchError: null });
+    expect(watcher.current()).toEqual({ action: { kind: "none" }, fetchError: null, running: false, runError: null });
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
@@ -162,5 +162,42 @@ describe("SelfUpdateWatcher", () => {
     expect(second).toBe(first);
     await first;
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  describe("setRunning/setRunError (#150)", () => {
+    it("pushes running without waiting for a tick", () => {
+      const { watcher, onChange } = rig(LEVEL);
+      watcher.setRunning(true);
+      expect(watcher.current().running).toBe(true);
+      expect(onChange).toHaveBeenCalledTimes(1);
+    });
+
+    it("survives a tick landing while a run is in flight", async () => {
+      const { watcher } = rig(LEVEL);
+      watcher.setRunning(true);
+      await watcher.tick();
+      expect(watcher.current().running).toBe(true);
+      expect(watcher.current().action).toEqual({ kind: "none" });
+    });
+
+    it("clears a previous run's error the moment a new one starts", () => {
+      const { watcher } = rig(LEVEL);
+      watcher.setRunError("the checkout has uncommitted changes");
+      expect(watcher.current().runError).toBe("the checkout has uncommitted changes");
+
+      watcher.setRunning(true);
+      expect(watcher.current().runError).toBeNull();
+    });
+
+    it("keeps a run's error once it lands, independent of the git-derived action", () => {
+      const { watcher } = rig(LEVEL);
+      watcher.setRunning(true);
+      watcher.setRunError("pnpm build failed (exit 1)");
+      watcher.setRunning(false);
+
+      const status = watcher.current();
+      expect(status.running).toBe(false);
+      expect(status.runError).toBe("pnpm build failed (exit 1)");
+    });
   });
 });

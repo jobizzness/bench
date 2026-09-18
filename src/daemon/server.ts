@@ -325,7 +325,14 @@ export function createServer(opts: {
    * roster - see `pinnedKeyNotice` above and `SelfUpdateWatcher` (#146).
    * Absent on a daemon that could not read its own git state at startup, in
    * which case the two routes below answer 404 rather than pretending. */
-  selfUpdate?: { current(): SelfUpdateStatus; tick(): Promise<void> };
+  selfUpdate?: {
+    current(): SelfUpdateStatus;
+    tick(): Promise<void>;
+    /** Pushed alongside the roster the moment a run starts or settles - see
+     * `POST /api/update` below and #150. */
+    setRunning(running: boolean): void;
+    setRunError(error: string): void;
+  };
   /** Injected by the tests, which must not run a real `git`/`pnpm`. */
   runSelfUpdate?: (deps: { root: string; home: string }) => Promise<UpdateResult>;
   /** Injected by the tests, which must not spawn a real detached worker. */
@@ -768,23 +775,41 @@ export function createServer(opts: {
      * client must send it with `local: true` - see `api.ts` and #139, the
      * bug this exists not to repeat. Refuses outright on a dirty tree or a
      * merge that would not fast-forward; never stashes, never touches
-     * uncommitted work. On success this has already pulled and built -
-     * `selfUpdate.tick()` reruns the watcher immediately rather than
-     * leaving the cockpit to wait out its five-minute interval to notice.
+     * uncommitted work.
+     *
+     * Answers as soon as the run has *started*, not when it finishes (#150):
+     * a pull-install-build can run for minutes, well past any client's own
+     * timeout, and a client timeout is not a failed update. The pushed
+     * status is what the button watches from here - `setRunning` marks it
+     * before this answers at all, so a push racing this response already
+     * agrees with it, and the `.then`/`.catch` below land the outcome once
+     * the run settles: `selfUpdate.tick()` on success, so the cockpit does
+     * not wait out its five-minute interval to notice the new head, or
+     * `setRunError` with the refusal on failure. Detached from `handle`'s
+     * own promise on purpose - a throw in here must not become the
+     * unhandled rejection the comment above `editors` warns about, so every
+     * branch below is caught.
      */
     if (path === "/api/update" && req.method === "POST") {
       if (!selfUpdate) { json(res, 404, { error: "this daemon could not read its own git state" }); return; }
       if (updateInFlight) { json(res, 409, { error: "an update is already running on this daemon" }); return; }
-      let result: UpdateResult;
-      try {
-        updateInFlight = runUpdate({ root: config.installRoot, home: config.home });
-        result = await updateInFlight;
-      } finally {
-        updateInFlight = null;
-      }
-      if (!result.ok) { json(res, 400, { error: result.error ?? "update failed" }); return; }
-      await selfUpdate.tick();
-      json(res, 200, { ok: true });
+      const su = selfUpdate;
+      const run = runUpdate({ root: config.installRoot, home: config.home });
+      updateInFlight = run;
+      su.setRunning(true);
+      run
+        .then(async (result) => {
+          if (result.ok) await su.tick();
+          else su.setRunError(result.error ?? "update failed");
+        })
+        .catch((error) => {
+          su.setRunError(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          updateInFlight = null;
+          su.setRunning(false);
+        });
+      json(res, 202, { ok: true });
       return;
     }
 

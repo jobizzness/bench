@@ -56,4 +56,15 @@ export interface SelfUpdateStatus {
    * first one), and this is said alongside it rather than in place of it, so
    * a watcher that cannot reach origin never reads as "up to date". */
   fetchError: string | null;
+  /**
+   * A `POST /api/update` has started and not yet finished (#150). The button
+   * reads this, not the response to its own tap - a build can run past any
+   * client timeout, and the button still has to agree with a second tab or a
+   * phone about whether one is running.
+   */
+  running: boolean;
+  /** The reason the most recent run finished with `ok: false` - dirty tree,
+   * diverged branch, failed build. Cleared the moment the next run starts.
+   * `null` when the last run (if any) succeeded, or none has happened yet. */
+  runError: string | null;
 }

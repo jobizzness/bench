@@ -25,7 +25,6 @@ export interface SelfUpdate {
  * tab happens to be open (#139).
  */
 export function useSelfUpdate(status: SelfUpdateStatus | null, rows: RosterRow[]): SelfUpdate {
-  const [updating, setUpdating] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const action = status?.action ?? { kind: "none" as const };
@@ -38,9 +37,16 @@ export function useSelfUpdate(status: SelfUpdateStatus | null, rows: RosterRow[]
     if (action.kind !== "restart") setRestarting(false);
   }, [action.kind]);
 
+  // `POST /api/update` answers as soon as the daemon has *started* the run,
+  // not when it finishes (#150) - a build can take minutes, well past any
+  // client timeout, and a timeout here is not a failed update. Whether one
+  // is running, and how it came out, is read from `status.running`/
+  // `status.runError` below instead - the same pushed status a second tab or
+  // a phone sees, so all of them agree. A network failure on this request is
+  // exactly what a slow update outliving the connection looks like from
+  // here, not a reason to say anything.
   const update = useCallback(async () => {
     setError(null);
-    setUpdating(true);
     try {
       const res = await postJson("/api/update", {}, { local: true });
       if (!res.ok) {
@@ -48,9 +54,7 @@ export function useSelfUpdate(status: SelfUpdateStatus | null, rows: RosterRow[]
         setError(body.error ?? "the update failed");
       }
     } catch {
-      setError("Could not reach the daemon to update.");
-    } finally {
-      setUpdating(false);
+      // Ignored - see the comment above.
     }
   }, []);
 
@@ -77,10 +81,14 @@ export function useSelfUpdate(status: SelfUpdateStatus | null, rows: RosterRow[]
 
   const fieldNote = error
     ?? (action.kind === "blocked" ? blockedMessage(action.reason) : null)
+    // The reason a run this button started was refused - dirty tree,
+    // diverged branch, failed build - reaches here only through the pushed
+    // status; the response to the tap that started it carried none of that.
+    ?? status?.runError
     ?? (status?.fetchError ? `Could not check for updates: ${status.fetchError}` : null);
 
   if (action.kind === "update") {
-    return { kind: "update", behind: action.behind, busy: updating, fieldNote, onTap: update };
+    return { kind: "update", behind: action.behind, busy: status?.running ?? false, fieldNote, onTap: update };
   }
   if (action.kind === "restart") {
     return { kind: "restart", behind: 0, busy: restarting, fieldNote, onTap: restart };

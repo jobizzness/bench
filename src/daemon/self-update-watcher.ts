@@ -11,7 +11,7 @@ export const execGit: GitRunner = async (args, cwd) => {
   return { stdout };
 };
 
-const RESTING: SelfUpdateStatus = { action: { kind: "none" }, fetchError: null };
+const RESTING: SelfUpdateStatus = { action: { kind: "none" }, fetchError: null, running: false, runError: null };
 
 /**
  * Whether Bench's own checkout is behind its remote, dirty, or has moved
@@ -69,6 +69,29 @@ export class SelfUpdateWatcher {
     return this.status;
   }
 
+  /**
+   * Called by `POST /api/update` the moment it starts a run, and again the
+   * moment that run settles - not derived from git state, so it rides
+   * alongside `report()` rather than through it. Starting a run clears the
+   * previous one's `runError`: a fresh tap deserves a fresh answer, not a
+   * refusal from before it was tapped.
+   */
+  setRunning(running: boolean): void {
+    this.status = { ...this.status, running, ...(running ? { runError: null } : {}) };
+    this.lastPushed = JSON.stringify(this.status);
+    this.onChange();
+  }
+
+  /** Called by `POST /api/update` when a run it started finishes with
+   * `ok: false` - the reason reaches the cockpit through the pushed status,
+   * since the response to that POST already went out before the run ended
+   * (#150). */
+  setRunError(error: string): void {
+    this.status = { ...this.status, runError: error };
+    this.lastPushed = JSON.stringify(this.status);
+    this.onChange();
+  }
+
   start(): void {
     this.stop();
     void this.tick();
@@ -114,6 +137,8 @@ export class SelfUpdateWatcher {
     this.report({
       action: updateAction({ behind, dirty, fastForward, bootSha: this.bootSha, headSha }),
       fetchError,
+      running: this.status.running,
+      runError: this.status.runError,
     });
   }
 
