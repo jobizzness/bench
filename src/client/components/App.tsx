@@ -47,7 +47,9 @@ import { useSessionPlan } from "./useSessionPlan.js";
 import { useDecisionKeys } from "./useDecisionKeys.js";
 import { useHandoff } from "./useHandoff.js";
 import { usePhoneLanding } from "./usePhoneLanding.js";
+import { RosterHandle } from "./RosterHandle.js";
 import { useRoster } from "./useRoster.js";
+import { useRosterWidth } from "./useRosterWidth.js";
 import { useSelfUpdate } from "./useSelfUpdate.js";
 import { UpdateButton } from "./UpdateButton.js";
 import { useSelection } from "./useSelection.js";
@@ -68,6 +70,10 @@ export function App() {
   // that `100dvh` alone does not always account for - see the hook's own
   // comment and `#app` in styles.css.
   useVisualViewportHeight();
+  // How wide the developer has left the roster, in this browser (#145) -
+  // inert below the same breakpoint `useVisualViewportHeight` above cares
+  // about, for the same reason: there is no second pane to divide there.
+  const rosterWidth = useRosterWidth();
   const { rows, live, wakingMachines, degradedMachines, activeMachineName, newIds, pinnedKeyNotice, selfUpdate } =
     useRoster(selectedId);
   const self = useSelfUpdate(selfUpdate, rows);
@@ -515,6 +521,14 @@ export function App() {
             </button>
           </footer>
         </aside>
+
+        {/* Absolutely positioned over #roster's own border-right (see
+            styles.css), not a grid track of its own - so it never disturbs
+            the two-column grid `--roster-width` drives. Not rendered at all
+            below the phone breakpoint, where that grid does not exist. */}
+        {!rosterWidth.narrow && (
+          <RosterHandle width={rosterWidth.width} setWidth={rosterWidth.setWidth} reset={rosterWidth.reset} />
+        )}
 
         <section id="stage">
           <StageHead onGithub={() => setGithubOpen(true)} />

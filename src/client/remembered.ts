@@ -31,3 +31,15 @@ export function remember(key: string, value: unknown): void {
     // Full, or refused. Nothing here is worth interrupting anyone over.
   }
 }
+
+/** Removes a remembered value outright, rather than overwriting it with
+ * whatever the caller currently considers the default - so a later change to
+ * that default is not pinned out by a value this wrote down when it was
+ * still current (#145's "reset" undoing a remembered roster width). */
+export function forget(key: string): void {
+  try {
+    localStorage.removeItem(PREFIX + key);
+  } catch {
+    // Same as above.
+  }
+}
