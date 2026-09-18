@@ -51,7 +51,6 @@ import { RosterHandle } from "./RosterHandle.js";
 import { useRoster } from "./useRoster.js";
 import { useRosterWidth } from "./useRosterWidth.js";
 import { useSelfUpdate } from "./useSelfUpdate.js";
-import { UpdateButton } from "./UpdateButton.js";
 import { useSelection } from "./useSelection.js";
 import { threadSignature, useThread } from "./useThread.js";
 import { useHiddenProjects } from "../hidden.js";
@@ -448,7 +447,6 @@ export function App() {
                   <span id="queue-badge">{waiting}</span>
                 </button>
               )}
-              <UpdateButton self={self} />
               <button id="new-session" type="button" onClick={() => setCreating(true)}>New</button>
               <button id="open-profile" type="button" aria-label="Profile" title={firebaseUser.user?.email ?? "Sign in"} onClick={() => setProfileOpen(true)}>
                 {firebaseUser.user?.email?.slice(0, 1).toUpperCase() ?? <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>}
@@ -531,7 +529,7 @@ export function App() {
         )}
 
         <section id="stage">
-          <StageHead onGithub={() => setGithubOpen(true)} />
+          <StageHead onGithub={() => setGithubOpen(true)} self={self} />
           {/* Where it has got to comes before what was said about it: the
               checklist is the answer to the question you opened this for. */}
           {/* An intake no longer competes for this room, so only a decision

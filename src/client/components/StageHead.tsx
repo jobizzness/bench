@@ -7,6 +7,8 @@ import { Meta } from "./Meta.js";
 import { StageLabel } from "./StageLabel.js";
 import { StageUsage } from "./StageUsage.js";
 import { RoleDialog } from "./RoleDialog.js";
+import { UpdateButton } from "./UpdateButton.js";
+import type { SelfUpdate } from "./useSelfUpdate.js";
 import { useBenchActions, useBenchState } from "./context.js";
 
 /**
@@ -18,9 +20,13 @@ import { useBenchActions, useBenchState } from "./context.js";
  * have to read. It also says the two the row has no room for: the status word,
  * read off the rail on a row, and the branch.
  */
-export function StageHead({ onGithub }: {
+export function StageHead({ onGithub, self }: {
   /** Opens the drawer of what has been happening on this project. */
   onGithub: () => void;
+  /** Whether this checkout is behind its remote or waiting on a restart -
+   * `App.tsx`'s state, not the stage's own, since it describes the daemon
+   * rather than any one specialist (#152). */
+  self: SelfUpdate;
 }) {
   const { rows, selectedId } = useBenchState();
   const { select } = useBenchActions();
@@ -47,6 +53,7 @@ export function StageHead({ onGithub }: {
         </button>
         <StageLabel sessionId={row.id} label={row.label} />
         <StageUsage />
+        <UpdateButton self={self} />
         <Broadcast sessionId={row.id} broadcast={row.broadcast} />
         {/* Top right of the pane the specialist is on, because the project it
             lists is that specialist's. */}

@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { StageHead } from "../src/client/components/StageHead.js";
 import type { RosterRow } from "../src/shared/types.js";
+import type { SelfUpdate } from "../src/client/components/useSelfUpdate.js";
 import { BenchProvider } from "../src/client/components/context.js";
 
 const row = (over: Partial<RosterRow> = {}): RosterRow => ({
@@ -33,6 +34,8 @@ afterEach(() => { globalThis.fetch = realFetch; });
 
 const actions = { select() {}, closeSpecialist() {} };
 
+const defaultSelf: SelfUpdate = { kind: null, behind: 0, busy: false, fieldNote: null, onTap: () => {} };
+
 // jsdom has no real viewport, so `useNarrowViewport` (Meta.tsx's phone
 // branch) is fed a fake `matchMedia` here rather than a resize - same
 // pattern as `tests/phone-landing.test.tsx`.
@@ -50,14 +53,14 @@ function setNarrow(narrow: boolean): void {
 }
 afterEach(() => setNarrow(false));
 
-function render(rows: RosterRow[], selectedId: string | null): HTMLElement {
+function render(rows: RosterRow[], selectedId: string | null, self: SelfUpdate = defaultSelf): HTMLElement {
   const host = document.createElement("div");
   document.body.appendChild(host);
   act(() => {
     root = createRoot(host);
     root.render(
       <BenchProvider state={{ rows, selectedId }} actions={actions}>
-        <StageHead onGithub={() => {}} />
+        <StageHead onGithub={() => {}} self={self} />
       </BenchProvider>,
     );
   });
@@ -116,6 +119,32 @@ describe("StageHead", () => {
 
       const healthy = render([row({ status: "working", detail: "Bash ls" })], "s1");
       expect(healthy.querySelector(".meta-phone-detail")!.getAttribute("data-status")).toBe("working");
+    });
+  });
+
+  describe("Update/Restart button (#152)", () => {
+    it("renders before Broadcast when there is something to say", () => {
+      const host = render([row()], "s1", { kind: "update", behind: 2, busy: false, fieldNote: null, onTap: () => {} });
+      const title = host.querySelector("#stage-title")!;
+      const ids = [...title.children].map((el) => el.id);
+      expect(ids.indexOf("self-update")).toBeGreaterThanOrEqual(0);
+      expect(ids.indexOf("self-update")).toBeLessThan(ids.indexOf("broadcast-toggle"));
+    });
+
+    it("is absent when there is nothing to say", () => {
+      const host = render([row()], "s1", defaultSelf);
+      expect(host.querySelector("#self-update")).toBeNull();
+    });
+
+    it("calls onTap when tapped", () => {
+      let tapped = false;
+      const host = render([row()], "s1", {
+        kind: "update", behind: 1, busy: false, fieldNote: null, onTap: () => { tapped = true; },
+      });
+      act(() => {
+        (host.querySelector("#self-update") as HTMLButtonElement).click();
+      });
+      expect(tapped).toBe(true);
     });
   });
 });
