@@ -240,6 +240,46 @@ process.stderr.write("Error: Session ID sess-restore is already in use\\n");
 process.exit(1);
 `;
 
+/** Collides on the first spawn (no `--resume`), exactly like `COLLIDING_CLI`,
+ * but comes up cleanly once asked to resume - modelling the immediate revive
+ * this ticket adds actually succeeding. */
+const COLLIDES_ONCE_THEN_STARTS_CLI = `#!/usr/bin/env node
+if (!process.argv.includes("--resume")) {
+  process.stderr.write("Error: Session ID sess-restore is already in use\\n");
+  process.exit(1);
+}
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+process.stdin.on("data", () => {});
+setInterval(() => {}, 1000);
+`;
+
+/** Starts fine, then collides the moment a prompt actually arrives on
+ * stdin - modelling a crash *while a message is in flight*, not at spawn.
+ * Comes up and answers normally once asked to resume. */
+const CRASHES_ON_PROMPT_THEN_RESUMES_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+if (process.argv.includes("--resume")) {
+  let carry = "";
+  process.stdin.on("data", (chunk) => {
+    carry += chunk.toString();
+    const lines = carry.split("\\n");
+    carry = lines.pop();
+    for (const line of lines) {
+      if (line.trim() === "") continue;
+      process.stdout.write(JSON.stringify({
+        type: "result", subtype: "success", is_error: false,
+        session_id: "sess-restore", result: "ok",
+      }) + "\\n");
+    }
+  });
+} else {
+  process.stdin.on("data", () => {
+    process.stderr.write("Error: Session ID sess-restore is already in use\\n");
+    process.exit(1);
+  });
+}
+`;
+
 /** Refuses a `--resume`, exactly as the real CLI does for an id it never
  * heard of, but answers normally on `--session-id` - a fresh conversation. */
 const STALE_RESUME_CLI = `#!/usr/bin/env node
@@ -451,6 +491,127 @@ describe("reviving a specialist after a restart", () => {
       async () => ((await store.all()).find((r) => r.id === id)?.resumable === true ? true : null),
       "resumable to be written to disk",
     );
+  });
+
+  it("revives right away on a collision even with nothing pending, instead of waiting for a prompt that may never come (#130)", async () => {
+    // The gap #130 is about: healing the flag used to be the whole fix, so a
+    // tab that crashed idle (nobody mid-prompt) sat "crashed" until a human
+    // happened to notice and send it something. It should come back on its
+    // own the moment the collision is healed.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+    const registry = new SessionRegistry({
+      ...config, claudeBin: await fakeCli(COLLIDES_ONCE_THEN_STARTS_CLI),
+    } as any);
+    await registry.restore();
+
+    (registry as any).attach(id, {
+      label: "auth", worktree, model: "opus", port: 3101, resume: false,
+    });
+
+    // "awaiting_decision" is also the row's status before anything has
+    // happened at all (a cold specialist just restored from disk), so wait
+    // on the detail this branch actually writes, not the status alone.
+    await waitFor(
+      () => (registry.list().find((r) => r.id === id)?.detail === "resumed after a session id collision" ? true : null),
+      "the immediate revive to bring it back with nothing pending",
+    );
+
+    const row = registry.list().find((r) => r.id === id)!;
+    expect(row.status).toBe("awaiting_decision");
+    expect((registry as any).entries.get(id).resumable).toBe(true);
+  });
+
+  it("re-sends a prompt that was pending when the collision happened, so the developer's message gets an answer (#130)", async () => {
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+    const registry = new SessionRegistry({
+      ...config, claudeBin: await fakeCli(CRASHES_ON_PROMPT_THEN_RESUMES_CLI),
+    } as any);
+    await registry.restore();
+
+    (registry as any).attach(id, {
+      label: "auth", worktree, model: "opus", port: 3101, resume: false,
+    });
+    // One prompt only. The bug this closes is that this message was written
+    // to the thread and then lost, with nothing to re-send it.
+    registry.send(id, "are you still there?");
+
+    await waitFor(
+      () => (registry.list().find((r) => r.id === id)?.detail === "replied" ? true : null),
+      "the auto-revived retry to answer, with no second developer prompt",
+    );
+
+    const row = registry.list().find((r) => r.id === id)!;
+    expect(row.status).not.toBe("crashed");
+    expect((registry as any).entries.get(id).resumable).toBe(true);
+  });
+
+  it("does not loop when the immediate revive also collides", async () => {
+    // The guard is the condition itself, not new code: `!entry.resumable` is
+    // false the second time round, so the healing branch cannot re-enter.
+    // This proves it rather than trusting the reasoning.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+    const registry = new SessionRegistry({
+      ...config, claudeBin: await fakeCli(COLLIDING_CLI),
+    } as any);
+    await registry.restore();
+
+    const revive = vi.spyOn(registry as any, "revive");
+    (registry as any).attach(id, {
+      label: "auth", worktree, model: "opus", port: 3101, resume: false,
+    });
+
+    await waitFor(
+      () => (registry.list().find((r) => r.id === id)?.status === "crashed" ? true : null),
+      "the second collision to crash it too, not loop forever",
+    );
+    // Give a runaway loop a moment to show itself before asserting it didn't.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(revive).toHaveBeenCalledTimes(1);
+    expect((registry as any).entries.get(id).resumable).toBe(true);
+  });
+
+  it("does not attempt an immediate revive for an OpenRouter model, and says the row is recoverable instead", async () => {
+    // The sibling ("no conversation found") only re-sends for a plain Claude
+    // model, because an OpenRouter one needs `via` re-resolved first, which
+    // only `deliver()` does, on the next prompt. Same constraint here: an
+    // immediate revive would spawn without a resolved `via`.
+    const { home, project, worktree, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree, branch: "bench/auth-abcd1234", reportsDir,
+      model: "deepseek/deepseek-v4-pro", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+    const registry = new SessionRegistry({
+      ...config, claudeBin: await fakeCli(COLLIDING_CLI),
+    } as any);
+    await registry.restore();
+
+    const revive = vi.spyOn(registry as any, "revive");
+    (registry as any).attach(id, {
+      label: "auth", worktree, model: "deepseek/deepseek-v4-pro", port: 3101, resume: false,
+    });
+
+    await waitFor(
+      () => (registry.list().find((r) => r.id === id)?.status === "crashed" ? true : null),
+      "the collision to crash it, healed but not revived",
+    );
+
+    expect(revive).not.toHaveBeenCalled();
+    const row = registry.list().find((r) => r.id === id)!;
+    expect(row.detail).toContain("send it anything to resume");
+    expect((registry as any).entries.get(id).resumable).toBe(true);
   });
 
   it("heals a record that claims a conversation the runtime never heard of, instead of crashing forever (#113)", async () => {
