@@ -41,7 +41,12 @@ export async function runSelfUpdate(deps: {
   const git = deps.git ?? execGit;
   const root = deps.root;
 
-  const statusOut = (await git(["status", "--porcelain"], root)).stdout;
+  // `--untracked-files=no`: an untracked file is not at risk from a
+  // fast-forward that does not touch it, and `git merge --ff-only` already
+  // refuses on its own if one would be overwritten - see #149. Only tracked
+  // changes (modified or staged) are the developer's work this gate exists
+  // to protect.
+  const statusOut = (await git(["status", "--porcelain", "--untracked-files=no"], root)).stdout;
   if (statusOut.trim() !== "") {
     return { ok: false, error: "the checkout has uncommitted changes" };
   }

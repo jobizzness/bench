@@ -18,7 +18,7 @@ function fakeGit(answers: Record<string, string | Error>): GitRunner {
 
 const LEVEL = {
   "rev-parse HEAD": BOOT,
-  "status --porcelain": "",
+  "status --porcelain --untracked-files=no": "",
   "fetch --quiet origin main": "",
   "rev-list --count HEAD..origin/main": "0",
   "merge-base --is-ancestor boot0000 origin/main": "",
@@ -44,6 +44,33 @@ describe("SelfUpdateWatcher", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  it("reports blocked/dirty when a tracked file is actually modified", async () => {
+    const { watcher } = rig({
+      ...LEVEL,
+      "status --porcelain --untracked-files=no": " M src/daemon/index.ts\n",
+      "rev-list --count HEAD..origin/main": "3",
+      "merge-base --is-ancestor boot0000 origin/main": "",
+    });
+    await watcher.tick();
+    expect(watcher.current().action).toEqual({ kind: "blocked", reason: "dirty" });
+  });
+
+  it("does not report blocked/dirty for an untracked file - agrees with what the route would do (#149)", async () => {
+    // `LEVEL` only answers `status --porcelain --untracked-files=no`, empty -
+    // asking git to leave untracked files out is what a real untracked file
+    // (e.g. a stray `node_modules` symlink) would never show up in. If the
+    // watcher fell back to plain `status --porcelain` this would throw with
+    // "no answer scripted" instead of reaching the assertion below.
+    const { watcher, onChange } = rig({
+      ...LEVEL,
+      "rev-list --count HEAD..origin/main": "3",
+      "merge-base --is-ancestor boot0000 origin/main": "",
+    });
+    await watcher.tick();
+    expect(watcher.current().action).toEqual({ kind: "update", behind: 3 });
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
   it("notices a remote that moved", async () => {
     const { watcher, onChange } = rig({
       ...LEVEL,
@@ -58,7 +85,7 @@ describe("SelfUpdateWatcher", () => {
   it("notices a fetch that failed, and does not report the checkout as level with origin", async () => {
     const { watcher, onChange } = rig({
       "rev-parse HEAD": BOOT,
-      "status --porcelain": "",
+      "status --porcelain --untracked-files=no": "",
       "fetch --quiet origin main": new Error("Could not resolve host: github.com"),
     });
     await watcher.tick();
