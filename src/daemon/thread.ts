@@ -41,16 +41,36 @@ export async function readThread(threadPath: string): Promise<ThreadEntry[]> {
  * This is used during context clearance to provide the resurrected Claude
  * session with high-level background on what was already built and decided,
  * preventing a complete loss of situational context.
+ *
+ * Only entries since the *last* clear are summarized. The thread file is
+ * never truncated - it is the permanent record - so without this cutoff a
+ * project cleared five times would prime its sixth session with a bullet for
+ * every turn since the very first message, growing without bound on every
+ * clear and defeating the point of clearing in the first place.
  */
 export function summariseThread(entries: ThreadEntry[]): string {
-  if (entries.length === 0) return "";
+  let start = 0;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry.kind === "system" && (entry.body.startsWith("Context cleared") || entry.body.startsWith("Context version"))) {
+      start = i + 1;
+      break;
+    }
+  }
+  const relevant = entries.slice(start);
+  if (relevant.length === 0) return "";
 
   const lines: string[] = [];
   lines.push("[bench] BELOW IS A CHRONOLOGICAL SUMMARY OF THE CONVERSATION HISTORY BEFORE YOUR CONTEXT WAS CLEARED.");
   lines.push("Use this summary to understand what has already been built, what files were touched, and what decisions the developer made, so you can continue the work smoothly without repeating previous questions or analysis:");
 
-  for (const entry of entries) {
+  for (const entry of relevant) {
     if (entry.kind === "system" && (entry.body.startsWith("Context cleared") || entry.body.startsWith("Context version"))) {
+      continue;
+    }
+    // The report entry that marks the clear itself carries no summarizable
+    // content - it would just restate the header above.
+    if (entry.kind === "report" && entry.body === "Context cleared") {
       continue;
     }
 
@@ -68,6 +88,8 @@ export function summariseThread(entries: ThreadEntry[]): string {
       lines.push(`- Report ("${entry.body}"): see reports directory for details.`);
     }
   }
+
+  if (lines.length === 2) return "";
 
   return lines.join("\n");
 }

@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendEntry, readThread } from "../src/daemon/thread.js";
+import { appendEntry, readThread, summariseThread } from "../src/daemon/thread.js";
+import type { ThreadEntry } from "../src/shared/types.js";
 
 async function threadPath(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "bench-thread-"));
@@ -75,5 +76,57 @@ describe("thread store", () => {
     const path = join(dir, "nested", "deeper", "thread.jsonl");
     await appendEntry(path, { kind: "user", body: "made it" });
     expect((await readThread(path))[0].body).toBe("made it");
+  });
+});
+
+function entry(kind: ThreadEntry["kind"], body: string): ThreadEntry {
+  return { seq: 0, at: new Date().toISOString(), kind, body };
+}
+
+describe("summariseThread", () => {
+  it("summarizes the whole thread when it has never been cleared", () => {
+    const summary = summariseThread([entry("user", "build a thing"), entry("reply", "built it")]);
+    expect(summary).toContain("- Developer: build a thing");
+    expect(summary).toContain("- Specialist: built it");
+  });
+
+  it("only summarizes what happened since the last clear, not the whole history", () => {
+    const entries = [
+      entry("user", "turn from a week ago"),
+      entry("reply", "reply from a week ago"),
+      entry("system", "Context cleared — the next prompt starts a fresh conversation (version 1)."),
+      entry("report", "Context cleared"),
+      entry("user", "[bench] Context was cleared. Continue from where you left off."),
+      entry("user", "turn since the clear"),
+      entry("reply", "reply since the clear"),
+    ];
+
+    const summary = summariseThread(entries);
+
+    expect(summary).not.toContain("turn from a week ago");
+    expect(summary).not.toContain("reply from a week ago");
+    expect(summary).toContain("turn since the clear");
+    expect(summary).toContain("reply since the clear");
+  });
+
+  it("does not restate the clear's own marker report", () => {
+    const entries = [
+      entry("system", "Context cleared — the next prompt starts a fresh conversation (version 1)."),
+      entry("report", "Context cleared"),
+      entry("user", "next thing"),
+    ];
+
+    const summary = summariseThread(entries);
+    expect(summary).not.toContain('Report ("Context cleared")');
+  });
+
+  it("returns empty when nothing has happened since the last clear", () => {
+    const entries = [
+      entry("user", "old stuff"),
+      entry("system", "Context cleared — the next prompt starts a fresh conversation (version 1)."),
+      entry("report", "Context cleared"),
+    ];
+
+    expect(summariseThread(entries)).toBe("");
   });
 });
