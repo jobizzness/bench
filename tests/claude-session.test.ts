@@ -438,6 +438,58 @@ describe("ClaudeSession", () => {
     session.stop();
   });
 
+  it("drops an identical mid-turn prompt arriving right behind one already queued (#160)", async () => {
+    // A caller that posts the same text twice in a tight burst - a retry
+    // loop below the application, per #160 - must not cost two turns worth
+    // of queued content. The first copy still starts turn 1; a second
+    // distinct message still gets through.
+    const session = await makeSession(SLOW_CLI);
+    const results: string[] = [];
+    session.on("turn-end", (ev: any) => results.push(String(ev.result)));
+
+    session.open();
+    session.send("do the work");
+    session.send("quick question one");
+    session.send("quick question one"); // duplicate of the queued prompt above
+    session.send("quick question two"); // a genuinely different message
+
+    await once(session, "turn-end");
+    expect(results[0]).toContain("received=1");
+
+    await once(session, "turn-end");
+    expect(results).toHaveLength(2);
+    const [, turn2] = results;
+    // Folded as "1. ...  2. ..." - two entries, not three.
+    expect(turn2).toContain("1. quick question one");
+    expect(turn2).toContain("2. quick question two");
+    expect(turn2).not.toContain("3.");
+
+    session.stop();
+  });
+
+  it("does not drop a repeated prompt once it falls outside the duplicate window (#160)", async () => {
+    // The backstop is time-boxed: a message the developer genuinely sent
+    // again well after the first must still go through.
+    const session = await makeSession(SLOW_CLI);
+    const results: string[] = [];
+    session.on("turn-end", (ev: any) => results.push(String(ev.result)));
+
+    session.open();
+    session.send("do the work");
+    session.send("quick question one");
+    // Back-date the queued copy past the window, as if it had been sitting
+    // there a while rather than forcing the test to actually wait it out.
+    (session as any).queuedAt[0] -= 10_000;
+    session.send("quick question one");
+
+    await once(session, "turn-end");
+    await once(session, "turn-end");
+    expect(results[1]).toContain("1. quick question one");
+    expect(results[1]).toContain("2. quick question one");
+
+    session.stop();
+  });
+
   it("advances the marker to the queued turn once the running turn ends", async () => {
     const session = await makeSession();
     const opts = (session as any).opts;

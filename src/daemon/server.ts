@@ -1,4 +1,5 @@
 import { createServer as createHttpServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -972,9 +973,24 @@ export function createServer(opts: {
       // registry.send(). Without it, the developer's own first message to a
       // spawned tab came back at them as something to dispatch.
       const from = typeof body.from === "string" && body.from !== "" ? body.from : undefined;
+      const messageId = typeof body.messageId === "string" && body.messageId !== "" ? body.messageId : undefined;
 
-      registry.send(message[1], text, from, attached.images);
-      json(res, 200, { ok: true });
+      const duplicate = registry.send(message[1], text, from, attached.images, messageId);
+
+      // #160: 126 of 289 deliveries in one transcript were duplicates, in
+      // bursts as tight as 86ms median - a retry loop somewhere on the way
+      // in, not a person pressing send twice. No log survived to say which
+      // caller it was, so this line is the evidence the next burst leaves
+      // behind: who called it, what they sent, and whether this daemon
+      // recognised it as a repeat.
+      process.stderr.write(
+        `bench: message ${message[1]} from=${from ?? "cockpit"} `
+        + `ip=${req.socket.remoteAddress ?? "?"} id=${messageId ?? "-"} `
+        + `hash=${createHash("sha256").update(text).digest("hex").slice(0, 12)}`
+        + `${duplicate ? " duplicate" : ""}\n`,
+      );
+
+      json(res, 200, duplicate ? { ok: true, duplicate: true } : { ok: true });
       return;
     }
 

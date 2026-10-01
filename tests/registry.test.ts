@@ -116,6 +116,41 @@ describe("SessionRegistry.restore", () => {
     expect(registry.list()[0].detail).toMatch(/worktree/i);
   });
 
+  it("answers a repeated message id with duplicate:true instead of acting on it twice (#160)", async () => {
+    const { home, project, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree: join(project, "gone"), branch: "bench/auth-abcd1234",
+      reportsDir, model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    const first = registry.send(id, "carry on", undefined, [], "msg-1");
+    const second = registry.send(id, "carry on", undefined, [], "msg-1");
+    const third = registry.send(id, "carry on", undefined, [], "msg-2");
+
+    expect(first).toBe(false);
+    expect(second).toBe(true);
+    expect(third).toBe(false);
+  });
+
+  it("never treats two messages as duplicates when neither carries an id", async () => {
+    // Older callers, and every internal re-send (revive, retry), send no
+    // messageId at all - that must never be read as "this is a repeat".
+    const { home, project, id, reportsDir, config } = await setup();
+    await new SessionStore(home).put({
+      id, label: "auth", project, worktree: join(project, "gone"), branch: "bench/auth-abcd1234",
+      reportsDir, model: "opus", port: 3101, createdAt: "2026-08-22T00:00:00.000Z",
+    });
+
+    const registry = new SessionRegistry(config as any);
+    await registry.restore();
+
+    expect(registry.send(id, "carry on")).toBe(false);
+    expect(registry.send(id, "carry on")).toBe(false);
+  });
+
   it("reports a cold specialist as revivable, not dead", async () => {
     // The server refuses messages to a dead process. A restored specialist
     // has no process yet on purpose, and must not be mistaken for one.

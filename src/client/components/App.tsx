@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { endpoint, isRemote, postJson, routeSession } from "../api.js";
+import { randomId } from "../uuid.js";
 import { isProxied } from "../../shared/models.js";
 import { tap, tapBurst, tapFailed } from "../haptics.js";
 import { launchSendMark, launchSendMarkBurst } from "./flySendMark.js";
@@ -313,6 +314,11 @@ export function App() {
     // trip; the POST and the reload that confirms it both happen behind
     // that, in the background.
     const id = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Minted once per typed message and carried in the POST body (#160) - so
+    // whatever resends that exact body, below this function and without
+    // calling it again, resends the same id, and the daemon can tell a
+    // repeat from a second message that happens to read the same.
+    const messageId = randomId();
     const sentText = said;
     const sentImages = attachments;
     setText("");
@@ -355,7 +361,7 @@ export function App() {
 
     let res: Response;
     try {
-      res = await postJson(`/api/sessions/${row.id}/message`, { text: sentText, images: sentImages });
+      res = await postJson(`/api/sessions/${row.id}/message`, { text: sentText, images: sentImages, messageId });
     } catch {
       giveUp("Didn't send. Check the connection and try again.");
       return;
