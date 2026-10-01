@@ -170,6 +170,19 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * its stream reports about a key lands on that key, even after the bench
    * has moved the rest of the roster onto another. */
   private spawnedWith = new Map<string, string | undefined>();
+  /**
+   * Per-session memory of the last handful of ids a POST to `/message`
+   * carried (#160). A client mints one per typed message; whatever resends
+   * the same request - a transport retry below the application, or a relay
+   * that reprocesses a command it has not yet deleted - carries the same id
+   * on every attempt, so the repeat is recognised and answered without
+   * queueing a second turn. Most recent last; trimmed to MESSAGE_ID_HISTORY.
+   */
+  private recentMessageIds = new Map<string, string[]>();
+  /** How many ids are kept per session. A burst of retries is a handful of
+   * attempts, not hundreds - generous headroom costs nothing next to the
+   * cost of a missed one. */
+  private static readonly MESSAGE_ID_HISTORY = 50;
 
   /**
    * The developer's OpenRouter key, for specialists run on anybody other than
@@ -1561,10 +1574,15 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * @param from The specialist that sent this, when one did. Absent means the
    * developer, typing in the cockpit - and what the developer types is never
    * held back from the specialist they typed it to.
+   * @param messageId The id the client minted for this message, if it sent
+   * one (#160). Returns `true` without queueing anything when this id has
+   * already been seen for this session.
    */
-  send(id: string, text: string, from?: string, images: StoredAttachment[] = []): void {
+  send(id: string, text: string, from?: string, images: StoredAttachment[] = [], messageId?: string): boolean {
     const entry = this.entries.get(id);
-    if (!entry) return;
+    if (!entry) return false;
+
+    if (this.isDuplicateMessage(id, messageId)) return true;
 
     // A tab another specialist opened gets its first message held rather
     // than delivered, so the developer can read it - and change the model,
@@ -1580,10 +1598,23 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       entry.row.pendingPrompt = text;
       this.rememberDispatch(id, text, images);
       this.update(id, "awaiting_dispatch", "waiting on you to dispatch");
-      return;
+      return false;
     }
 
     this.deliver(id, entry, text, images);
+    return false;
+  }
+
+  /** True, and remembered, the first time this id is seen for this session;
+   * false - including every time no id was sent at all - otherwise. */
+  private isDuplicateMessage(id: string, messageId: string | undefined): boolean {
+    if (messageId === undefined) return false;
+    const seen = this.recentMessageIds.get(id) ?? [];
+    if (seen.includes(messageId)) return true;
+    seen.push(messageId);
+    if (seen.length > SessionRegistry.MESSAGE_ID_HISTORY) seen.shift();
+    this.recentMessageIds.set(id, seen);
+    return false;
   }
 
   /** Release a held message, exactly as if it had just arrived. */

@@ -153,6 +153,23 @@ describe("bench tell", () => {
 
     expect(daemon.lastBody()).toMatchObject({ text: "build the thing", from: "sess-parent" });
   });
+
+  it("mints a fresh id for each message, so a resent request is recognisable as a repeat (#160)", async () => {
+    daemon = await fakeDaemon();
+    await runBench(
+      { BENCH_URL: daemon.url, BENCH_TOKEN: "tok", BENCH_SESSION_ID: "sess-parent" },
+      ["tell", "child", "build the thing"],
+    );
+    const first = daemon.lastBody().messageId;
+    expect(typeof first).toBe("string");
+    expect(first.length).toBeGreaterThan(0);
+
+    await runBench(
+      { BENCH_URL: daemon.url, BENCH_TOKEN: "tok", BENCH_SESSION_ID: "sess-parent" },
+      ["tell", "child", "build another thing"],
+    );
+    expect(daemon.lastBody().messageId).not.toBe(first);
+  });
 });
 
 describe("bench close", () => {

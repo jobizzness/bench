@@ -277,6 +277,18 @@ export class ClaudeSession extends EventEmitter implements Session {
 
   /** Prompts waiting for the running turn to end. */
   private queued: Prompt[] = [];
+  /** When each of `queued`'s prompts arrived, same index - all `isDuplicate`
+   * needs to decide whether a new arrival is one the queue is already
+   * holding (#160's belt-and-braces: the real defence is the client's
+   * idempotency key, this is the backstop for a caller that never learns
+   * to send one). */
+  private queuedAt: number[] = [];
+  /** How recent "recent" means for that backstop. Generous next to the
+   * sub-100ms-to-low-seconds gaps #160 measured in a real duplicate burst,
+   * since a false negative here just falls through to folding two copies
+   * into one turn - cheap - while a false positive would drop a message
+   * the developer actually meant to send twice. */
+  private static readonly DUPLICATE_WINDOW_MS = 5_000;
   private running = false;
   private startedAt: number | null = null;
   private tokens = 0;
@@ -450,14 +462,31 @@ export class ClaudeSession extends EventEmitter implements Session {
 
     if (this.running) {
       // A turn is in flight. Hold the prompt; `consume` dispatches it when
-      // the running turn ends.
+      // the running turn ends - unless it is a duplicate of one already
+      // waiting, in which case there is nothing to hold.
+      if (this.isDuplicateOfQueued(prompt)) return;
       this.queued.push(prompt);
+      this.queuedAt.push(Date.now());
       return;
     }
 
     // Idle: this prompt becomes the running turn immediately.
     this.running = true;
     this.dispatch(prompt);
+  }
+
+  /** Identical text, no images on either side, already sitting in `queued`
+   * within the last `DUPLICATE_WINDOW_MS` - see `queuedAt`'s own comment for
+   * why this exists alongside the client's idempotency key rather than
+   * instead of it. */
+  private isDuplicateOfQueued(prompt: Prompt): boolean {
+    if (prompt.images.length > 0) return false;
+    const now = Date.now();
+    return this.queued.some((queued, i) => (
+      queued.images.length === 0
+      && queued.text === prompt.text
+      && now - this.queuedAt[i] <= ClaudeSession.DUPLICATE_WINDOW_MS
+    ));
   }
 
   /** Begin a turn and hand it to the CLI. Only ever called for a turn that
@@ -601,6 +630,7 @@ export class ClaudeSession extends EventEmitter implements Session {
         if (this.queued.length > 0) {
           const next = folded(this.queued);
           this.queued = [];
+          this.queuedAt = [];
           this.running = true;
           this.dispatch(next);
         }

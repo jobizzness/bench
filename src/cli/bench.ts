@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -174,7 +175,10 @@ async function main(): Promise<void> {
       // Said by a specialist, not typed by the developer. A tab this one
       // opened holds its first message for the developer to read before it
       // runs, and this is how the daemon can tell the two apart.
-      body: JSON.stringify({ text, from: process.env.BENCH_SESSION_ID }),
+      // `messageId` is minted here, once, so a retry of this exact call -
+      // below this process rather than within it - lands as the same id
+      // rather than a second turn (#160).
+      body: JSON.stringify({ text, from: process.env.BENCH_SESSION_ID, messageId: randomUUID() }),
     });
     process.stderr.write(`bench: told ${target.label}.\n`);
     return;

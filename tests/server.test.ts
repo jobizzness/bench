@@ -20,7 +20,10 @@ class StubRegistry extends EventEmitter {
   rows: RosterRow[] = [
     { id: "s1", label: "auth", project: "/var/www/demo", branch: "bench/auth-abcd1234", status: "awaiting_decision", detail: "waiting", latestReportSeq: 1, startedAt: null, tokens: 0 },
   ];
-  sent: Array<{ id: string; text: string; from?: string; images?: unknown[] }> = [];
+  sent: Array<{ id: string; text: string; from?: string; images?: unknown[]; messageId?: string }> = [];
+  /** Set by a test that wants the next `send()` to report a duplicate,
+   * exactly as the real registry would for a repeated messageId (#160). */
+  duplicateNext = false;
   created: any[] = [];
   reportsDir = "";
 
@@ -76,8 +79,14 @@ class StubRegistry extends EventEmitter {
   }
   /** Images are recorded only when there are some, so the tests that predate
    * them still compare against the whole recorded message. */
-  send(id: string, text: string, from?: string, images?: unknown[]) {
-    this.sent.push({ id, text, from, ...(images && images.length > 0 ? { images } : {}) });
+  send(id: string, text: string, from?: string, images?: unknown[], messageId?: string) {
+    this.sent.push({
+      id, text, from,
+      ...(images && images.length > 0 ? { images } : {}),
+      ...(messageId !== undefined ? { messageId } : {}),
+    });
+    if (this.duplicateNext) { this.duplicateNext = false; return true; }
+    return false;
   }
   closed: Array<{ id: string; force: boolean }> = [];
   closeResult: any = { closed: true, changes: 0, unmergedCommits: 0 };
@@ -592,6 +601,29 @@ describe("POST /api/sessions/:id/message", () => {
     expect(res.status).toBe(409);
     expect((await res.json()).error).toMatch(/not running/i);
     registry.aliveValue = true;
+  });
+
+  it("forwards the client's messageId to the registry (#160)", async () => {
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "do the thing", messageId: "msg-abc" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(registry.sent.at(-1)).toMatchObject({ text: "do the thing", messageId: "msg-abc" });
+  });
+
+  it("answers a repeat the registry recognises with {ok:true, duplicate:true} (#160)", async () => {
+    registry.duplicateNext = true;
+    const res = await fetch(`${base}/api/sessions/s1/message`, {
+      method: "POST",
+      headers: { ...auth.headers, "content-type": "application/json" },
+      body: JSON.stringify({ text: "do the thing", messageId: "msg-abc" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, duplicate: true });
   });
 });
 
