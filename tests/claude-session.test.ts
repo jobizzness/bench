@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mkdtemp, writeFile, chmod, mkdir, readFile, access } from "node:fs/promises";
+import { existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
@@ -486,6 +487,43 @@ describe("ClaudeSession", () => {
     await once(session, "turn-end");
     expect(results[1]).toContain("1. quick question one");
     expect(results[1]).toContain("2. quick question one");
+
+    session.stop();
+  });
+
+  it("starts past every turn directory already on disk, not past its own count (#163)", async () => {
+    // The case from #163, measured on a real session: a specialist whose
+    // reports directory had gone up to 96 took turns numbered 84-87, walked
+    // back over directories that already held reports, and the pane showed a
+    // four-day-old report as the current turn's. The count it resumed from
+    // was stale (#39); disk was not.
+    const session = await makeSession(FAKE_CLI, { startTurn: 83 });
+    const { reportsDir } = (session as any).opts;
+    for (let turn = 1; turn <= 96; turn += 1) {
+      await mkdir(join(reportsDir, String(turn)), { recursive: true });
+    }
+    await writeFile(join(reportsDir, "96", "report.html"), "<h1>turn 96</h1>");
+    const before = statSync(join(reportsDir, "96", "report.html")).mtimeMs;
+
+    session.open();
+    session.send("carry on");
+    await once(session, "turn-end");
+
+    expect(session.turn).toBe(97);
+    expect(await readFile(join(reportsDir, ".turn"), "utf8")).toBe("97");
+    // Nothing of turn 96's was touched, and 97 is this turn's alone: the
+    // directory a turn writes into is empty by construction, which is how
+    // #163's "the pane must not render an artifact this turn did not
+    // produce" is met without deleting a crashed turn's half-written work.
+    expect(statSync(join(reportsDir, "96", "report.html")).mtimeMs).toBe(before);
+    const occupied = ["report.html", "reply.html", "decision.json"]
+      .filter((name) => existsSync(join(reportsDir, "97", name)));
+    expect(occupied).toEqual([]);
+
+    // And the turn after it keeps going forward.
+    session.send("and again");
+    await once(session, "turn-end");
+    expect(session.turn).toBe(98);
 
     session.stop();
   });

@@ -207,3 +207,42 @@ describe("latestTurn", () => {
     expect(await latestTurn(dir)).toBe(7);
   });
 });
+
+describe("nextTurn", () => {
+  it("is turn one where nothing has run", async () => {
+    const { nextTurn } = await import("../src/daemon/reports.js");
+    expect(nextTurn(await mkdtemp(join(tmpdir(), "bench-next-")), 0)).toBe(1);
+  });
+
+  it("does not need the directory to exist yet", async () => {
+    const { nextTurn } = await import("../src/daemon/reports.js");
+    const dir = join(await mkdtemp(join(tmpdir(), "bench-next-")), "never-written");
+    expect(nextTurn(dir, 0)).toBe(1);
+  });
+
+  it("goes past what is on disk when the count is behind it (#163)", async () => {
+    // The observed case: a count of 83 against directories up to 96.
+    const { nextTurn } = await import("../src/daemon/reports.js");
+    const dir = await mkdtemp(join(tmpdir(), "bench-next-"));
+    for (const turn of [1, 50, 83, 96]) await mkdir(join(dir, String(turn)), { recursive: true });
+    expect(nextTurn(dir, 83)).toBe(97);
+  });
+
+  it("goes past the count when the count is ahead of disk", async () => {
+    // A turn that wrote nothing at all leaves no directory behind, so the
+    // session's own count is the only record that it happened.
+    const { nextTurn } = await import("../src/daemon/reports.js");
+    const dir = await mkdtemp(join(tmpdir(), "bench-next-"));
+    await mkdir(join(dir, "1"), { recursive: true });
+    expect(nextTurn(dir, 4)).toBe(5);
+  });
+
+  it("ignores the marker files beside the turn directories", async () => {
+    const { nextTurn } = await import("../src/daemon/reports.js");
+    const dir = await mkdtemp(join(tmpdir(), "bench-next-"));
+    await mkdir(join(dir, "2"), { recursive: true });
+    await writeFile(join(dir, ".turn"), "2");
+    await writeFile(join(dir, "thread.jsonl"), "");
+    expect(nextTurn(dir, 0)).toBe(3);
+  });
+});

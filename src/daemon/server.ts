@@ -75,7 +75,11 @@ export interface SessionRegistryLike {
   get(id: string): {
     reportsDir: string; threadPath: string; alive: boolean; revivable: boolean; model: string;
   } | null;
-  send(id: string, text: string, from?: string, images?: StoredAttachment[]): void;
+  /** True when `messageId` has already been seen for this session, so the
+   * message was a repeat and nothing was queued for it (#160). */
+  send(
+    id: string, text: string, from?: string, images?: StoredAttachment[], messageId?: string,
+  ): boolean;
   /** What a specialist has changed since its branch started, and the commit
    * that was - see #128. Null when there is no such session. */
   changes(id: string): Promise<SessionChanges | null>;
