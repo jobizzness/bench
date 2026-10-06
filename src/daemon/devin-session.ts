@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { Context } from "../shared/context-window.js";
 import { COST_AWARENESS_BRIEF, DEFAULT_ROLE, ROLE_BRIEF, type Role } from "../shared/roles.js";
 import type { Attachment } from "../shared/types.js";
+import { nextTurn } from "./reports.js";
 import type { Session } from "./session.js";
 import type { ResultEvent } from "./stream-codec.js";
 
@@ -597,7 +598,7 @@ export class DevinSession extends EventEmitter implements Session {
   }
 
   private dispatch(prompt: Prompt): void {
-    const turn = this.turnCount + 1;
+    const turn = nextTurn(this.opts.reportsDir, this.turnCount);
     this.beginTurn(turn);
     const role = this.firstPrompt
       ? `${ROLE_BRIEF[this.opts.role ?? DEFAULT_ROLE]}\n\n${COST_AWARENESS_BRIEF}\n\n`

@@ -14,7 +14,7 @@ import type { HeadroomProxy } from "./headroom.js";
 import { DevinSession } from "./devin-session.js";
 import { runtimeFor, type Session } from "./session.js";
 import { existsSync } from "node:fs";
-import { latestReportSeq, findReport, latestTurn } from "./reports.js";
+import { latestReportSeq, findReport, latestTurn, nextTurn } from "./reports.js";
 import { SessionStore } from "./store.js";
 import { appendActivity } from "./activity.js";
 import { resolveTurnOutcome } from "./turn-outcome.js";
@@ -1952,11 +1952,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.clearCount = (entry.clearCount ?? 0) + 1;
 
     // The report this clear writes claims the next turn slot, the same way a
-    // real turn would - read while the live session still knows its own
-    // count, because that reference is about to be stopped. A cold
-    // specialist has no live count to read, so entry.turnsTaken (accurate
-    // for one that has never run this daemon's uptime) stands in for it.
-    const reportSeq = (entry.session?.turn ?? entry.turnsTaken) + 1;
+    // real turn would - and through the same allocator, so a stale count
+    // cannot land this report on a directory that already holds one (#163).
+    // The live session's own count is what it is read from where there is
+    // one, because that reference is about to be stopped; a cold specialist
+    // has no live count, so entry.turnsTaken stands in for it.
+    const reportSeq = nextTurn(entry.reportsDir, entry.session?.turn ?? entry.turnsTaken);
     entry.turnsTaken = reportSeq;
 
     const reportReady = writeClearContextReport(entry.reportsDir, entry.threadPath, reportSeq, entry.clearCount)

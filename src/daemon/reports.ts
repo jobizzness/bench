@@ -1,4 +1,5 @@
 import { readFile, readdir, access } from "node:fs/promises";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { decisionSchema, type Decision } from "../shared/types.js";
 
@@ -65,6 +66,14 @@ export async function latestReportSeq(reportsDir: string): Promise<number | null
   return null;
 }
 
+/** Which of a reports directory's entries are turn directories, by number.
+ * Everything else beside them - `.turn`, `thread.jsonl` - is not one. */
+function turnNumbers(entries: string[]): number[] {
+  return entries
+    .map((name) => Number(name))
+    .filter((n) => Number.isInteger(n) && n > 0);
+}
+
 /**
  * The highest turn this session has already used, report or not.
  *
@@ -74,15 +83,46 @@ export async function latestReportSeq(reportsDir: string): Promise<number | null
  * new work.
  */
 export async function latestTurn(reportsDir: string): Promise<number> {
-  let entries: string[];
   try {
-    entries = await readdir(reportsDir);
+    const turns = turnNumbers(await readdir(reportsDir));
+    return turns.length === 0 ? 0 : Math.max(...turns);
   } catch {
     return 0;
   }
+}
 
-  const turns = entries
-    .map((name) => Number(name))
-    .filter((n) => Number.isInteger(n) && n > 0);
-  return turns.length === 0 ? 0 : Math.max(...turns);
+/**
+ * The number the turn starting now gets: past anything this session has
+ * counted, and past anything already on disk.
+ *
+ * Disk is consulted because a counter is not enough on its own (#163). The
+ * count a session starts from is `entry.turnsTaken`, which is read from disk
+ * once when the roster is restored and then only moved on by a context clear
+ * - so a specialist that is stopped and revived inside one daemon uptime
+ * resumes from a number its own earlier turns have already gone past (#39),
+ * and walks back over directories that already hold another turn's report.
+ * Observed on a real session: turns numbered 84-87 written into directories
+ * that already went up to 96, and a report pane showing a four-day-old
+ * report as the current turn's.
+ *
+ * Taking the higher of the two makes the allocated number strictly greater
+ * than every directory present, so the turn's own directory is empty by
+ * construction - nothing to clear, and nothing of a crashed turn's to
+ * destroy, which is the other way #163 offered to fix the same symptom.
+ *
+ * Synchronous: every caller is a turn starting now, in code that cannot
+ * await without reordering the turns it is allocating for. It is one listing
+ * of one small directory, beside the `mkdirSync` and `writeFileSync` that
+ * already run there.
+ */
+export function nextTurn(reportsDir: string, counted: number): number {
+  let onDisk = 0;
+  try {
+    const turns = turnNumbers(readdirSync(reportsDir));
+    if (turns.length > 0) onDisk = Math.max(...turns);
+  } catch {
+    // No directory yet, so nothing has ever run here: the counter is all
+    // there is to go on.
+  }
+  return Math.max(counted, onDisk) + 1;
 }

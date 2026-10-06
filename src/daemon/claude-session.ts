@@ -10,6 +10,7 @@ import {
 import type { Context } from "../shared/context-window.js";
 import type { Attachment } from "../shared/types.js";
 import { buildSettings } from "./gates/settings.js";
+import { nextTurn } from "./reports.js";
 import { credentialEnv } from "./anthropic-key.js";
 import { sessionEnv as openRouterEnv } from "./gemini.js";
 import { ROLE_BRIEF, COST_AWARENESS_BRIEF, DEFAULT_ROLE, type Role } from "../shared/roles.js";
@@ -492,7 +493,7 @@ export class ClaudeSession extends EventEmitter implements Session {
   /** Begin a turn and hand it to the CLI. Only ever called for a turn that
    * starts now, so the framing matches the markers the gate reads. */
   private dispatch(prompt: Prompt): void {
-    const turn = this.turnCount + 1;
+    const turn = nextTurn(this.opts.reportsDir, this.turnCount);
     this.beginTurn(turn);
     this.child!.stdin.write(
       userMessageLine(this.framed(prompt.text, turn, prompt.images.length), prompt.images),
