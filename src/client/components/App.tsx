@@ -51,6 +51,8 @@ import { usePhoneLanding } from "./usePhoneLanding.js";
 import { RosterHandle } from "./RosterHandle.js";
 import { useRoster } from "./useRoster.js";
 import { useRosterWidth } from "./useRosterWidth.js";
+import { useRosterTucked } from "./useRosterTucked.js";
+import { PaneMark } from "./PaneMark.js";
 import { useSelfUpdate } from "./useSelfUpdate.js";
 import { useSelection } from "./useSelection.js";
 import { threadSignature, useThread } from "./useThread.js";
@@ -74,6 +76,11 @@ export function App() {
   // inert below the same breakpoint `useVisualViewportHeight` above cares
   // about, for the same reason: there is no second pane to divide there.
   const rosterWidth = useRosterWidth();
+  // Whether the developer has put the roster away. Remembered at every
+  // width but only ever acted on above the breakpoint, where there is a
+  // second pane to give the room to.
+  const rosterTucked = useRosterTucked();
+  const tucked = rosterTucked.tucked && !rosterWidth.narrow;
   const { rows, live, wakingMachines, degradedMachines, activeMachineName, newIds, pinnedKeyNotice, selfUpdate } =
     useRoster(selectedId);
   const self = useSelfUpdate(selfUpdate, rows);
@@ -434,7 +441,22 @@ export function App() {
           "stage" are the only two values it ever takes (see
           `usePhoneLanding.ts`) - a decision sheet floats over whichever one
           is showing rather than being a third (#90). */}
-      <main id="app" data-pane={effectivePane}>
+      <main id="app" data-pane={effectivePane} data-roster={tucked ? "tucked" : undefined}>
+        {/* All that is left of the roster while it is tucked away: the mark,
+            at the edge. Hovering it slides the roster in over the stage (a
+            sibling rule in styles.css, so it has to come before #roster);
+            clicking it brings the roster back for good. */}
+        {tucked && (
+          <button
+            id="roster-peek"
+            type="button"
+            aria-label="Show projects"
+            title="Show projects — click to keep them open"
+            onClick={rosterTucked.toggle}
+          >
+            <Mark />
+          </button>
+        )}
         <aside id="roster">
           <header>
             <h1><Mark /><span>Bench</span></h1>
@@ -454,6 +476,18 @@ export function App() {
                 </button>
               )}
               <button id="new-session" type="button" onClick={() => setCreating(true)}>New</button>
+              {!rosterWidth.narrow && (
+                <button
+                  id="roster-toggle"
+                  type="button"
+                  aria-pressed={tucked}
+                  aria-label={tucked ? "Keep projects open" : "Hide projects"}
+                  title={tucked ? "Keep projects open" : "Hide projects — hover the mark to bring them back"}
+                  onClick={rosterTucked.toggle}
+                >
+                  <PaneMark />
+                </button>
+              )}
               <button id="open-profile" type="button" aria-label="Profile" title={firebaseUser.user?.email ?? "Sign in"} onClick={() => setProfileOpen(true)}>
                 {firebaseUser.user?.email?.slice(0, 1).toUpperCase() ?? <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>}
               </button>
@@ -529,8 +563,9 @@ export function App() {
         {/* Absolutely positioned over #roster's own border-right (see
             styles.css), not a grid track of its own - so it never disturbs
             the two-column grid `--roster-width` drives. Not rendered at all
-            below the phone breakpoint, where that grid does not exist. */}
-        {!rosterWidth.narrow && (
+            below the phone breakpoint, where that grid does not exist, nor
+            while the roster is tucked away and has no border to drag. */}
+        {!rosterWidth.narrow && !tucked && (
           <RosterHandle width={rosterWidth.width} setWidth={rosterWidth.setWidth} reset={rosterWidth.reset} />
         )}
 
