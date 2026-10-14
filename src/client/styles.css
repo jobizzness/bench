@@ -503,6 +503,67 @@ button, input, textarea, select { font: inherit; color: inherit; }
   z-index: 2;
 }
 
+/* Tucked away. The roster leaves the grid for a rail just wide enough for
+   the mark - wide enough that the mark sits exactly where the roster's own
+   heading draws it, so when the roster slides in its mark lands on top of
+   this one rather than beside it. The roster itself stays in the DOM, out of
+   the grid and off the left edge, ready to slide back over the stage. 59px:
+   the header's 18px either side of the 22px mark, plus the rail's border. */
+#app[data-roster="tucked"] { grid-template-columns: 59px 1fr; }
+
+#roster-peek {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  /* The roster header's 20px top padding, plus half the difference between
+     its 29px row (the profile button) and the 22px mark. */
+  padding: 23.5px 0 0;
+  background: linear-gradient(180deg, var(--raised), var(--panel) 22%, var(--sunk));
+  border: 0;
+  border-right: 1px solid var(--line);
+  cursor: pointer;
+}
+#roster-peek .mark-logo { transition: transform var(--duration-enter) var(--ease); }
+@media (hover: hover) {
+  #roster-peek:hover .mark-logo { transform: scale(1.08); }
+}
+
+#app[data-roster="tucked"] #roster {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--roster-width, 326px);
+  z-index: 3;
+  transform: translateX(-100%);
+  box-shadow: none;
+  /* The delay is forgiveness, not drama: a pointer that strays a few pixels
+     past the edge on its way across should not watch the pane leave. */
+  transition:
+    transform var(--duration-scene) var(--ease-exit) 140ms,
+    box-shadow var(--duration-scene) var(--ease-exit) 140ms;
+}
+/* In on the mark, kept in while the pointer is anywhere over it, and in for
+   a keyboard too - tabbing into it is asking to see it. `:focus-visible`,
+   not `:focus-within`: a mouse click on the toggle leaves focus on it, and
+   that would hold the roster out after it had just been put away. */
+#app[data-roster="tucked"] #roster-peek:hover ~ #roster,
+#app[data-roster="tucked"] #roster:hover,
+#app[data-roster="tucked"] #roster:has(:focus-visible) {
+  transform: none;
+  box-shadow: 18px 0 48px -12px rgba(0, 0, 0, 0.55);
+  transition:
+    transform var(--duration-scene) var(--ease-enter),
+    box-shadow var(--duration-scene) var(--ease-enter);
+}
+@media (prefers-reduced-motion: reduce) {
+  #app[data-roster="tucked"] #roster,
+  #app[data-roster="tucked"] #roster-peek:hover ~ #roster,
+  #app[data-roster="tucked"] #roster:hover,
+  #app[data-roster="tucked"] #roster:has(:focus-visible) { transition: none; }
+  #roster-peek .mark-logo { transition: none; }
+}
+
 /* Transparent, not panel-coloured: the column has a gradient now and a solid
    header would cut a flat band across the top of it. Safe because the header,
    the list and the foot are siblings in a column - nothing scrolls under it. */
@@ -530,6 +591,26 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .mark-live { fill: var(--wants); }
 
 .header-actions { display: flex; align-items: center; gap: 7px; }
+
+/* Puts the roster away. The stage header's icon-button shape - hairline box,
+   colour only on hover - at the height of "New" beside it. Pressed while the
+   roster is tucked, so a click from inside a slid-in roster reads as "keep". */
+#roster-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  border: 1px solid var(--line-firm);
+  border-radius: 5px;
+  color: var(--faint);
+  cursor: pointer;
+  transition: color 120ms var(--ease), border-color 120ms var(--ease), background 120ms var(--ease);
+}
+@media (hover: hover) {
+  #roster-toggle:hover { color: var(--text); border-color: var(--wants-dim); background: var(--hover); }
+}
+#roster-toggle[aria-pressed="true"] { color: var(--wants); border-color: var(--wants-dim); }
 
 #new-session {
   background: transparent;
