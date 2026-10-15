@@ -1175,7 +1175,7 @@ describe("Devin's model families (#114)", () => {
   });
 });
 
-/** A fake `agy` binary for `/api/antigravity/models` (#167). */
+/** A fake `agy` binary for `/api/antigravity/models`. */
 async function fakeAgyBin(stdout: string, code = 0): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "bench-srv-agy-"));
   const path = join(dir, "fake-agy.mjs");
@@ -1184,7 +1184,7 @@ async function fakeAgyBin(stdout: string, code = 0): Promise<string> {
   return path;
 }
 
-describe("Antigravity models (#167)", () => {
+describe("Antigravity models", () => {
   it("serves what the CLI reports", async () => {
     config.agyBin = await fakeAgyBin(`
 gemini-3.8-flash-high     Gemini 3.8 Flash (High)

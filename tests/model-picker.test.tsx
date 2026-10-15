@@ -316,6 +316,132 @@ describe("the model picker", () => {
   });
 });
 
+describe("the Antigravity house", () => {
+  it("shows Antigravity under its own heading", async () => {
+    await openPicker({ ...one, models: [] });
+    const section = ui.$("#model-dialog [data-house='antigravity']");
+    expect(section).not.toBe(null);
+    const button = section!.querySelector("[data-model='agy']");
+    expect(button).not.toBe(null);
+    // Antigravity needs no OpenRouter key — it must be enabled regardless of key state
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("can pick Antigravity default without an OpenRouter key", async () => {
+    await openPicker({ ...one, models: [] });
+    await ui.click(ui.$("#model-dialog [data-model='agy']"));
+    const posted = ui.sent.find((s) => s.url.includes("/model"));
+    expect(posted!.body).toEqual({ model: "agy" });
+  });
+
+  it("offers Antigravity's own models from the machine", async () => {
+    await openPicker({
+      ...one,
+      models: [],
+      antigravityModels: [
+        { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+        { id: "claude-opus-5-5-high", label: "Claude Opus 5.5 (High)" },
+      ],
+    });
+    const section = ui.$("#model-dialog [data-house='antigravity']")!;
+    expect(section.querySelector("[data-model='agy:gemini-3.8-flash-high']")).not.toBe(null);
+    expect(section.querySelector("[data-model='agy:claude-opus-5-5-high']")).not.toBe(null);
+    expect(section.querySelector("[data-model='agy']")).not.toBe(null);
+  });
+
+  it("marks the model a specialist is already on as current", async () => {
+    await openPicker({
+      rows: [row({ model: "agy:gemini-3.8-flash-high" })],
+      entries: [entry()],
+      models: [],
+      antigravityModels: [
+        { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+        { id: "claude-opus-5-5-high", label: "Claude Opus 5.5 (High)" },
+      ],
+    });
+    const current = ui.$("#model-dialog [data-model='agy:gemini-3.8-flash-high']")!;
+    expect(current.getAttribute("data-current")).toBe("true");
+    expect(ui.$("#model-dialog [data-model='agy:claude-opus-5-5-high']")!.getAttribute("data-current")).toBe("false");
+    expect(ui.$("#model-dialog [data-model='agy']")!.getAttribute("data-current")).toBe("false");
+  });
+
+  it("can pick an Antigravity namespaced model", async () => {
+    await openPicker({
+      ...one,
+      models: [],
+      antigravityModels: [{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" }],
+    });
+    await ui.click(ui.$("#model-dialog [data-model='agy:gemini-3.8-flash-high']"));
+    const posted = ui.sent.find((s) => s.url.includes("/model"));
+    expect(posted!.body).toEqual({ model: "agy:gemini-3.8-flash-high" });
+  });
+
+  it("says the default model still works when Antigravity's own list could not be read", async () => {
+    await openPicker({ ...one, models: [], antigravityModels: [] });
+    const note = ui.$("#model-dialog [data-house-note='antigravity']")!;
+    expect(note.textContent).toContain("default model still works");
+  });
+
+  it("keeps an Antigravity specialist in sight in current-model fallback when model list cannot be read (#168)", async () => {
+    // When agy models fails or returns empty, a specialist on agy:<id> must not lose sight of its model
+    await openPicker({
+      rows: [row({ model: "agy:gemini-3.8-flash-high" })],
+      entries: [entry()],
+      models: [],
+      antigravityModels: [],
+    });
+    const section = ui.$("#model-dialog [data-house='current']");
+    expect(section).not.toBe(null);
+    const button = section!.querySelector("[data-model='agy:gemini-3.8-flash-high']");
+    expect(button).not.toBe(null);
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    expect(ui.$("#model-dialog [data-house-note='current']")!.textContent).toContain("Antigravity's model list could not be read");
+  });
+
+  it("does not show fallback when the model list includes the current Antigravity model", async () => {
+    await openPicker({
+      rows: [row({ model: "agy:gemini-3.8-flash-high" })],
+      entries: [entry()],
+      models: [],
+      antigravityModels: [{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" }],
+    });
+    expect(ui.$("#model-dialog [data-house='current']")).toBe(null);
+    expect(ui.$("#model-dialog [data-house='antigravity'] [data-model='agy:gemini-3.8-flash-high']")!.getAttribute("data-current")).toBe("true");
+  });
+
+  it("does not show fallback for the default Antigravity model even if model list is empty", async () => {
+    await openPicker({
+      rows: [row({ model: "agy" })],
+      entries: [entry()],
+      models: [],
+      antigravityModels: [],
+    });
+    expect(ui.$("#model-dialog [data-house='current']")).toBe(null);
+    expect(ui.$("#model-dialog [data-house='antigravity'] [data-model='agy']")!.getAttribute("data-current")).toBe("true");
+  });
+
+  it("navigates into Antigravity models with keyboard arrows", async () => {
+    await openPicker({
+      ...one,
+      models: [],
+      antigravityModels: [{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" }],
+    });
+    const search = ui.$<HTMLInputElement>("#model-dialog-search")!;
+    // Anthropic has 4 models (0..3). 5th ArrowDown reaches Antigravity default (4), 6th reaches agy:gemini-3.8-flash-high (5)
+    for (let i = 0; i < 5; i++) {
+      await ui.pressIn(search, "ArrowDown");
+    }
+    const defaultActive = ui.$("#model-dialog .model-option[data-active='true']")!;
+    expect(defaultActive.getAttribute("data-model")).toBe("agy");
+    expect(defaultActive.closest("[data-house]")!.getAttribute("data-house")).toBe("antigravity");
+
+    await ui.pressIn(search, "ArrowDown");
+    const namedActive = ui.$("#model-dialog .model-option[data-active='true']")!;
+    expect(namedActive.getAttribute("data-model")).toBe("agy:gemini-3.8-flash-high");
+    expect(namedActive.closest("[data-house]")!.getAttribute("data-house")).toBe("antigravity");
+  });
+});
+
 /**
  * Devin behind its own setting, off by default (#166).
  *
