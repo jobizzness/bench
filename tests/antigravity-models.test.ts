@@ -31,7 +31,15 @@ claude-opus-5-5-high      Claude Opus 5.5 (High)
     ]);
   });
 
-  it("ignores headers, flags, and spinners", () => {
+  it("parses tab-separated CLI output", () => {
+    const table = "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n";
+    expect(parseModels(table)).toEqual([
+      { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+      { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+    ]);
+  });
+
+  it("ignores headers, flags, and spinners including carriage returns", () => {
     const table = `
 Fetching available models...
 Usage: agy models [flags]
@@ -41,6 +49,11 @@ Flags:
 gemini-3.8-flash-high     Gemini 3.8 Flash (High)
 `;
     expect(parseModels(table)).toEqual([
+      { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+    ]);
+
+    const spinnerOutput = "\r⠋ Fetching available models...\r⠙ Fetching available models...\rgemini-3.8-flash-high\tGemini 3.8 Flash (High)\n";
+    expect(parseModels(spinnerOutput)).toEqual([
       { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
     ]);
   });

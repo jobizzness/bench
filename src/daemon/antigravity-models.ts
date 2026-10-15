@@ -98,10 +98,10 @@ export function parseModels(text: string): AntigravityModel[] {
     // Fall through to text parsing
   }
 
-  // Parse text output: e.g. "gemini-3.8-flash-high     Gemini 3.8 Flash (High)"
+  // Parse text output: e.g. "gemini-3.8-flash-high\tGemini 3.8 Flash (High)" or "gemini-3.8-flash-high     Gemini 3.8 Flash (High)"
   // Strip ANSI escape codes / spinners if present
   const cleanText = trimmed.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "");
-  const lines = cleanText.split("\n");
+  const lines = cleanText.split(/\r?\n|\r/);
   const result: AntigravityModel[] = [];
   const seen = new Set<string>();
 
@@ -110,8 +110,8 @@ export function parseModels(text: string): AntigravityModel[] {
     if (!line || line.startsWith("-") || line.startsWith("Usage:") || line.startsWith("Flags:") || line.includes("Fetching available models")) {
       continue;
     }
-    // Match "<id>   <label>"
-    const match = /^([a-zA-Z0-9][a-zA-Z0-9_.-]*)\s{2,}(.+)$/.exec(line);
+    // Match "<id>\t<label>" or "<id>   <label>"
+    const match = /^([a-zA-Z0-9][a-zA-Z0-9_.-]*)\s+(.+)$/.exec(line);
     if (match && match[1] && match[2]) {
       const id = match[1].trim();
       const label = match[2].trim();
