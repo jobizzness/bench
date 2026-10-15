@@ -222,4 +222,62 @@ describe("moving a specialist across a runtime boundary (#113)", () => {
     );
     expect((await store.all()).find((r) => r.id === id)!.resumable).toBe(true);
   });
+
+  it("clears resumable going from a Claude model to Antigravity", async () => {
+    const { registry, store, id } = await setup();
+    const entry = (registry as any).entries.get(id);
+    entry.resumable = true;
+
+    await registry.setModel(id, "agy");
+
+    expect(entry.resumable).toBe(false);
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.resumable === false ? true : null),
+      "resumable cleared on disk",
+    );
+    expect((await store.all()).find((r) => r.id === id)!.resumable).toBe(false);
+  });
+
+  it("clears resumable going from Antigravity to a Claude model", async () => {
+    const { registry, store, id } = await setup();
+    await registry.setModel(id, "agy");
+    const entry = (registry as any).entries.get(id);
+    entry.resumable = true;
+    entry.runtimeSessionId = "agy-conversation-1";
+
+    await registry.setModel(id, "sonnet");
+
+    expect(entry.resumable).toBe(false);
+    expect(entry.runtimeSessionId).toBeUndefined();
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.resumable === false ? true : null),
+      "resumable cleared on disk",
+    );
+    const onDisk = (await store.all()).find((r) => r.id === id)!;
+    expect(onDisk.resumable).toBe(false);
+    expect(onDisk.runtimeSessionId).toBeUndefined();
+  });
+
+  it("keeps resumable moving between Antigravity models — both are antigravity", async () => {
+    const { registry, store, id } = await setup();
+    await registry.setModel(id, "agy");
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.model === "agy" ? true : null),
+      "first model change written to disk",
+    );
+    await store.markResumable(id);
+    const entry = (registry as any).entries.get(id);
+    entry.resumable = true;
+    entry.runtimeSessionId = "agy-conversation-1";
+
+    await registry.setModel(id, "agy:gemini-3.8-flash-high");
+
+    expect(entry.resumable).toBe(true);
+    expect(entry.runtimeSessionId).toBe("agy-conversation-1");
+    await waitFor(
+      async () => ((await store.all()).find((r) => r.id === id)?.model === "agy:gemini-3.8-flash-high" ? true : null),
+      "model written to disk",
+    );
+    expect((await store.all()).find((r) => r.id === id)!.resumable).toBe(true);
+  });
 });

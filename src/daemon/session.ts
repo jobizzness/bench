@@ -1,6 +1,6 @@
 import type { EventEmitter } from "node:events";
 import type { Context } from "../shared/context-window.js";
-import { isDevinModel } from "../shared/models.js";
+import { isAntigravityModel, isDevinModel } from "../shared/models.js";
 import type { Attachment } from "../shared/types.js";
 import type { ResultEvent } from "./stream-codec.js";
 
@@ -40,13 +40,8 @@ export interface Session extends EventEmitter {
  * Exactly one caller: `attach` in `registry.ts`, which constructs the right
  * Session implementation based on the return value. Keeping the choice here
  * means `registry.ts` never has to import both runtimes and compare ids.
- *
- * Matches the `devin:` prefix rather than one exact string (#114), so moving
- * between two Devin families (`devin:adaptive` -> `devin:opus`) is not a
- * runtime crossing - `SessionStore.remodel` and `SessionRegistry.setModel`
- * both call this to decide whether a model change drops the resumable
- * conversation (#113), and it should not for that move.
  */
-export function runtimeFor(model: string): "claude" | "devin" {
+export function runtimeFor(model: string): "claude" | "devin" | "antigravity" {
+  if (isAntigravityModel(model)) return "antigravity";
   return isDevinModel(model) ? "devin" : "claude";
 }

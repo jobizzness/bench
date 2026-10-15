@@ -32,6 +32,11 @@ export interface BenchConfig {
    */
   devinBin?: string;
   /**
+   * The Antigravity CLI binary to spawn for AntigravitySession. Set by tests (via
+   * a fake binary) or by `BENCH_AGY_BIN` in the environment. Defaults to `agy`.
+   */
+  agyBin?: string;
+  /**
    * The headroom binary to run `headroom proxy` with. `BENCH_HEADROOM_BIN`
    * is an override for a binary not on PATH; when neither is set the daemon
    * searches PATH at startup and simply does without.
@@ -63,6 +68,7 @@ export function loadConfig(): BenchConfig {
     pluginDir: join(root, "plugin"),
     hookCommand: `node ${join(root, "dist", "daemon", "hooks", "bench-hook.js")}`,
     devinBin: process.env.BENCH_DEVIN_BIN,
+    agyBin: process.env.BENCH_AGY_BIN,
     headroomBin: process.env.BENCH_HEADROOM_BIN,
     headroomPort: Number(process.env.BENCH_HEADROOM_PORT ?? "8787"),
   };

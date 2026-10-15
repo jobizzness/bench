@@ -103,6 +103,8 @@ export interface Fixtures {
    * `devin models list` refusing, or simply a machine with none configured -
    * which is what a picker offering only the account default looks like. */
   devinFamilies?: Array<{ id: string; label: string }>;
+  /** Antigravity models. Undefined behaves as an empty list. */
+  antigravityModels?: Array<{ id: string; label: string }>;
   /** The turn the picker prices every model against. Undefined is a daemon
    * that has recorded none, which is the ordinary case in a test. */
   turnShape?: { shape: unknown; turns: number };
@@ -270,6 +272,10 @@ export async function bootCockpit(fixtures: Fixtures): Promise<Cockpit> {
 
     if (url.includes("/api/devin/models")) {
       return { ok: true, status: 200, json: async () => ({ families: fixtures.devinFamilies ?? [] }) };
+    }
+
+    if (url.includes("/api/antigravity/models")) {
+      return { ok: true, status: 200, json: async () => ({ models: fixtures.antigravityModels ?? [] }) };
     }
 
     if (init?.method === "POST" && url.includes("/api/editor/target")) {

@@ -12,6 +12,7 @@ import { bootstrapWorktree, BootstrapError } from "./bootstrap.js";
 import { ClaudeSession } from "./claude-session.js";
 import type { HeadroomProxy } from "./headroom.js";
 import { DevinSession } from "./devin-session.js";
+import { AntigravitySession } from "./antigravity-session.js";
 import { runtimeFor, type Session } from "./session.js";
 import { existsSync } from "node:fs";
 import { latestReportSeq, findReport, latestTurn, nextTurn } from "./reports.js";
@@ -28,7 +29,7 @@ import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } f
 import { isOauthToken, isUsageLimitError, limitResetsAt, type ManagedKey } from "./anthropic-key.js";
 import { fullestPercent, type Usage, type UsageWindow } from "../shared/usage.js";
 import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
-import { devinFamilyOf, isModelId, modelLabel } from "../shared/models.js";
+import { antigravityModelOf, devinFamilyOf, isModelId, modelLabel } from "../shared/models.js";
 import type { AttachmentRef, EditEvent, RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
 import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
 import { costFrom, shapeFrom } from "./stream-codec.js";
@@ -995,7 +996,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     const entry = this.entries.get(id)!;
     const reportsDir = entry.reportsDir;
 
-    const session = runtimeFor(opts.model) === "devin"
+    const runtime = runtimeFor(opts.model);
+    const session = runtime === "devin"
       ? new DevinSession({
           id,
           worktree: opts.worktree,
@@ -1005,6 +1007,22 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           cockpitUrl: `http://127.0.0.1:${this.config.port}`,
           devinBin: this.config.devinBin,
           model: devinFamilyOf(opts.model),
+          startTurn: opts.startTurn,
+          resumeSessionId: opts.resumeSessionId,
+          rules: () => houseRules(this.settings),
+          nudge: () => this.nudgeTextFor(id),
+          onSessionId: (sid) => this.store.rememberRuntimeSessionId(id, sid),
+        })
+      : runtime === "antigravity"
+      ? new AntigravitySession({
+          id,
+          worktree: opts.worktree,
+          reportsDir,
+          role: opts.role,
+          port: opts.port,
+          cockpitUrl: `http://127.0.0.1:${this.config.port}`,
+          agyBin: this.config.agyBin,
+          model: antigravityModelOf(opts.model),
           startTurn: opts.startTurn,
           resumeSessionId: opts.resumeSessionId,
           rules: () => houseRules(this.settings),

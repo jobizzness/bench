@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
-import { MODELS, DEVIN_MODEL, DEVIN_PREFIX, isDevinModel, modelLabel, REASONING_EFFORT_NOTE } from "../../shared/models.js";
+import {
+  MODELS, DEVIN_MODEL, DEVIN_PREFIX, isDevinModel, modelLabel, REASONING_EFFORT_NOTE,
+  AGY_MODEL, ANTIGRAVITY_MODEL, ANTIGRAVITY_PREFIX, ANTIGRAVITY_LONG_PREFIX, isAntigravityModel,
+} from "../../shared/models.js";
 import { costOfTurn, dollars, multipleLabel, multipleOf, type Price } from "../../shared/cost.js";
 import { AutoRouters, isAutoRouter } from "./AutoRouters.js";
 import { ModelRow, shortName, windowLabel, type Listed } from "./ModelRow.js";
@@ -8,6 +11,12 @@ import { isOutsideDialog } from "./sheetGesture.js";
 import { useTurnShape } from "./useTurnShape.js";
 
 export type { Listed };
+
+/** An Antigravity model entry, from `/api/antigravity/models`. */
+interface AntigravityModelEntry {
+  id: string;
+  label: string;
+}
 
 /** A Devin model family, from `/api/devin/models` (#114) — not the daemon's
  * own `DevinFamily`, kept as its own local shape the way `Listed` above is
@@ -258,6 +267,8 @@ export function ModelDialog({
    * the same way: the account default button below is offered regardless,
    * since it needs nothing from this list. */
   const [devinFamilies, setDevinFamilies] = useState<DevinFamily[]>([]);
+  /** Antigravity models, read fresh when the dialog opens. */
+  const [agyModels, setAgyModels] = useState<AntigravityModelEntry[]>([]);
   /** Whether the OpenRouter catalogue and its auto-routers are shown - the
    * developer's own setting (`shared/settings.ts`), read fresh every time
    * the dialog opens the same way `devinFamilies` and `listed` are. */
@@ -313,10 +324,11 @@ export function ModelDialog({
 
     let live = true;
     void (async () => {
-      const [keyRes, modelsRes, settingsRes] = await Promise.all([
+      const [keyRes, modelsRes, settingsRes, agyRes] = await Promise.all([
         authFetch("/api/openrouter/keys"),
         authFetch("/api/openrouter/models"),
         authFetch("/api/settings"),
+        authFetch("/api/antigravity/models"),
       ]);
       if (!live) return;
       if (keyRes.ok) setHasKey(((await keyRes.json())?.credentials ?? []).some((c: { active?: boolean }) => c.active === true));
@@ -327,6 +339,7 @@ export function ModelDialog({
         setListed([]);
         setError("Could not read OpenRouter's model list. Anthropic's models still work.");
       }
+      setAgyModels(agyRes.ok ? ((await agyRes.json())?.models ?? []) : []);
       // A daemon that cannot be asked reads as both houses hidden - the safe
       // default, not a picker that silently opens onto three hundred models,
       // and not one that shells out to `devin models list` on a guess.
@@ -363,6 +376,7 @@ export function ModelDialog({
    * for it elsewhere. */
   const currentLabel = MODELS.find((m) => m.id === current)?.label
     ?? (isDevinModel(current) ? modelLabel(current) : undefined)
+    ?? (isAntigravityModel(current) ? modelLabel(current) : undefined)
     ?? shortName(listed.find((m) => m.id === current) ?? { id: current, name: current, vendor: "", contextLength: null, price: EMPTY_PRICE });
 
   /**
@@ -451,15 +465,21 @@ export function ModelDialog({
     [query, current],
   );
 
+  /** Antigravity models, narrowed and capped the same way. */
+  const { rows: agyRows, total: agyTotal } = useMemo(
+    () => rankHouse(agyModels, query.trim().toLowerCase(), (m) => m.id, (m) => m.label, (m) => `${ANTIGRAVITY_PREFIX}${m.id}`, current),
+    [agyModels, query, current],
+  );
+
+  const agyDefaultHit = houseScore("agy", "antigravity default", query.trim().toLowerCase());
+  const showAgyDefault = agyDefaultHit > 0 || current === AGY_MODEL || current === ANTIGRAVITY_MODEL;
+
   /**
    * Every row the arrows and Enter can land on, in the order the dialog
    * draws them: Devin's account default and its families where that house is
-   * shown at all, then Anthropic's aliases, then the catalogue - which is
+   * shown at all, then Anthropic's aliases, then Antigravity, then the catalogue - which is
    * empty here whenever that house is hidden or there is no key to reach it,
    * the same rule that disables its rows to a mouse.
-   *
-   * Devin's two entries drop out together with the house (#166) rather than
-   * leaving the first ArrowDown on a row nobody can see.
    */
   const navRows = useMemo(() => {
     const nav: Array<{ model: string }> = [];
@@ -468,26 +488,31 @@ export function ModelDialog({
       for (const family of devinRows) nav.push({ model: `${DEVIN_PREFIX}${family.id}` });
     }
     for (const model of anthropicRows) nav.push({ model: model.id });
+    if (showAgyDefault) nav.push({ model: AGY_MODEL });
+    for (const model of agyRows) nav.push({ model: `${ANTIGRAVITY_PREFIX}${model.id}` });
     if (showOpenRouter && hasKey) for (const model of rows) nav.push({ model: model.id });
     return nav;
-  }, [showDevin, devinRows, anthropicRows, showOpenRouter, hasKey, rows]);
+  }, [showDevin, devinRows, anthropicRows, showAgyDefault, agyRows, showOpenRouter, hasKey, rows]);
 
   // An arrow key that runs off the end of a filtered list would leave the
   // highlight on a row that is no longer there.
   useEffect(() => { setActive((at) => (at >= navRows.length ? navRows.length - 1 : at)); }, [navRows.length]);
 
   /**
-   * The specialist's own model, orphaned by a setting rather than by the
-   * search: Anthropic's four are always drawn, but both other houses vanish
-   * when their setting is off, and a specialist already running one of those
-   * must not lose sight of what it is on.
-   *
-   * Two settings now, not one (#166): a `devin:adaptive` specialist with the
-   * Devin house hidden is in exactly the position an OpenRouter one has
-   * always been in with the catalogue hidden.
+   * The specialist's own model, orphaned by a setting or by a failed model list
+   * rather than by the search: Anthropic's four are always drawn, but Devin and
+   * the catalogue vanish when their setting is off, and Antigravity's models
+   * vanish when `agy models` could not be read (#168). A specialist already running
+   * one of those must not lose sight of what it is on.
    */
+  const agyModelInHouse = current === AGY_MODEL
+    || current === ANTIGRAVITY_MODEL
+    || agyModels.some((m) => `${ANTIGRAVITY_PREFIX}${m.id}` === current || `${ANTIGRAVITY_LONG_PREFIX}${m.id}` === current);
+
   const currentInHiddenHouse = isDevinModel(current)
     ? !showDevin
+    : isAntigravityModel(current)
+    ? !agyModelInHouse
     : !showOpenRouter && !MODELS.some((m) => m.id === current);
 
   const choose = async (model: string) => {
@@ -565,10 +590,13 @@ export function ModelDialog({
 
   // Devin's own rows start at nav index 1 (0 is the account default) where
   // that house is shown; Anthropic's pick up right after them, or at 0 when
-  // it is hidden, and the catalogue's rows, when they are drawn at all, pick
-  // up right after those.
+  // it is hidden, then Antigravity, and the catalogue's rows, when they are
+  // drawn at all, pick up right after those.
   const anthropicOffset = showDevin ? 1 + devinRows.length : 0;
-  const catalogueOffset = anthropicOffset + anthropicRows.length;
+  const antigravityOffset = anthropicOffset + anthropicRows.length;
+  const agyDefaultOffset = antigravityOffset;
+  const agyModelsOffset = antigravityOffset + (showAgyDefault ? 1 : 0);
+  const catalogueOffset = agyModelsOffset + agyRows.length;
 
   return (
     <dialog
@@ -709,6 +737,56 @@ export function ModelDialog({
         )}
       </section>
 
+      {/* Antigravity local CLI runtime */}
+      <section className="model-house" data-house="antigravity">
+        <h3>Antigravity</h3>
+        <p className="field-note" data-house-note="antigravity">
+          Runs on the Google Antigravity CLI installed on this machine.
+          No per-turn charge in Bench.
+          {agyModels.length === 0 && (
+            <> Its own model list could not be read just now — the default model still works.</>
+          )}
+        </p>
+        <div className="model-options">
+          {showAgyDefault && (
+            <HouseOption
+              modelId={AGY_MODEL}
+              label="Default"
+              subtitle="standard Antigravity agent model"
+              at={agyDefaultOffset}
+              active={active === agyDefaultOffset}
+              current={current === AGY_MODEL || current === ANTIGRAVITY_MODEL}
+              busy={busy}
+              onPick={() => void choose(AGY_MODEL)}
+              onHover={() => setActive(agyDefaultOffset)}
+            />
+          )}
+          {agyRows.map((model, i) => {
+            const modelId = `${ANTIGRAVITY_PREFIX}${model.id}`;
+            const at = agyModelsOffset + i;
+            return (
+              <HouseOption
+                key={modelId}
+                modelId={modelId}
+                label={model.label}
+                subtitle={model.id}
+                at={at}
+                active={active === at}
+                current={current === modelId || current === `${ANTIGRAVITY_LONG_PREFIX}${model.id}`}
+                busy={busy}
+                onPick={() => void choose(modelId)}
+                onHover={() => setActive(at)}
+              />
+            );
+          })}
+        </div>
+        {agyTotal > agyRows.length && (
+          <p className="field-note model-tally" id={own("antigravity-more")}>
+            {agyRows.length} of {agyTotal}. Keep typing to narrow it.
+          </p>
+        )}
+      </section>
+
       {/* The specialist's own model, orphaned by a setting rather than by
           the search. Devin, the auto-routers and the catalogue all disappear
           when their setting is off - this is the one row from whichever of
@@ -720,6 +798,8 @@ export function ModelDialog({
           <p className="field-note" data-house-note="current">
             {isDevinModel(current)
               ? "Devin is hidden by the setting, but what a specialist is already on always stays visible here."
+              : isAntigravityModel(current)
+              ? "Antigravity's model list could not be read, but what a specialist is already on always stays visible here."
               : "The OpenRouter catalogue is hidden by the setting, but what a specialist is already on always stays visible here."}
           </p>
           <div className="model-options">
