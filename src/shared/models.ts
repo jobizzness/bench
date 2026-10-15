@@ -74,6 +74,38 @@ export function devinFamilyOf(id: string): string | undefined {
   return id.startsWith(DEVIN_PREFIX) ? id.slice(DEVIN_PREFIX.length) : undefined;
 }
 
+/**
+ * The id for the Antigravity local runtime.
+ *
+ * Like Devin, this is a local runtime that runs the `agy` CLI installed on
+ * the machine. Not in MODELS — it is neither an Anthropic alias nor an
+ * OpenRouter id. A bare id with no slash, so `isProxied` correctly returns
+ * false and `viaFor` returns undefined without needing an OpenRouter key.
+ */
+export const ANTIGRAVITY_MODEL = "antigravity";
+export const AGY_MODEL = "agy";
+
+/** What namespaces an Antigravity model id: `agy:gemini-3.8-flash-high`.
+ * Also supports `antigravity:`. Colon, not a slash, on purpose. */
+export const ANTIGRAVITY_PREFIX = "agy:";
+export const ANTIGRAVITY_LONG_PREFIX = "antigravity:";
+
+/** Whether this id names the Antigravity runtime at all — bare default or namespaced. */
+export function isAntigravityModel(id: string): boolean {
+  return id === AGY_MODEL || id === ANTIGRAVITY_MODEL || id.startsWith(ANTIGRAVITY_PREFIX) || id.startsWith(ANTIGRAVITY_LONG_PREFIX);
+}
+
+/**
+ * The model to pass to `agy --model`, extracted from a namespaced id —
+ * `"gemini-3.8-flash-high"` from `"agy:gemini-3.8-flash-high"`.
+ * Undefined for the bare default and for anything not an Antigravity id.
+ */
+export function antigravityModelOf(id: string): string | undefined {
+  if (id.startsWith(ANTIGRAVITY_PREFIX)) return id.slice(ANTIGRAVITY_PREFIX.length);
+  if (id.startsWith(ANTIGRAVITY_LONG_PREFIX)) return id.slice(ANTIGRAVITY_LONG_PREFIX.length);
+  return undefined;
+}
+
 export const MODELS: readonly Model[] = [
   { id: "opus", label: "Opus 5", resolves: "claude-opus-5" },
   { id: "sonnet", label: "Sonnet 5", resolves: "claude-sonnet-5" },
@@ -110,7 +142,13 @@ export const REASONING_EFFORT_NOTE =
 export function isModelId(value: unknown): value is string {
   if (typeof value !== "string" || value === "") return false;
   if (value.startsWith(DEVIN_PREFIX)) return value.length > DEVIN_PREFIX.length;
-  return MODELS.some((m) => m.id === value) || value === DEVIN_MODEL || value.includes("/");
+  if (value.startsWith(ANTIGRAVITY_PREFIX)) return value.length > ANTIGRAVITY_PREFIX.length;
+  if (value.startsWith(ANTIGRAVITY_LONG_PREFIX)) return value.length > ANTIGRAVITY_LONG_PREFIX.length;
+  return MODELS.some((m) => m.id === value)
+    || value === DEVIN_MODEL
+    || value === AGY_MODEL
+    || value === ANTIGRAVITY_MODEL
+    || value.includes("/");
 }
 
 /** Whether the model is reached through OpenRouter rather than direct. */
@@ -131,6 +169,9 @@ export function isProxied(id: string): boolean {
 export function modelLabel(id: string): string {
   if (id === DEVIN_MODEL) return "Devin";
   if (id.startsWith(DEVIN_PREFIX)) return `Devin: ${id.slice(DEVIN_PREFIX.length)}`;
+  if (id === AGY_MODEL || id === ANTIGRAVITY_MODEL) return "Antigravity";
+  if (id.startsWith(ANTIGRAVITY_PREFIX)) return `Antigravity: ${id.slice(ANTIGRAVITY_PREFIX.length)}`;
+  if (id.startsWith(ANTIGRAVITY_LONG_PREFIX)) return `Antigravity: ${id.slice(ANTIGRAVITY_LONG_PREFIX.length)}`;
   const known = MODELS.find((m) => m.id === id);
   if (known) return known.label;
   const slash = id.indexOf("/");
@@ -156,7 +197,7 @@ export function modelLabel(id: string): string {
  * `devin:adaptive` was a real choice, unlike an OpenRouter auto router.
  */
 export function runningModelLabel(model: string, answeredBy: readonly string[] | null | undefined): string {
-  if (isDevinModel(model)) {
+  if (isDevinModel(model) || isAntigravityModel(model)) {
     return answeredBy && answeredBy.length > 0 ? modelLabel(answeredBy[0]) : modelLabel(model);
   }
   if (!isAutoRouter(model) || !answeredBy || answeredBy.length === 0) return modelLabel(model);

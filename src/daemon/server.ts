@@ -29,6 +29,7 @@ import { reviewBrief, reviewLabel } from "./review.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { DEFAULT_MODEL, isProxied } from "../shared/models.js";
 import { devinFamilies } from "./devin-models.js";
+import { antigravityModels } from "./antigravity-models.js";
 import { cockpitOrigins, isLoopback } from "./urls.js";
 import type { RemoteControllerLike } from "./remote/controller.js";
 import { REMOTE_OFF as REMOTE_OFF_STATE } from "../shared/remote.js";
@@ -702,6 +703,11 @@ export function createServer(opts: {
     // the CLI recovers.
     if (path === "/api/devin/models" && req.method === "GET") {
       json(res, 200, { families: await devinFamilies(config.devinBin) });
+      return;
+    }
+
+    if (path === "/api/antigravity/models" && req.method === "GET") {
+      json(res, 200, { models: await antigravityModels(config.agyBin) });
       return;
     }
 

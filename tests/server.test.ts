@@ -1175,6 +1175,42 @@ describe("Devin's model families (#114)", () => {
   });
 });
 
+/** A fake `agy` binary for `/api/antigravity/models` (#167). */
+async function fakeAgyBin(stdout: string, code = 0): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "bench-srv-agy-"));
+  const path = join(dir, "fake-agy.mjs");
+  await writeFile(path, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(stdout)});\nprocess.exit(${code});\n`);
+  await chmod(path, 0o755);
+  return path;
+}
+
+describe("Antigravity models (#167)", () => {
+  it("serves what the CLI reports", async () => {
+    config.agyBin = await fakeAgyBin(`
+gemini-3.8-flash-high     Gemini 3.8 Flash (High)
+claude-opus-5-5-high      Claude Opus 5.5 (High)
+`);
+
+    const body = await (await fetch(`${base}/api/antigravity/models`, auth)).json();
+    expect(body.models).toEqual([
+      { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+      { id: "claude-opus-5-5-high", label: "Claude Opus 5.5 (High)" },
+    ]);
+  });
+
+  it("serves an empty list rather than failing when the CLI fails", async () => {
+    config.agyBin = await fakeAgyBin("Error: CLI failed\n", 1);
+
+    const res = await fetch(`${base}/api/antigravity/models`, auth);
+    expect(res.status).toBe(200);
+    expect((await res.json()).models).toEqual([]);
+  });
+
+  it("is behind the token like everything else", async () => {
+    expect((await fetch(`${base}/api/antigravity/models`)).status).toBe(401);
+  });
+});
+
 /**
  * A creation that cannot go ahead.
  *

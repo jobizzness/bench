@@ -5,6 +5,11 @@ import {
   DEVIN_PREFIX,
   devinFamilyOf,
   isDevinModel,
+  AGY_MODEL,
+  ANTIGRAVITY_MODEL,
+  ANTIGRAVITY_PREFIX,
+  antigravityModelOf,
+  isAntigravityModel,
   modelLabel,
   runningModelLabel,
   isProxied,
@@ -185,5 +190,70 @@ describe("what a specialist is actually running on, for Devin", () => {
 
   it("falls back to the family name before any turn has answered", () => {
     expect(runningModelLabel("devin:adaptive", null)).toBe("Devin: adaptive");
+  });
+});
+
+describe("Antigravity models", () => {
+  it("is accepted by isModelId, bare or namespaced", () => {
+    expect(isModelId(AGY_MODEL)).toBe(true);
+    expect(isModelId(ANTIGRAVITY_MODEL)).toBe(true);
+    expect(isModelId("agy:gemini-3.8-flash-high")).toBe(true);
+    expect(isModelId("antigravity:gemini-3.8-flash-high")).toBe(true);
+    expect(isModelId("agy:")).toBe(false);
+    expect(isModelId("antigravity:")).toBe(false);
+  });
+
+  it("does not demand an OpenRouter key", () => {
+    expect(isProxied(AGY_MODEL)).toBe(false);
+    expect(isProxied(ANTIGRAVITY_MODEL)).toBe(false);
+    expect(isProxied("agy:gemini-3.8-flash-high")).toBe(false);
+    expect(isProxied("antigravity:gemini-3.8-flash-high")).toBe(false);
+  });
+
+  it("has a human-readable label", () => {
+    expect(modelLabel(AGY_MODEL)).toBe("Antigravity");
+    expect(modelLabel(ANTIGRAVITY_MODEL)).toBe("Antigravity");
+    expect(modelLabel("agy:gemini-3.8-flash-high")).toBe("Antigravity: gemini-3.8-flash-high");
+    expect(modelLabel("antigravity:gemini-3.8-flash-high")).toBe("Antigravity: gemini-3.8-flash-high");
+  });
+
+  it("is recognised by isAntigravityModel, bare or namespaced", () => {
+    expect(isAntigravityModel(AGY_MODEL)).toBe(true);
+    expect(isAntigravityModel(ANTIGRAVITY_MODEL)).toBe(true);
+    expect(isAntigravityModel("agy:gemini-3.8-flash-high")).toBe(true);
+    expect(isAntigravityModel("antigravity:gemini-3.8-flash-high")).toBe(true);
+    expect(isAntigravityModel("opus")).toBe(false);
+    expect(isAntigravityModel("devin")).toBe(false);
+    expect(isAntigravityModel("google/gemini-3.7-flash")).toBe(false);
+  });
+
+  it("extracts the model agy --model wants, from a namespaced id", () => {
+    expect(antigravityModelOf("agy:gemini-3.8-flash-high")).toBe("gemini-3.8-flash-high");
+    expect(antigravityModelOf("antigravity:claude-opus-5-5-high")).toBe("claude-opus-5-5-high");
+  });
+
+  it("has no model to extract from bare agy or non-antigravity ids", () => {
+    expect(antigravityModelOf(AGY_MODEL)).toBeUndefined();
+    expect(antigravityModelOf(ANTIGRAVITY_MODEL)).toBeUndefined();
+    expect(antigravityModelOf("opus")).toBeUndefined();
+  });
+});
+
+describe("what a specialist is actually running on, for Antigravity", () => {
+  it("shows Antigravity until a turn has resolved it", () => {
+    expect(runningModelLabel(AGY_MODEL, null)).toBe("Antigravity");
+    expect(runningModelLabel(AGY_MODEL, [])).toBe("Antigravity");
+  });
+
+  it("shows what the model actually resolved to, once a turn has", () => {
+    expect(runningModelLabel(AGY_MODEL, ["gemini-3.8-flash-high"])).toBe("gemini-3.8-flash-high");
+  });
+
+  it("shows what a named model resolved to, not tagged <auto>", () => {
+    expect(runningModelLabel("agy:gemini-3.8-flash-high", ["gemini-3.8-flash-high"])).toBe("gemini-3.8-flash-high");
+  });
+
+  it("falls back to the model label before any turn has answered", () => {
+    expect(runningModelLabel("agy:gemini-3.8-flash-high", null)).toBe("Antigravity: gemini-3.8-flash-high");
   });
 });
