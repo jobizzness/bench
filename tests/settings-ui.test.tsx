@@ -74,7 +74,20 @@ describe("the house rules page", () => {
     expect(saved()!.body).toEqual({
       codingStyle: "terse", workflowRules: "verify first", reviewModel: "opus", roleModels: {},
       reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, showOpenRouter: false,
+      showDevin: false,
     });
+  });
+
+  it("keeps the Devin house on through a save of the rules (#166)", async () => {
+    // Same reason as the reasoning-effort case below: the page posts every
+    // setting, so a checkbox that is drawn but not seeded turns Devin back
+    // off the next time anybody saves a coding-style note.
+    await open({ showDevin: true });
+    await ui.type(ui.$("#s-style"), "terse");
+    await ui.click(ui.$("#s-save"));
+
+    expect((saved()!.body as { showDevin: boolean }).showDevin).toBe(true);
+    expect(ui.$<HTMLInputElement>("#s-devin")!.checked).toBe(true);
   });
 
   it("keeps a reasoning effort it was given, through a save of the rules", async () => {

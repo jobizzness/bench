@@ -68,6 +68,11 @@ const one = { rows: [row({ model: "opus" })], entries: [entry()] };
  * opt-in: it is never hidden. */
 const catalogueOn = { showOpenRouter: true, codingStyle: "", workflowRules: "" };
 
+/** The Devin house on (#166). Off by default, so every test about Devin's
+ * own rows has to opt into it the way the catalogue's tests opt into theirs -
+ * and the tests just below this describe assert the default. */
+const devinOn = { showDevin: true, codingStyle: "", workflowRules: "" };
+
 describe("the model picker", () => {
   it("draws a bounded number of models, however many there are", async () => {
     // The property that matters is that the list has a floor. Three hundred
@@ -125,17 +130,14 @@ describe("the model picker", () => {
       models: [model(), model({ id: "google/gemini-3.6-flash", name: "Google: Gemini 3.6 Flash" })],
     });
     const search = ui.$<HTMLInputElement>("#model-dialog-search")!;
-    // "gemini" matches neither of Devin's or Anthropic's own rows (#141), so
-    // the nav list is just the account default and these two - the query is
-    // typed for that reason as much as to narrow the catalogue.
+    // "gemini" matches none of Anthropic's own rows, and Devin's house is
+    // hidden by default (#166), so the nav list is just these two - the
+    // query is typed for that reason as much as to narrow the catalogue.
     await ui.type(search, "gemini");
     // Read off the list rather than assumed: two presses lands on the second
     // row, whichever way the two happen to sort.
     const second = ui.$$("#model-dialog .model-row")[1]!.getAttribute("data-model");
 
-    // One extra press over the two rows: Devin's account default takes the
-    // first stop on the way there - arrows walk through it too.
-    await ui.pressIn(search, "ArrowDown");
     await ui.pressIn(search, "ArrowDown");
     await ui.pressIn(search, "ArrowDown");
     expect(ui.$("#model-dialog .model-row[data-active='true']")!.getAttribute("data-model"))
@@ -247,7 +249,7 @@ describe("the model picker", () => {
   it("shows Devin under its own heading, not folded under a vendor", async () => {
     // Devin has no vendor prefix and is not in the OpenRouter catalogue.
     // It must appear in a dedicated section, not inside the catalogue list.
-    await openPicker({ ...one, models: [] });
+    await openPicker({ ...one, settings: devinOn, models: [] });
     const section = ui.$("#model-dialog [data-house='devin']");
     expect(section).not.toBe(null);
     const button = section!.querySelector("[data-model='devin']");
@@ -258,7 +260,7 @@ describe("the model picker", () => {
 
   it("can pick Devin's account default without an OpenRouter key", async () => {
     // Devin is a local runtime. Picking it must not require any key.
-    await openPicker({ ...one, models: [] });
+    await openPicker({ ...one, settings: devinOn, models: [] });
     await ui.click(ui.$("#model-dialog [data-model='devin']"));
     const posted = ui.sent.find((s) => s.url.includes("/model"));
     expect(posted!.body).toEqual({ model: "devin" });
@@ -267,6 +269,7 @@ describe("the model picker", () => {
   it("offers Devin's own families, from the machine rather than a hardcoded list (#114)", async () => {
     await openPicker({
       ...one,
+      settings: devinOn,
       models: [],
       devinFamilies: [{ id: "adaptive", label: "Adaptive" }, { id: "opus", label: "Opus" }],
     });
@@ -281,6 +284,7 @@ describe("the model picker", () => {
     await openPicker({
       rows: [row({ model: "devin:adaptive" })],
       entries: [entry()],
+      settings: devinOn,
       models: [],
       devinFamilies: [{ id: "adaptive", label: "Adaptive" }, { id: "opus", label: "Opus" }],
     });
@@ -293,6 +297,7 @@ describe("the model picker", () => {
   it("can pick a Devin family, needing no OpenRouter key either", async () => {
     await openPicker({
       ...one,
+      settings: devinOn,
       models: [],
       devinFamilies: [{ id: "adaptive", label: "Adaptive" }],
     });
@@ -305,14 +310,74 @@ describe("the model picker", () => {
     // devin models list has been observed refusing intermittently (#114) -
     // the picker still has to open, on the one thing that needs nothing
     // from that list.
-    await openPicker({ ...one, models: [] });
+    await openPicker({ ...one, settings: devinOn, models: [] });
     const note = ui.$("#model-dialog [data-house-note='devin']")!;
     expect(note.textContent).toContain("account default still works");
   });
 });
 
 /**
- * Devin first, every other house behind a setting, tap-outside to close
+ * Devin behind its own setting, off by default (#166).
+ *
+ * It had the first house when it was what this bench ran on (#141). The
+ * runtime is untouched - these are about what the picker offers, and about
+ * the one specialist that must not be stranded by the change.
+ */
+describe("the Devin house, behind a setting (#166)", () => {
+  it("is not in the picker by default", async () => {
+    await openPicker({ ...one, models: [], devinFamilies: [{ id: "adaptive", label: "Adaptive" }] });
+    expect(ui.$("#model-dialog [data-house='devin']")).toBe(null);
+    expect(ui.$("#model-dialog [data-model='devin']")).toBe(null);
+    expect(ui.$("#model-dialog [data-model='devin:adaptive']")).toBe(null);
+    // Anthropic is the first house with Devin hidden, not a gap above it.
+    expect(ui.$$("#model-dialog .model-house")[0]!.getAttribute("data-house")).toBe("anthropic");
+  });
+
+  it("does not ask the machine for Devin's models when it is hidden", async () => {
+    // The daemon answers this by shelling out to `devin models list`, which
+    // has been seen both refusing (#133) and hanging (#131). A hidden house
+    // has nothing to show for it, so the ordinary open must not pay for it.
+    await openPicker({ ...one, models: [] });
+    expect(ui.fetched.some((url) => url.includes("/api/devin/models"))).toBe(false);
+  });
+
+  it("asks for them once the setting is on", async () => {
+    await openPicker({ ...one, settings: devinOn, models: [] });
+    await waitFor(() => ui.fetched.some((url) => url.includes("/api/devin/models")));
+  });
+
+  it("keeps a specialist already on Devin in sight of what it is on", async () => {
+    // The same promise the hidden catalogue has always made: a setting may
+    // stop a model being offered, but never stop it being readable from the
+    // picker of the specialist running it.
+    await openPicker({ rows: [row({ model: "devin:adaptive" })], entries: [entry()], models: [] });
+    const section = ui.$("#model-dialog [data-house='current']")!;
+    expect(section).not.toBe(null);
+    expect(section.querySelector("[data-model='devin:adaptive']")).not.toBe(null);
+    expect(ui.$("#model-dialog [data-house-note='current']")!.textContent).toContain("Devin");
+  });
+
+  it("lets that specialist stay where it is from the row it is shown in", async () => {
+    await openPicker({ rows: [row({ model: "devin" })], entries: [entry()], models: [] });
+    const button = ui.$<HTMLButtonElement>("#model-dialog [data-house='current'] [data-model='devin']")!;
+    expect(button.disabled).toBe(false);
+  });
+
+  it("starts the arrows on Anthropic's first row, not on a row nobody can see", async () => {
+    // The nav list used to begin with Devin's account default unconditionally.
+    // Leaving it there with the house hidden would spend the first ArrowDown
+    // on nothing and point Enter at a hidden model.
+    await openPicker({ ...one, models: [] });
+    const search = ui.$<HTMLInputElement>("#model-dialog-search")!;
+    await ui.pressIn(search, "ArrowDown");
+    const active = ui.$("#model-dialog .model-option[data-active='true']")!;
+    expect(active.getAttribute("data-model")).toBe("opus");
+    expect(active.closest("[data-house]")!.getAttribute("data-house")).toBe("anthropic");
+  });
+});
+
+/**
+ * Every house but Anthropic's behind a setting, tap-outside to close
  * (#141).
  */
 describe("closing the picker from the backdrop", () => {
@@ -348,12 +413,12 @@ describe("closing the picker from the backdrop", () => {
 });
 
 describe("the OpenRouter catalogue, behind a setting", () => {
-  it("shows Devin, Anthropic and thinking effort with the setting off, and hides the rest", async () => {
+  it("shows Anthropic and thinking effort with the setting off, and hides the rest", async () => {
     // Corrected from the first version of #141: Anthropic stands on its own
     // subscription and is never behind this setting, only OpenRouter is.
+    // Devin was alongside it here until it went behind its own (#166).
     await openPicker({ ...one, routerKey: { present: true, hint: "…4f2a" }, models: [model()] });
 
-    expect(ui.$("#model-dialog [data-house='devin']")).not.toBe(null);
     expect(ui.$("#model-dialog [data-house='anthropic']")).not.toBe(null);
     expect(ui.$("#model-dialog [data-house='thinking-effort']")).not.toBe(null);
     expect(ui.$("#model-dialog [data-house='auto']")).toBe(null);
@@ -411,6 +476,7 @@ describe("the OpenRouter catalogue, behind a setting", () => {
   it("narrows Devin's families and Anthropic's aliases by the same query (#141)", async () => {
     await openPicker({
       ...one,
+      settings: devinOn,
       models: [],
       devinFamilies: [{ id: "adaptive", label: "Adaptive" }, { id: "opus-devin", label: "Devin Opus" }],
     });
@@ -430,6 +496,7 @@ describe("the OpenRouter catalogue, behind a setting", () => {
   it("reaches a Devin family with only the keyboard - arrows walk into Devin's own rows too", async () => {
     await openPicker({
       ...one,
+      settings: devinOn,
       models: [],
       devinFamilies: [{ id: "adaptive", label: "Adaptive" }],
     });

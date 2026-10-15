@@ -21,6 +21,7 @@ describe("what is on disk", () => {
       headroom: true,
       pinnedManagedKeyId: null,
       showOpenRouter: false,
+      showDevin: false,
     });
   });
 
@@ -43,7 +44,7 @@ describe("what is on disk", () => {
 
     expect(await readSettings(dir)).toEqual({
       codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {},
-      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, showOpenRouter: false,
+      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, showOpenRouter: false, showDevin: false,
     });
   });
 
@@ -120,7 +121,7 @@ describe("which model reviews", () => {
 
     expect(await readSettings(dir)).toEqual({
       codingStyle: "terse", workflowRules: "", reviewModel: "opus", roleModels: {},
-      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, showOpenRouter: false,
+      reasoningEffort: "medium", headroom: true, pinnedManagedKeyId: null, showOpenRouter: false, showDevin: false,
     });
   });
 
@@ -152,9 +153,29 @@ describe("the headroom toggle", () => {
   });
 });
 
+describe("the show-Devin toggle (#166)", () => {
+  it("is off for a settings file written before it existed", async () => {
+    // Devin was offered unconditionally before this field existed, but off
+    // is still the right reading of an old file: the setting is what the
+    // developer has asked for, and nobody asked for Devin by not saving.
+    const dir = await home();
+    await writeFile(join(dir, "settings.json"), JSON.stringify({ codingStyle: "terse" }));
+
+    expect((await readSettings(dir)).showDevin).toBe(false);
+  });
+
+  it("keeps a saved on", async () => {
+    const dir = await home();
+    await writeSettings(dir, { codingStyle: "", workflowRules: "", showDevin: true });
+
+    expect((await readSettings(dir)).showDevin).toBe(true);
+  });
+
+});
+
 describe("the show-OpenRouter toggle (#141)", () => {
   it("is off for a settings file written before it existed", async () => {
-    // Devin and Anthropic are what this bench runs on without a key - an
+    // Anthropic's four are what this bench runs on without a key - an
     // old file must not read as having asked for the rest of the catalogue.
     const dir = await home();
     await writeFile(join(dir, "settings.json"), JSON.stringify({ codingStyle: "terse" }));
