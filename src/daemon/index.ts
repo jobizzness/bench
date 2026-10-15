@@ -19,6 +19,7 @@ import { KeySync } from "./key-sync.js";
 import { widenConnectAttempts } from "./network.js";
 import { findHeadroom, HeadroomProxy } from "./headroom.js";
 import { execGit, SelfUpdateWatcher } from "./self-update-watcher.js";
+import { antigravityModels } from "./antigravity-models.js";
 
 // Before anything reaches out: every key check, usage read and Firestore
 // call below goes through the same connect path - see network.ts.
@@ -195,6 +196,7 @@ server.listen(config.port, config.host, () => {
   // still watching from before a restart made that ECONNREFUSED while
   // `restore()` was filling the roster.
   void remote.resume();
+  void antigravityModels(config.agyBin);
 
   announcer = announceCockpitUrls({
     host: config.host,

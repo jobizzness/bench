@@ -2,7 +2,7 @@ import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { antigravityModels, parseModels } from "../src/daemon/antigravity-models.js";
+import { antigravityModels, parseModels, DEFAULT_ANTIGRAVITY_MODELS, resetModelsCache } from "../src/daemon/antigravity-models.js";
 
 async function fakeAgy(script: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "bench-agy-models-test-"));
@@ -108,5 +108,19 @@ process.exit(1);
 
   it("returns empty array when binary does not exist", async () => {
     expect(await antigravityModels("/nonexistent/agy-bin")).toEqual([]);
+  });
+
+  it("serves default models when agy CLI call fails or is uninitialized", async () => {
+    resetModelsCache(null);
+    // When agyBin is "agy" and CLI fails, it falls back to DEFAULT_ANTIGRAVITY_MODELS
+    const models = await antigravityModels("agy");
+    expect(models.length).toBeGreaterThan(0);
+    expect(models.some((m) => m.id === "gemini-3.8-flash-high")).toBe(true);
+  });
+
+  it("returns cached models immediately on subsequent calls", async () => {
+    resetModelsCache([{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" }]);
+    const models = await antigravityModels("agy");
+    expect(models).toEqual([{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" }]);
   });
 });

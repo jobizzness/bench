@@ -328,7 +328,7 @@ export function ModelDialog({
         authFetch("/api/openrouter/keys"),
         authFetch("/api/openrouter/models"),
         authFetch("/api/settings"),
-        authFetch("/api/antigravity/models"),
+        authFetch("/api/antigravity/models", { cache: "no-store" }),
       ]);
       if (!live) return;
       if (keyRes.ok) setHasKey(((await keyRes.json())?.credentials ?? []).some((c: { active?: boolean }) => c.active === true));

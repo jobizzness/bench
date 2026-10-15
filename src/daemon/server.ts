@@ -134,9 +134,13 @@ const STATIC: Record<string, string> = {
 /** Reports are untrusted generated HTML: no network, no scripts from elsewhere. */
 const REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:";
 
-function json(res: ServerResponse, status: number, body: unknown): void {
+function json(res: ServerResponse, status: number, body: unknown, headers?: Record<string, string | number>): void {
   const payload = JSON.stringify(body);
-  res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(payload) });
+  res.writeHead(status, {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(payload),
+    ...headers,
+  });
   res.end(payload);
 }
 
@@ -702,12 +706,12 @@ export function createServer(opts: {
     // the picker showing none of them until the daemon restarts even after
     // the CLI recovers.
     if (path === "/api/devin/models" && req.method === "GET") {
-      json(res, 200, { families: await devinFamilies(config.devinBin) });
+      json(res, 200, { families: await devinFamilies(config.devinBin) }, { "cache-control": "no-store, no-cache, must-revalidate" });
       return;
     }
 
     if (path === "/api/antigravity/models" && req.method === "GET") {
-      json(res, 200, { models: await antigravityModels(config.agyBin) });
+      json(res, 200, { models: await antigravityModels(config.agyBin) }, { "cache-control": "no-store, no-cache, must-revalidate" });
       return;
     }
 

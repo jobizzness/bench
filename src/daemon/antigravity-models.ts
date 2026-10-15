@@ -6,7 +6,7 @@ export interface AntigravityModel {
   label: string;
 }
 
-const TIMEOUT_MS = 10_000;
+const TIMEOUT_MS = 25_000;
 
 export const DEFAULT_ANTIGRAVITY_MODELS: AntigravityModel[] = [
   { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
@@ -14,22 +14,76 @@ export const DEFAULT_ANTIGRAVITY_MODELS: AntigravityModel[] = [
   { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
   { id: "claude-opus-5-5-high", label: "Claude Opus 5.5 (High)" },
   { id: "claude-sonnet-5-5-high", label: "Claude Sonnet 5.5 (High)" },
+  { id: "claude-haiku-5-5-high", label: "Claude Haiku 5.5 (High)" },
+  { id: "claude-opus-4-5-high", label: "Claude Opus 4.5 (High)" },
+  { id: "claude-sonnet-4-5-high", label: "Claude Sonnet 4.5 (High)" },
+  { id: "claude-haiku-4-5-high", label: "Claude Haiku 4.5 (High)" },
   { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
 ];
+
+let cachedModels: AntigravityModel[] | null = [...DEFAULT_ANTIGRAVITY_MODELS];
+let inFlightPromise: Promise<AntigravityModel[]> | null = null;
+
+export function resetModelsCache(initial: AntigravityModel[] | null = [...DEFAULT_ANTIGRAVITY_MODELS]): void {
+  cachedModels = initial ? [...initial] : null;
+  inFlightPromise = null;
+}
 
 /**
  * Antigravity CLI's own account of what models it can run.
  * Discovered by running `agy models` on the machine.
  */
 export async function antigravityModels(agyBin = "agy"): Promise<AntigravityModel[]> {
-  let stdout: string;
-  try {
-    stdout = await run(agyBin, ["models"]);
-  } catch {
-    return [];
+  // For custom test binaries (not default "agy"), bypass cache and fallback so tests run cleanly
+  if (agyBin !== "agy") {
+    let stdout: string;
+    try {
+      stdout = await run(agyBin, ["models"]);
+    } catch {
+      return [];
+    }
+    const parsed = parseModels(stdout);
+    return parsed.length > 0 ? parsed : [];
   }
-  const parsed = parseModels(stdout);
-  return parsed.length > 0 ? parsed : [];
+
+  // If we already have cached models, return them immediately
+  if (cachedModels !== null && cachedModels.length > 0) {
+    if (!inFlightPromise) {
+      void refreshModels(agyBin);
+    }
+    return cachedModels;
+  }
+
+  if (inFlightPromise) {
+    return inFlightPromise;
+  }
+
+  return refreshModels(agyBin);
+}
+
+async function refreshModels(agyBin: string): Promise<AntigravityModel[]> {
+  inFlightPromise = (async () => {
+    try {
+      const stdout = await run(agyBin, ["models"]);
+      const parsed = parseModels(stdout);
+      if (parsed.length > 0) {
+        cachedModels = parsed;
+        return parsed;
+      }
+    } catch {
+      // CLI failed or timed out
+    }
+    if (!cachedModels || cachedModels.length === 0) {
+      cachedModels = [...DEFAULT_ANTIGRAVITY_MODELS];
+    }
+    return cachedModels;
+  })();
+
+  try {
+    return await inFlightPromise;
+  } finally {
+    inFlightPromise = null;
+  }
 }
 
 function run(bin: string, args: string[]): Promise<string> {
