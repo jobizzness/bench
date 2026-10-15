@@ -56,10 +56,14 @@ export interface Fixtures {
   /** House rules already on the daemon when the page opens. */
   settings?: {
     codingStyle: string; workflowRules: string; reviewModel?: string; headroom?: boolean;
-    /** Whether the model picker shows the OpenRouter catalogue, or just
-     * Devin and Anthropic (#141). Undefined behaves as false, the same
+    /** Whether the model picker shows the OpenRouter catalogue on top of
+     * Anthropic's four (#141). Undefined behaves as false, the same
      * default the schema itself has. */
     showOpenRouter?: boolean;
+    /** Whether the model picker offers Devin at all (#166). Undefined
+     * behaves as false, the schema's own default - so a test that wants
+     * Devin's rows has to ask for them. */
+    showDevin?: boolean;
   };
   /** What GitHub says about the project the drawer is opened on. */
   github?: { slug: string | null; items: unknown[] };

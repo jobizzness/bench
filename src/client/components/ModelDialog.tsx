@@ -195,9 +195,10 @@ function HouseOption({ modelId, label, subtitle, at, active, current, busy, onPi
  * much they hold, and whether a key is set at all. None of that fits in an
  * `<option>`.
  *
- * Devin and Anthropic come first, both visible without a setting: neither
- * needs a key, Anthropic's is a subscription already paid for, and Devin is
- * what this bench runs on now (#141). The auto-routers and the OpenRouter
+ * Anthropic's four come first and are the one house visible without a
+ * setting: no key to add, and a subscription already paid for. Devin had
+ * that place when it was what this bench ran on (#141) and now sits behind
+ * its own setting, off by default (#166). The auto-routers and the OpenRouter
  * catalogue sit behind a setting the developer turns on in Settings - shown
  * without a key when they are shown at all rather than hidden for want of
  * one, since "you could run this, here is what it needs" is worth more than
@@ -250,16 +251,21 @@ export function ModelDialog({
   const searchRef = useRef<HTMLInputElement>(null);
   const [listed, setListed] = useState<Listed[]>([]);
   const [hasKey, setHasKey] = useState(false);
-  /** Devin's model families (#114), read fresh every time the dialog opens.
-   * Empty either while still loading or because the daemon could not read
-   * them - `devin models list` has been observed refusing intermittently -
-   * and the two are drawn the same way: the account default button below is
-   * offered regardless, since it needs nothing from this list. */
+  /** Devin's model families (#114), read fresh every time the dialog opens -
+   * and only when that house is shown at all (#166). Empty either while
+   * still loading or because the daemon could not read them - `devin models
+   * list` has been observed refusing intermittently - and the two are drawn
+   * the same way: the account default button below is offered regardless,
+   * since it needs nothing from this list. */
   const [devinFamilies, setDevinFamilies] = useState<DevinFamily[]>([]);
   /** Whether the OpenRouter catalogue and its auto-routers are shown - the
    * developer's own setting (`shared/settings.ts`), read fresh every time
    * the dialog opens the same way `devinFamilies` and `listed` are. */
   const [showOpenRouter, setShowOpenRouter] = useState(false);
+  /** Whether the Devin house is shown, from the same setting record (#166).
+   * Off by default, so the ordinary open of this dialog draws Anthropic
+   * first and asks the daemon nothing about Devin. */
+  const [showDevin, setShowDevin] = useState(false);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -307,10 +313,9 @@ export function ModelDialog({
 
     let live = true;
     void (async () => {
-      const [keyRes, modelsRes, devinRes, settingsRes] = await Promise.all([
+      const [keyRes, modelsRes, settingsRes] = await Promise.all([
         authFetch("/api/openrouter/keys"),
         authFetch("/api/openrouter/models"),
-        authFetch("/api/devin/models"),
         authFetch("/api/settings"),
       ]);
       if (!live) return;
@@ -322,14 +327,25 @@ export function ModelDialog({
         setListed([]);
         setError("Could not read OpenRouter's model list. Anthropic's models still work.");
       }
-      // No note on failure here the way OpenRouter gets one above: the
-      // account default is always offered and needs nothing from this list,
-      // so an empty result reads the same whether the daemon could not run
-      // `devin models list` or simply found nothing else to add.
+      // A daemon that cannot be asked reads as both houses hidden - the safe
+      // default, not a picker that silently opens onto three hundred models,
+      // and not one that shells out to `devin models list` on a guess.
+      const settings = settingsRes.ok ? (await settingsRes.json())?.settings : undefined;
+      const devinShown = settings?.showDevin ?? false;
+      setShowOpenRouter(settings?.showOpenRouter ?? false);
+      setShowDevin(devinShown);
+
+      // Asked only when that house will actually be drawn (#166): this one
+      // shells out to `devin models list` on the daemon, which has been seen
+      // both refusing and hanging, and a hidden house has nothing to show
+      // for it. No note on failure here the way OpenRouter gets one above:
+      // the account default is always offered and needs nothing from this
+      // list, so an empty result reads the same whether the daemon could not
+      // run the command or simply found nothing else to add.
+      if (!devinShown) { setDevinFamilies([]); return; }
+      const devinRes = await authFetch("/api/devin/models");
+      if (!live) return;
       setDevinFamilies(devinRes.ok ? ((await devinRes.json())?.families ?? []) : []);
-      // A daemon that cannot be asked reads as "catalogue hidden" - the safe
-      // default, not a picker that silently opens onto three hundred models.
-      setShowOpenRouter(settingsRes.ok ? ((await settingsRes.json())?.settings?.showOpenRouter ?? false) : false);
     })();
     return () => { live = false; };
   }, [open]);
@@ -422,8 +438,10 @@ export function ModelDialog({
    * the catalogue above - the account default itself is not in this list
    * (it needs nothing from a search) and is always drawn regardless. */
   const { rows: devinRows, total: devinTotal } = useMemo(
-    () => rankHouse(devinFamilies, query.trim().toLowerCase(), (f) => f.id, (f) => f.label, (f) => `${DEVIN_PREFIX}${f.id}`, current),
-    [devinFamilies, query, current],
+    () => showDevin
+      ? rankHouse(devinFamilies, query.trim().toLowerCase(), (f) => f.id, (f) => f.label, (f) => `${DEVIN_PREFIX}${f.id}`, current)
+      : { rows: [], total: 0 },
+    [showDevin, devinFamilies, query, current],
   );
 
   /** Anthropic's four aliases, narrowed and capped the same way (#141) - the
@@ -435,31 +453,42 @@ export function ModelDialog({
 
   /**
    * Every row the arrows and Enter can land on, in the order the dialog
-   * draws them: Devin's account default, then its families, then
-   * Anthropic's aliases, then the catalogue - which is empty here whenever
-   * that house is hidden or there is no key to reach it, the same rule that
-   * disables its rows to a mouse.
+   * draws them: Devin's account default and its families where that house is
+   * shown at all, then Anthropic's aliases, then the catalogue - which is
+   * empty here whenever that house is hidden or there is no key to reach it,
+   * the same rule that disables its rows to a mouse.
+   *
+   * Devin's two entries drop out together with the house (#166) rather than
+   * leaving the first ArrowDown on a row nobody can see.
    */
   const navRows = useMemo(() => {
-    const nav: Array<{ model: string }> = [{ model: DEVIN_MODEL }];
-    for (const family of devinRows) nav.push({ model: `${DEVIN_PREFIX}${family.id}` });
+    const nav: Array<{ model: string }> = [];
+    if (showDevin) {
+      nav.push({ model: DEVIN_MODEL });
+      for (const family of devinRows) nav.push({ model: `${DEVIN_PREFIX}${family.id}` });
+    }
     for (const model of anthropicRows) nav.push({ model: model.id });
     if (showOpenRouter && hasKey) for (const model of rows) nav.push({ model: model.id });
     return nav;
-  }, [devinRows, anthropicRows, showOpenRouter, hasKey, rows]);
+  }, [showDevin, devinRows, anthropicRows, showOpenRouter, hasKey, rows]);
 
   // An arrow key that runs off the end of a filtered list would leave the
   // highlight on a row that is no longer there.
   useEffect(() => { setActive((at) => (at >= navRows.length ? navRows.length - 1 : at)); }, [navRows.length]);
 
   /**
-   * The specialist's own model, orphaned by the setting rather than by the
-   * search: Devin and Anthropic are always drawn, but the auto-routers and
-   * the OpenRouter catalogue vanish when the setting is off, and a
-   * specialist already running one of those must not lose sight of what it
-   * is on.
+   * The specialist's own model, orphaned by a setting rather than by the
+   * search: Anthropic's four are always drawn, but both other houses vanish
+   * when their setting is off, and a specialist already running one of those
+   * must not lose sight of what it is on.
+   *
+   * Two settings now, not one (#166): a `devin:adaptive` specialist with the
+   * Devin house hidden is in exactly the position an OpenRouter one has
+   * always been in with the catalogue hidden.
    */
-  const currentInHiddenHouse = !showOpenRouter && !isDevinModel(current) && !MODELS.some((m) => m.id === current);
+  const currentInHiddenHouse = isDevinModel(current)
+    ? !showDevin
+    : !showOpenRouter && !MODELS.some((m) => m.id === current);
 
   const choose = async (model: string) => {
     if (model === current && effort === initialEffort) { onClose(); return; }
@@ -534,10 +563,11 @@ export function ModelDialog({
     row?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
 
-  // Devin's own rows start at nav index 1 (0 is the account default),
-  // Anthropic's pick up right after them, and the catalogue's rows, when
-  // they are drawn at all, pick up right after those.
-  const anthropicOffset = 1 + devinRows.length;
+  // Devin's own rows start at nav index 1 (0 is the account default) where
+  // that house is shown; Anthropic's pick up right after them, or at 0 when
+  // it is hidden, and the catalogue's rows, when they are drawn at all, pick
+  // up right after those.
+  const anthropicOffset = showDevin ? 1 + devinRows.length : 0;
   const catalogueOffset = anthropicOffset + anthropicRows.length;
 
   return (
@@ -568,9 +598,9 @@ export function ModelDialog({
             + "new model and picks the conversation up where it left off."}
       </p>
 
-      {/* First control in the dialog, above every list it filters - Devin's
-          families, Anthropic's aliases, and, when that house is open, the
-          catalogue below them. */}
+      {/* First control in the dialog, above every list it filters -
+          Anthropic's aliases, and, when those houses are open, Devin's
+          families above them and the catalogue below. */}
       <input
         id={own("search")}
         className="model-search"
@@ -587,61 +617,65 @@ export function ModelDialog({
         onKeyDown={onSearchKey}
       />
 
-      {/* First house: this is what the bench runs on now, and the one that
-          needs nothing from a setting to show up. */}
-      <section className="model-house" data-house="devin">
-        <h3>Devin</h3>
-        <p className="field-note" data-house-note="devin">
-          Runs on the Devin agent installed on this machine. Requires{" "}
-          <code>devin auth login</code> once. No API key, no per-turn charge in Bench.
-          {devinFamilies.length === 0 && (
-            <> Its own model list could not be read just now — the account default still works.</>
-          )}
-        </p>
-        <div className="model-options">
-          <HouseOption
-            modelId={DEVIN_MODEL}
-            label="Account default"
-            subtitle="whatever the Devin account is set to"
-            at={0}
-            active={active === 0}
-            current={current === DEVIN_MODEL}
-            busy={busy}
-            onPick={() => void choose(DEVIN_MODEL)}
-            onHover={() => setActive(0)}
-          />
-          {devinRows.map((family, i) => {
-            const modelId = `${DEVIN_PREFIX}${family.id}`;
-            const at = i + 1;
-            return (
-              <HouseOption
-                key={modelId}
-                modelId={modelId}
-                label={family.label}
-                subtitle={family.id}
-                at={at}
-                active={active === at}
-                current={current === modelId}
-                busy={busy}
-                onPick={() => void choose(modelId)}
-                onHover={() => setActive(at)}
-              />
-            );
-          })}
-        </div>
-        {/* Said rather than silently done, the same as the catalogue below -
-            a list that stops at forty without saying so reads as forty. */}
-        {devinTotal > devinRows.length && (
-          <p className="field-note model-tally" id={own("devin-more")}>
-            {devinRows.length} of {devinTotal}. Keep typing to narrow it.
+      {/* Behind a setting and off by default (#166) - it was the first house
+          when Devin was what this bench ran on (#141), and the runtime it
+          offers is now the least reliable one here. Nothing about a
+          specialist already on it changes; it is only no longer offered. */}
+      {showDevin && (
+        <section className="model-house" data-house="devin">
+          <h3>Devin</h3>
+          <p className="field-note" data-house-note="devin">
+            Runs on the Devin agent installed on this machine. Requires{" "}
+            <code>devin auth login</code> once. No API key, no per-turn charge in Bench.
+            {devinFamilies.length === 0 && (
+              <> Its own model list could not be read just now — the account default still works.</>
+            )}
           </p>
-        )}
-      </section>
+          <div className="model-options">
+            <HouseOption
+              modelId={DEVIN_MODEL}
+              label="Account default"
+              subtitle="whatever the Devin account is set to"
+              at={0}
+              active={active === 0}
+              current={current === DEVIN_MODEL}
+              busy={busy}
+              onPick={() => void choose(DEVIN_MODEL)}
+              onHover={() => setActive(0)}
+            />
+            {devinRows.map((family, i) => {
+              const modelId = `${DEVIN_PREFIX}${family.id}`;
+              const at = i + 1;
+              return (
+                <HouseOption
+                  key={modelId}
+                  modelId={modelId}
+                  label={family.label}
+                  subtitle={family.id}
+                  at={at}
+                  active={active === at}
+                  current={current === modelId}
+                  busy={busy}
+                  onPick={() => void choose(modelId)}
+                  onHover={() => setActive(at)}
+                />
+              );
+            })}
+          </div>
+          {/* Said rather than silently done, the same as the catalogue below -
+              a list that stops at forty without saying so reads as forty. */}
+          {devinTotal > devinRows.length && (
+            <p className="field-note model-tally" id={own("devin-more")}>
+              {devinRows.length} of {devinTotal}. Keep typing to narrow it.
+            </p>
+          )}
+        </section>
+      )}
 
-      {/* Second house, on the same shared row UI as Devin's above (#141) so
-          the two read as one searched list rather than two shapes. Visible
-          without the setting: neither needs a key, and this one is a
-          subscription already paid for. */}
+      {/* The house that needs no setting at all: no key to add, and a
+          subscription already paid for. On the same shared row UI as Devin's
+          above (#141) so the two read as one searched list rather than two
+          shapes, whichever of them is drawn. */}
       <section className="model-house" data-house="anthropic">
         <h3>Anthropic</h3>
         <p className="field-note" data-house-note="anthropic">
@@ -675,17 +709,18 @@ export function ModelDialog({
         )}
       </section>
 
-      {/* The specialist's own model, orphaned by the setting rather than by
-          the search. The auto-routers and the catalogue disappear when the
-          setting is off - this is the one row from whichever of those it is
-          on that does not. Devin and Anthropic never need it: they are
-          never hidden. */}
+      {/* The specialist's own model, orphaned by a setting rather than by
+          the search. Devin, the auto-routers and the catalogue all disappear
+          when their setting is off - this is the one row from whichever of
+          those it is on that does not. Anthropic's four never need it: they
+          are never hidden. */}
       {currentInHiddenHouse && (
         <section className="model-house" data-house="current">
           <h3>Current model</h3>
           <p className="field-note" data-house-note="current">
-            The OpenRouter catalogue is hidden by the setting, but what a
-            specialist is already on always stays visible here.
+            {isDevinModel(current)
+              ? "Devin is hidden by the setting, but what a specialist is already on always stays visible here."
+              : "The OpenRouter catalogue is hidden by the setting, but what a specialist is already on always stays visible here."}
           </p>
           <div className="model-options">
             <HouseOption

@@ -184,10 +184,25 @@ export function SettingsDialog({ open, onClose, activeMachineName }: {
           <label htmlFor="s-open-router">Show the OpenRouter catalogue in the model picker</label>
         </div>
         <p className="field-note" id="s-open-router-note">
-          Off shows only Devin and Anthropic's four - neither needs a key.
+          Off shows only Anthropic's four - no key needed for those.
           On brings back the OpenRouter catalogue and its auto-routers.
           Whatever the model a specialist is already on, it stays visible
           and selectable either way.
+        </p>
+
+        <div className="check">
+          <input
+            type="checkbox" id="s-devin"
+            checked={draft.showDevin}
+            onChange={(event) => setDraft({ ...draft, showDevin: event.target.checked })}
+          />
+          <label htmlFor="s-devin">Offer Devin in the model picker</label>
+        </div>
+        <p className="field-note" id="s-devin-note">
+          Off by default. The Devin runtime is still installed and a specialist
+          already on it keeps running - this only decides whether new ones can
+          be pointed at it, and whether opening the picker asks the machine for
+          Devin's model list at all.
         </p>
 
         <details id="s-preview" open={framing !== ""}>

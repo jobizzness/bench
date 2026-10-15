@@ -66,6 +66,19 @@ export const settingsSchema = z.object({
    * `ModelDialog.tsx`.
    */
   showOpenRouter: z.boolean().default(false),
+  /**
+   * Show the Devin house in the model picker - its account default and the
+   * families read off `devin models list`.
+   *
+   * Off by default. Devin was once what this bench ran on and had the first
+   * house for it (#141); it is now the least reliable runtime here (#158,
+   * #143, #131), and with the house hidden the picker never shells out to
+   * `devin models list` to open at all. The runtime itself is untouched: a
+   * specialist already on `devin` or `devin:<family>` keeps running, and its
+   * model stays visible and pickable the same way a hidden OpenRouter one
+   * does - see `currentInHiddenHouse` in `ModelDialog.tsx`.
+   */
+  showDevin: z.boolean().default(false),
 });
 
 /**
@@ -85,6 +98,7 @@ export const settingsInputSchema = z.object({
   headroom: z.boolean().optional(),
   pinnedManagedKeyId: z.string().nullable().optional(),
   showOpenRouter: z.boolean().optional(),
+  showDevin: z.boolean().optional(),
 }).transform((s) => ({
   ...s,
   reviewModel: s.reviewModel ?? DEFAULT_MODEL,
@@ -93,13 +107,14 @@ export const settingsInputSchema = z.object({
   headroom: s.headroom ?? true,
   pinnedManagedKeyId: s.pinnedManagedKeyId ?? null,
   showOpenRouter: s.showOpenRouter ?? false,
+  showDevin: s.showDevin ?? false,
 }));
 
 export type Settings = z.infer<typeof settingsSchema>;
 
 export const NO_SETTINGS: Settings = {
   codingStyle: "", workflowRules: "", reviewModel: DEFAULT_MODEL, roleModels: {}, reasoningEffort: "medium", headroom: true,
-  pinnedManagedKeyId: null, showOpenRouter: false,
+  pinnedManagedKeyId: null, showOpenRouter: false, showDevin: false,
 };
 
 /**
