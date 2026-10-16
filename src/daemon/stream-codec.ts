@@ -2,6 +2,7 @@ import type { Context } from "../shared/context-window.js";
 import { turnTokens, type TurnShape } from "../shared/cost.js";
 import type { Attachment } from "../shared/types.js";
 import { windowLabel, type UsageWindow } from "../shared/usage.js";
+import { geminiContextWindow } from "./gemini.js";
 
 export interface ResultEvent {
   type: "result";
@@ -99,21 +100,21 @@ export class LineDecoder {
  * per model and changes without us. Where several models appear - a subagent
  * on a cheaper one - the conversation belongs to whichever did the most work.
  */
-export function contextFrom(event: ClaudeEvent): Context | null {
+export function contextFrom(event: ClaudeEvent, fallbackWindow?: number): Context | null {
   if (!isResultEvent(event)) return null;
 
   const usage = (event as { usage?: Record<string, unknown> }).usage;
   const models = (event as { modelUsage?: Record<string, Record<string, unknown>> }).modelUsage;
-  if (!usage || !models) return null;
+  if (!usage) return null;
 
   const number = (value: unknown) =>
     (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
   /** What one request put in front of the model. */
   const inputOf = (entry: Record<string, unknown>) =>
-    number(entry.input_tokens)
-    + number(entry.cache_creation_input_tokens)
-    + number(entry.cache_read_input_tokens);
+    number(entry.input_tokens ?? entry.inputTokens)
+    + number(entry.cache_creation_input_tokens ?? entry.cacheCreationInputTokens)
+    + number(entry.cache_read_input_tokens ?? entry.cacheReadInputTokens);
 
   // The top-level usage is every request the turn made, added together. A
   // turn with sixty tool calls re-sends the conversation sixty times, so that
@@ -122,19 +123,36 @@ export function contextFrom(event: ClaudeEvent): Context | null {
   //
   // What the conversation actually occupies is what the last request carried.
   // `iterations` lists them; the final one is the state the turn ended in.
+  // For models with no per-request iterations (such as proxied models), fall
+  // back to the top-level usage input tokens.
   const iterations = Array.isArray(usage.iterations) ? usage.iterations : [];
   const last = iterations.at(-1);
-  if (!last || typeof last !== "object") return null;
-
-  const used = inputOf(last as Record<string, unknown>);
+  const used = (last && typeof last === "object")
+    ? (inputOf(last as Record<string, unknown>) || inputOf(usage as Record<string, unknown>))
+    : inputOf(usage as Record<string, unknown>);
 
   let window = 0;
   let most = -1;
-  for (const entry of Object.values(models)) {
-    const worked = number(entry.inputTokens)
-      + number(entry.cacheCreationInputTokens)
-      + number(entry.cacheReadInputTokens);
-    if (worked > most) { most = worked; window = number(entry.contextWindow); }
+  if (models && typeof models === "object") {
+    for (const [modelKey, entry] of Object.entries(models)) {
+      if (!entry || typeof entry !== "object") continue;
+      const worked = number(entry.inputTokens)
+        + number(entry.cacheCreationInputTokens)
+        + number(entry.cacheReadInputTokens);
+      if (worked > most) {
+        most = worked;
+        const geminiWin = geminiContextWindow(modelKey);
+        window = geminiWin ?? (number(entry.contextWindow) > 0 ? number(entry.contextWindow) : 0);
+      }
+    }
+  }
+
+  if (window <= 0 && fallbackWindow && fallbackWindow > 0) {
+    window = fallbackWindow;
+  }
+  if (window <= 0 && typeof (event as any).model === "string") {
+    const geminiWin = geminiContextWindow((event as any).model);
+    if (geminiWin) window = geminiWin;
   }
 
   return used > 0 && window > 0 ? { used, window } : null;

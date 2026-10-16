@@ -245,12 +245,14 @@ describe("what a specialist is actually running on, for Antigravity", () => {
     expect(runningModelLabel(AGY_MODEL, [])).toBe("Antigravity");
   });
 
-  it("shows what the model actually resolved to, once a turn has", () => {
-    expect(runningModelLabel(AGY_MODEL, ["gemini-3.8-flash-high"])).toBe("gemini-3.8-flash-high");
+  it("shows what the model actually resolved to, retaining Antigravity house", () => {
+    expect(runningModelLabel(AGY_MODEL, ["gemini-3.8-flash-high"])).toBe("Antigravity: gemini-3.8-flash-high");
+    expect(runningModelLabel(AGY_MODEL, [AGY_MODEL])).toBe("Antigravity");
   });
 
-  it("shows what a named model resolved to, not tagged <auto>", () => {
-    expect(runningModelLabel("agy:gemini-3.8-flash-high", ["gemini-3.8-flash-high"])).toBe("gemini-3.8-flash-high");
+  it("shows what a named model resolved to, retaining Antigravity house and not tagged <auto>", () => {
+    expect(runningModelLabel("agy:gemini-3.8-flash-high", ["gemini-3.8-flash-high"])).toBe("Antigravity: gemini-3.8-flash-high");
+    expect(runningModelLabel("agy:gemini-3.8-flash-high", ["agy:gemini-3.8-flash-high"])).toBe("Antigravity: gemini-3.8-flash-high");
   });
 
   it("falls back to the model label before any turn has answered", () => {

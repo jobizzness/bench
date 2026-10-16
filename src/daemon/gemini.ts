@@ -226,12 +226,51 @@ export function isOpenRouterModel(id: string): boolean {
   return id.includes("/");
 }
 
+export function geminiContextWindow(modelId: string): number | null {
+  const norm = modelId.toLowerCase().trim();
+  const matched = GEMINI_MODELS.find(
+    (m) => m.id === norm || m.id.endsWith(norm) || norm.endsWith(m.id.replace("google/", ""))
+  );
+  if (matched?.contextLength) return matched.contextLength;
+  if (norm.includes("gemini")) {
+    return norm.includes("pro") ? 2_097_152 : 1_048_576;
+  }
+  return null;
+}
+
 export function vendorOf(id: string): string {
   return id.split("/")[0] ?? "";
 }
 
 export function messagesUrl(base: string): string {
   return `${base.replace(/\/+$/, "")}/v1/messages`;
+}
+
+function estimateTokens(text: string): number {
+  if (!text) return 0;
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function estimatePromptTokens(messages: any[], system?: any, tools?: any[]): number {
+  let count = 0;
+  if (typeof system === "string") count += estimateTokens(system);
+  else if (Array.isArray(system)) {
+    for (const s of system) count += estimateTokens(typeof s === "string" ? s : s?.text ?? "");
+  }
+  for (const m of messages ?? []) {
+    if (typeof m.content === "string") count += estimateTokens(m.content);
+    else if (Array.isArray(m.content)) {
+      for (const part of m.content) {
+        if (typeof part === "string") count += estimateTokens(part);
+        else if (part?.text) count += estimateTokens(part.text);
+        else if (part?.content) count += estimateTokens(typeof part.content === "string" ? part.content : JSON.stringify(part.content));
+      }
+    }
+  }
+  if (tools && tools.length > 0) {
+    count += estimateTokens(JSON.stringify(tools));
+  }
+  return count;
 }
 
 // Format translation helpers
@@ -347,6 +386,7 @@ function translateResponseToAnthropic(openAIResponse: any, model: string, respon
 
   const stop_reason = choice?.finish_reason === "tool_calls" ? "tool_use" : "end_turn";
   const usage = openAIResponse.usage || { prompt_tokens: 0, completion_tokens: 0 };
+  const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
 
   return {
     id: responseId,
@@ -359,6 +399,7 @@ function translateResponseToAnthropic(openAIResponse: any, model: string, respon
     usage: {
       input_tokens: usage.prompt_tokens,
       output_tokens: usage.completion_tokens,
+      cache_read_input_tokens: cachedTokens,
     },
   };
 }
@@ -433,6 +474,7 @@ export async function handleGeminiProxy(
     model: geminiModel,
     messages: openaiMessages,
     stream: stream ?? false,
+    ...(stream ? { stream_options: { include_usage: true } } : {}),
   };
   if (max_tokens) openaiPayload.max_tokens = max_tokens;
   if (openaiTools) {
@@ -520,8 +562,10 @@ export async function handleGeminiProxy(
     let toolCallId = "";
     let toolCallName = "";
     let toolCallArgs = "";
-    let promptTokens = 0;
+    const initialInputTokens = estimatePromptTokens(openaiMessages, system, tools);
+    let promptTokens = initialInputTokens;
     let completionTokens = 0;
+    let cachedTokens = 0;
     let lastThoughtSignature = "";
 
     sendEvent(res, "message_start", {
@@ -534,7 +578,7 @@ export async function handleGeminiProxy(
         model,
         stop_reason: null,
         stop_sequence: null,
-        usage: { input_tokens: 0, output_tokens: 0 },
+        usage: { input_tokens: initialInputTokens, output_tokens: 0 },
       }
     });
 
@@ -563,6 +607,9 @@ export async function handleGeminiProxy(
                 if (chunk.usage) {
                   promptTokens = chunk.usage.prompt_tokens ?? promptTokens;
                   completionTokens = chunk.usage.completion_tokens ?? completionTokens;
+                  if (chunk.usage.prompt_tokens_details?.cached_tokens !== undefined) {
+                    cachedTokens = chunk.usage.prompt_tokens_details.cached_tokens;
+                  }
                 }
                 continue;
               }
@@ -652,10 +699,13 @@ export async function handleGeminiProxy(
                 if (chunk.usage) {
                   promptTokens = chunk.usage.prompt_tokens ?? promptTokens;
                   completionTokens = chunk.usage.completion_tokens ?? completionTokens;
+                  if (chunk.usage.prompt_tokens_details?.cached_tokens !== undefined) {
+                    cachedTokens = chunk.usage.prompt_tokens_details.cached_tokens;
+                  }
                 }
 
                 if (promptTokens === 0) {
-                  promptTokens = 150;
+                  promptTokens = initialInputTokens > 0 ? initialInputTokens : 150;
                   completionTokens = 50;
                 }
 
@@ -665,7 +715,11 @@ export async function handleGeminiProxy(
                 sendEvent(res, "message_delta", {
                   type: "message_delta",
                   delta: { stop_reason, stop_sequence: null },
-                  usage: { output_tokens: completionTokens }
+                  usage: {
+                    output_tokens: completionTokens,
+                    input_tokens: promptTokens,
+                    cache_read_input_tokens: cachedTokens,
+                  }
                 });
               }
             } catch (err) {

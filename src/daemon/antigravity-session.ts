@@ -3,8 +3,9 @@ import { EventEmitter } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Context } from "../shared/context-window.js";
-import { AGY_MODEL, ANTIGRAVITY_PREFIX } from "../shared/models.js";
+import { AGY_MODEL, ANTIGRAVITY_PREFIX, ANTIGRAVITY_LONG_PREFIX } from "../shared/models.js";
 import type { Attachment } from "../shared/types.js";
+import { antigravityContextWindow } from "./antigravity-models.js";
 import { nextTurn } from "./reports.js";
 import type { Session } from "./session.js";
 import type { ResultEvent } from "./stream-codec.js";
@@ -100,7 +101,11 @@ export class AntigravitySession extends EventEmitter implements Session {
   }
 
   get turnAnsweredBy(): string[] {
-    return this.opts.model ? [this.opts.model] : ["gemini-3.8-flash-high"];
+    if (!this.opts.model) return [AGY_MODEL];
+    const model = this.opts.model;
+    return model.startsWith(ANTIGRAVITY_PREFIX) || model.startsWith(ANTIGRAVITY_LONG_PREFIX)
+      ? [model]
+      : [`${ANTIGRAVITY_PREFIX}${model}`];
   }
 
   get turnGenerationIds(): string[] {
@@ -226,7 +231,10 @@ export class AntigravitySession extends EventEmitter implements Session {
       const cacheRead = typeof usage.cache_read_tokens === "number" ? usage.cache_read_tokens : 0;
       const total = typeof usage.total_tokens === "number" ? usage.total_tokens : inTokens + outTokens;
       this.tokens = total;
-      this.context = { used: inTokens + cacheRead, window: 1_000_000 };
+      const window = typeof usage.context_window === "number" && usage.context_window > 0
+        ? usage.context_window
+        : antigravityContextWindow(this.opts.model);
+      this.context = { used: inTokens + cacheRead, window };
 
       const status = typeof result.status === "string" ? result.status : "SUCCESS";
       const isError = status === "ERROR";

@@ -605,7 +605,7 @@ export class ClaudeSession extends EventEmitter implements Session {
         const reply = replyText(event);
         // How full the conversation is now. Kept rather than emitted on its
         // own: it changes once a turn, and turn-end is that moment.
-        this.context = contextFrom(event) ?? this.context;
+        this.context = contextFrom(event, this.opts.via?.contextLength ?? undefined) ?? this.context;
 
         // Freeze what the turn was answered under, here, before anything
         // else in this block can run.

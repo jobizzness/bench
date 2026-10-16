@@ -8,6 +8,7 @@ import {
   checkKey,
   catalogue,
   sessionEnv,
+  geminiContextWindow,
   credit,
   creditSource,
   settledCost,
@@ -175,5 +176,86 @@ describe("reasoning effort on a reasoning-capable model", () => {
 
     expect(sent.reasoning_effort).toBeUndefined();
     expect(sent.extra_body).toBeUndefined();
+  });
+});
+
+describe("Gemini context window and proxy usage reporting (#171)", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("returns 2M window for Gemini Pro models and 1M window for Flash models", () => {
+    expect(geminiContextWindow("google/gemini-3.1-pro-preview")).toBe(2_097_152);
+    expect(geminiContextWindow("google/gemini-3.7-pro")).toBe(2_097_152);
+    expect(geminiContextWindow("google/gemini-2.5-pro")).toBe(2_097_152);
+    expect(geminiContextWindow("google/gemini-1.5-pro")).toBe(2_097_152);
+
+    expect(geminiContextWindow("google/gemini-3.7-flash")).toBe(1_048_576);
+    expect(geminiContextWindow("google/gemini-3.5-flash")).toBe(1_048_576);
+    expect(geminiContextWindow("google/gemini-2.5-flash")).toBe(1_048_576);
+    expect(geminiContextWindow("google/gemini-1.5-flash")).toBe(1_048_576);
+
+    expect(geminiContextWindow("claude-sonnet-5")).toBeNull();
+  });
+
+  it("sets CLAUDE_CODE_MAX_CONTEXT_TOKENS in sessionEnv when contextLength is provided", () => {
+    const env = sessionEnv({ key: "secret-key", contextLength: 1_048_576 });
+    expect(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("1048576");
+    expect(env.ANTHROPIC_API_KEY).toBe("secret-key");
+  });
+
+  it("returns usage including cached tokens on non-streaming proxy response", async () => {
+    vi.stubGlobal("fetch", (async () => {
+      return new Response(JSON.stringify({
+        id: "chatcmpl-123",
+        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        usage: {
+          prompt_tokens: 350,
+          completion_tokens: 25,
+          prompt_tokens_details: { cached_tokens: 150 },
+        },
+      }), { status: 200 });
+    }) as unknown as typeof fetch);
+
+    const res = fakeRes();
+    const req = fakeReq({ model: "google/gemini-3.7-flash", messages: [{ role: "user", content: "hello" }], stream: false });
+    await handleGeminiProxy(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.usage).toEqual({
+      input_tokens: 350,
+      output_tokens: 25,
+      cache_read_input_tokens: 150,
+    });
+  });
+
+  it("enables stream_options include_usage and reports usage in stream events", async () => {
+    let sentPayload: any;
+    vi.stubGlobal("fetch", (async (_url: string, init?: RequestInit) => {
+      sentPayload = JSON.parse(String(init!.body));
+      const chunks = [
+        'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":220,"completion_tokens":12,"prompt_tokens_details":{"cached_tokens":50}}}\n\n',
+        "data: [DONE]\n\n",
+      ];
+      const stream = new ReadableStream({
+        start(controller) {
+          for (const c of chunks) controller.enqueue(new TextEncoder().encode(c));
+          controller.close();
+        },
+      });
+      return new Response(stream, { status: 200 });
+    }) as unknown as typeof fetch);
+
+    const res = fakeRes();
+    const req = fakeReq({ model: "google/gemini-3.7-flash", messages: [{ role: "user", content: "hello" }], stream: true });
+    await handleGeminiProxy(req, res);
+
+    expect(sentPayload.stream).toBe(true);
+    expect(sentPayload.stream_options).toEqual({ include_usage: true });
+    expect(res.body).toContain("message_start");
+    expect(res.body).toContain("message_delta");
+    expect(res.body).toContain('"input_tokens":220');
+    expect(res.body).toContain('"output_tokens":12');
+    expect(res.body).toContain('"cache_read_input_tokens":50');
   });
 });

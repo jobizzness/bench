@@ -197,8 +197,17 @@ export function modelLabel(id: string): string {
  * `devin:adaptive` was a real choice, unlike an OpenRouter auto router.
  */
 export function runningModelLabel(model: string, answeredBy: readonly string[] | null | undefined): string {
-  if (isDevinModel(model) || isAntigravityModel(model)) {
+  if (isDevinModel(model)) {
     return answeredBy && answeredBy.length > 0 ? modelLabel(answeredBy[0]) : modelLabel(model);
+  }
+  if (isAntigravityModel(model)) {
+    if (!answeredBy || answeredBy.length === 0) return modelLabel(model);
+    const resolved = answeredBy[0];
+    if (resolved === AGY_MODEL || resolved === ANTIGRAVITY_MODEL) return "Antigravity";
+    if (resolved.startsWith(ANTIGRAVITY_PREFIX) || resolved.startsWith(ANTIGRAVITY_LONG_PREFIX)) {
+      return modelLabel(resolved);
+    }
+    return `Antigravity: ${resolved}`;
   }
   if (!isAutoRouter(model) || !answeredBy || answeredBy.length === 0) return modelLabel(model);
   return `${modelLabel(answeredBy[0])} <auto>`;

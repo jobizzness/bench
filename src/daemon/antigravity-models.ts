@@ -21,6 +21,16 @@ export const DEFAULT_ANTIGRAVITY_MODELS: AntigravityModel[] = [
   { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
 ];
 
+export function antigravityContextWindow(model?: string): number {
+  if (!model) return 1_048_576;
+  const lower = model.toLowerCase();
+  if (lower.includes("pro")) return 2_097_152;
+  if (lower.includes("flash") || lower.includes("argon") || lower.includes("gemini")) return 1_048_576;
+  if (lower.includes("claude") || lower.includes("opus") || lower.includes("sonnet") || lower.includes("haiku")) return 1_000_000;
+  if (lower.includes("120b")) return 131_072;
+  return 1_048_576;
+}
+
 let cachedModels: AntigravityModel[] | null = [...DEFAULT_ANTIGRAVITY_MODELS];
 let inFlightPromise: Promise<AntigravityModel[]> | null = null;
 

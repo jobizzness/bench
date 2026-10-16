@@ -28,7 +28,7 @@ import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
 import { isOauthToken, isUsageLimitError, limitResetsAt, type ManagedKey } from "./anthropic-key.js";
 import { fullestPercent, type Usage, type UsageWindow } from "../shared/usage.js";
-import { catalogue, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
+import { catalogue, geminiContextWindow, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
 import { antigravityModelOf, devinFamilyOf, isModelId, modelLabel } from "../shared/models.js";
 import type { AttachmentRef, EditEvent, RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
 import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
@@ -233,7 +233,8 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     // assumption, which is worse than the truth but better than nothing.
     const listed = (await this.catalogue().catch(() => [] as Listed[]))
       .find((m) => m.id === model);
-    return { key: this.routerKey, contextLength: listed?.contextLength ?? null };
+    const contextLength = listed?.contextLength ?? geminiContextWindow(model) ?? null;
+    return { key: this.routerKey, contextLength };
   }
 
   /**

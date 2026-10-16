@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AntigravitySession } from "../src/daemon/antigravity-session.js";
+import { antigravityContextWindow } from "../src/daemon/antigravity-models.js";
+import { contextTone, fractionUsed } from "../src/shared/context-window.js";
 
 async function makeHarness(mode = "normal") {
   const dir = await mkdtemp(join(tmpdir(), "bench-agy-sess-test-"));
@@ -161,7 +163,35 @@ describe("AntigravitySession", () => {
     expect(turnEndEvent.usage.totalTokens).toBe(160);
     expect(session.turnTokens).toBe(160);
     expect(session.contextUsed?.used).toBe(130); // inTokens (120) + cacheRead (10)
+    expect(session.contextUsed?.window).toBe(1_048_576);
+    expect(contextTone(session.contextUsed)).toBe("ok");
+    expect(fractionUsed(session.contextUsed)! < 0.10).toBe(true);
 
     session.stop();
+  });
+
+  it("computes context window per model family (#171)", () => {
+    expect(antigravityContextWindow()).toBe(1_048_576);
+    expect(antigravityContextWindow("gemini-3.8-flash-high")).toBe(1_048_576);
+    expect(antigravityContextWindow("gemini-4-argon-high")).toBe(1_048_576);
+    expect(antigravityContextWindow("gemini-2.5-pro")).toBe(2_097_152);
+    expect(antigravityContextWindow("claude-opus-5-5-high")).toBe(1_000_000);
+  });
+
+  it("reports turnAnsweredBy prefixed with agy: (#171)", () => {
+    const defaultSession = new AntigravitySession({
+      id: "sess-default",
+      worktree: tmpdir(),
+      reportsDir: tmpdir(),
+    });
+    expect(defaultSession.turnAnsweredBy).toEqual(["agy"]);
+
+    const namedSession = new AntigravitySession({
+      id: "sess-named",
+      worktree: tmpdir(),
+      reportsDir: tmpdir(),
+      model: "gemini-3.8-flash-high",
+    });
+    expect(namedSession.turnAnsweredBy).toEqual(["agy:gemini-3.8-flash-high"]);
   });
 });
