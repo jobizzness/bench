@@ -1,4 +1,8 @@
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import type { Context } from "../shared/context-window.js";
 
 /** One entry in the Antigravity model picker. */
 export interface AntigravityModel {
@@ -29,6 +33,37 @@ export function antigravityContextWindow(model?: string): number {
   if (lower.includes("claude") || lower.includes("opus") || lower.includes("sonnet") || lower.includes("haiku")) return 1_000_000;
   if (lower.includes("120b")) return 131_072;
   return 1_048_576;
+}
+
+/**
+ * Recovers the true context token usage from the specialist's transcript on disk
+ * when stored usage was inflated by cumulative multi-turn process tokens (#171).
+ */
+export async function recoverAntigravityContext(
+  runtimeSessionId?: string,
+  model?: string,
+): Promise<Context | null> {
+  if (!runtimeSessionId) return null;
+  const brainDir = process.env.BENCH_AGY_BRAIN_DIR ?? join(homedir(), ".gemini", "antigravity-cli", "brain");
+  const transcriptPath = join(brainDir, runtimeSessionId, ".system_generated", "logs", "transcript.jsonl");
+  try {
+    const content = await readFile(transcriptPath, "utf8");
+    const lines = content.trim().split("\n");
+    const window = antigravityContextWindow(model);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const step = JSON.parse(line) as { input_tokens?: unknown; cache_read_tokens?: unknown };
+      const inp = typeof step.input_tokens === "number" ? step.input_tokens : 0;
+      const cache = typeof step.cache_read_tokens === "number" ? step.cache_read_tokens : 0;
+      if (inp + cache > 0) {
+        return { used: inp + cache, window };
+      }
+    }
+  } catch {
+    // Transcript not available or unreadable
+  }
+  return null;
 }
 
 let cachedModels: AntigravityModel[] | null = [...DEFAULT_ANTIGRAVITY_MODELS];

@@ -70,6 +70,9 @@ export class AntigravitySession extends EventEmitter implements Session {
   private running = false;
   private startedAt: number | null = null;
   private tokens = 0;
+  private lastStepContextTokens = 0;
+  private lifetimeTotalTokens = 0;
+  private turnStartLifetimeTokens = 0;
   private context: Context | null = null;
   private queued: Prompt[] = [];
   private lastStderr = "";
@@ -195,9 +198,13 @@ export class AntigravitySession extends EventEmitter implements Session {
       if (usage) {
         const input = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
         const output = typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+        const cacheRead = typeof usage.cache_read_tokens === "number" ? usage.cache_read_tokens : 0;
         const total = typeof usage.total_tokens === "number" ? usage.total_tokens : input + output;
+        if (input + cacheRead > 0) {
+          this.lastStepContextTokens = input + cacheRead;
+        }
         if (total > 0) {
-          this.tokens = total;
+          this.tokens = Math.max(this.tokens, total);
           this.emit("progress");
         }
       }
@@ -230,11 +237,33 @@ export class AntigravitySession extends EventEmitter implements Session {
       const outTokens = typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
       const cacheRead = typeof usage.cache_read_tokens === "number" ? usage.cache_read_tokens : 0;
       const total = typeof usage.total_tokens === "number" ? usage.total_tokens : inTokens + outTokens;
-      this.tokens = total;
+
+      // agy reports cumulative total tokens across all turns in the process lifecycle.
+      // Compute this turn's spend as delta above what had accumulated before this turn started.
+      if (total >= this.turnStartLifetimeTokens && this.turnStartLifetimeTokens > 0) {
+        this.tokens = total - this.turnStartLifetimeTokens;
+      } else {
+        this.tokens = total;
+      }
+      this.lifetimeTotalTokens = Math.max(this.lifetimeTotalTokens, total);
+
       const window = typeof usage.context_window === "number" && usage.context_window > 0
         ? usage.context_window
         : antigravityContextWindow(this.opts.model);
-      this.context = { used: inTokens + cacheRead, window };
+
+      // What the conversation actually occupies in the model's context window is what the
+      // last model request sent (input_tokens + cache_read_tokens). result.usage.input_tokens
+      // is the cumulative sum of all requests across tool steps (and across turns), which
+      // quickly exceeds the window. If no step_update usage was captured, fall back to
+      // inTokens + cacheRead, clamped to window.
+      let used = this.lastStepContextTokens;
+      if (used <= 0) {
+        used = inTokens + cacheRead;
+      }
+      if (used > window) {
+        used = this.context?.used && this.context.used <= window ? this.context.used : Math.min(used, window);
+      }
+      this.context = { used, window };
 
       const status = typeof result.status === "string" ? result.status : "SUCCESS";
       const isError = status === "ERROR";
@@ -245,7 +274,7 @@ export class AntigravitySession extends EventEmitter implements Session {
         session_id: (typeof result.conversation_id === "string" ? result.conversation_id : this.sessionId) ?? this.opts.id,
         result: reply,
         usage: {
-          totalTokens: total,
+          totalTokens: this.tokens,
           inputTokens: inTokens,
           outputTokens: outTokens,
           cachedReadTokens: cacheRead,
@@ -295,6 +324,8 @@ export class AntigravitySession extends EventEmitter implements Session {
     this.turnCount = turn;
     this.startedAt = Date.now();
     this.tokens = 0;
+    this.lastStepContextTokens = 0;
+    this.turnStartLifetimeTokens = this.lifetimeTotalTokens;
     this.accumulatedText = "";
     mkdirSync(this.opts.reportsDir, { recursive: true });
     writeFileSync(join(this.opts.reportsDir, ".turn"), String(turn));

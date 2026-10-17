@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AntigravitySession } from "../src/daemon/antigravity-session.js";
-import { antigravityContextWindow } from "../src/daemon/antigravity-models.js";
+import { antigravityContextWindow, recoverAntigravityContext } from "../src/daemon/antigravity-models.js";
 import { contextTone, fractionUsed } from "../src/shared/context-window.js";
 
 async function makeHarness(mode = "normal") {
@@ -16,6 +16,7 @@ async function makeHarness(mode = "normal") {
   const script = `#!/usr/bin/env node
 const mode = ${JSON.stringify(mode)};
 let carry = "";
+let turnCounter = 0;
 const send = (v) => process.stdout.write(JSON.stringify(v) + "\\n");
 
 send({ event: "init", conversation_id: "agy-conv-777" });
@@ -43,6 +44,41 @@ process.stdin.on("data", (chunk) => {
           }),
           usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
         });
+      } else if (mode === "multiturn") {
+        turnCounter++;
+        if (turnCounter === 1) {
+          send({
+            event: "step_update",
+            step_update: {
+              step_type: "agent_response",
+              state: "DONE",
+              usage: { input_tokens: 1000, output_tokens: 50, total_tokens: 1050 },
+            },
+          });
+          send({
+            event: "result",
+            conversation_id: "agy-conv-777",
+            status: "SUCCESS",
+            response: "Turn 1 done",
+            usage: { input_tokens: 1000, output_tokens: 50, total_tokens: 1050 },
+          });
+        } else {
+          send({
+            event: "step_update",
+            step_update: {
+              step_type: "agent_response",
+              state: "DONE",
+              usage: { input_tokens: 1500, output_tokens: 50, total_tokens: 1550 },
+            },
+          });
+          send({
+            event: "result",
+            conversation_id: "agy-conv-777",
+            status: "SUCCESS",
+            response: "Turn 2 done",
+            usage: { input_tokens: 2500, output_tokens: 100, total_tokens: 2600 },
+          });
+        }
       } else {
         send({
           event: "step_update",
@@ -54,11 +90,19 @@ process.stdin.on("data", (chunk) => {
           },
         });
         send({
+          event: "step_update",
+          step_update: {
+            step_type: "agent_response",
+            state: "DONE",
+            usage: { input_tokens: 120, output_tokens: 40, total_tokens: 160, cache_read_tokens: 10 },
+          },
+        });
+        send({
           event: "result",
           conversation_id: "agy-conv-777",
           status: "SUCCESS",
           response: "Finished turn successfully.",
-          usage: { input_tokens: 120, output_tokens: 40, total_tokens: 160, cache_read_tokens: 10 },
+          usage: { input_tokens: 200, output_tokens: 60, total_tokens: 260, cache_read_tokens: 10 },
         });
       }
     }
@@ -160,9 +204,9 @@ describe("AntigravitySession", () => {
     expect(turnReply).toBe("Finished turn successfully.");
     expect(turnEndEvent.type).toBe("result");
     expect(turnEndEvent.is_error).toBe(false);
-    expect(turnEndEvent.usage.totalTokens).toBe(160);
-    expect(session.turnTokens).toBe(160);
-    expect(session.contextUsed?.used).toBe(130); // inTokens (120) + cacheRead (10)
+    expect(turnEndEvent.usage.totalTokens).toBe(260);
+    expect(session.turnTokens).toBe(260);
+    expect(session.contextUsed?.used).toBe(130); // inTokens (120) + cacheRead (10) from agent_response step
     expect(session.contextUsed?.window).toBe(1_048_576);
     expect(contextTone(session.contextUsed)).toBe("ok");
     expect(fractionUsed(session.contextUsed)! < 0.10).toBe(true);
@@ -193,5 +237,76 @@ describe("AntigravitySession", () => {
       model: "gemini-3.8-flash-high",
     });
     expect(namedSession.turnAnsweredBy).toEqual(["agy:gemini-3.8-flash-high"]);
+  });
+
+  it("tracks context and token delta across multiple turns without inflating (#171)", async () => {
+    const { worktree, reportsDir, agyBin } = await makeHarness("multiturn");
+    const session = new AntigravitySession({
+      id: "sess-multiturn",
+      worktree,
+      reportsDir,
+      agyBin,
+      model: "gemini-3.8-flash-high",
+    });
+
+    let turnEnd1: any = null;
+    session.on("turn-end", (end) => { turnEnd1 = end; });
+    session.send("Turn 1 message");
+
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        if (turnEnd1) { clearInterval(interval); resolve(); }
+      }, 20);
+    });
+
+    expect(session.contextUsed?.used).toBe(1000);
+    expect(session.turnTokens).toBe(1050);
+    expect(contextTone(session.contextUsed)).toBe("ok");
+
+    let turnEnd2: any = null;
+    session.removeAllListeners("turn-end");
+    session.on("turn-end", (end) => { turnEnd2 = end; });
+    session.send("Turn 2 message");
+
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        if (turnEnd2) { clearInterval(interval); resolve(); }
+      }, 20);
+    });
+
+    // In Turn 2, agy reported cumulative total 2600, delta spend for this turn is 1550 (2600 - 1050)
+    expect(session.turnTokens).toBe(1550);
+    // Context used is the latest request (1500), not cumulative 2500
+    expect(session.contextUsed?.used).toBe(1500);
+    expect(session.contextUsed?.window).toBe(1_048_576);
+    expect(contextTone(session.contextUsed)).toBe("ok");
+    expect(fractionUsed(session.contextUsed)! < 0.01).toBe(true);
+
+    session.stop();
+  });
+
+  it("recovers actual context from transcript on disk when stored context is inflated (#171)", async () => {
+    const testDir = await mkdtemp(join(tmpdir(), "bench-recover-test-"));
+    const sid = "test-conv-999";
+    const brainDir = join(testDir, "brain");
+    const transcriptDir = join(brainDir, sid, ".system_generated", "logs");
+    await mkdir(transcriptDir, { recursive: true });
+
+    const lines = [
+      JSON.stringify({ step_index: 0, input_tokens: 1000, cache_read_tokens: 0 }),
+      JSON.stringify({ step_index: 1, input_tokens: 2500, cache_read_tokens: 500 }),
+    ].join("\n") + "\n";
+    await writeFile(join(transcriptDir, "transcript.jsonl"), lines);
+
+    process.env.BENCH_AGY_BRAIN_DIR = brainDir;
+    try {
+      const recovered = await recoverAntigravityContext(sid, "gemini-3.8-flash-high");
+      expect(recovered).not.toBeNull();
+      expect(recovered?.used).toBe(3000); // 2500 + 500 from the latest step
+      expect(recovered?.window).toBe(1_048_576);
+      expect(contextTone(recovered)).toBe("ok");
+    } finally {
+      delete process.env.BENCH_AGY_BRAIN_DIR;
+    }
   });
 });

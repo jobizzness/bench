@@ -30,6 +30,7 @@ import { isOauthToken, isUsageLimitError, limitResetsAt, type ManagedKey } from 
 import { fullestPercent, type Usage, type UsageWindow } from "../shared/usage.js";
 import { catalogue, geminiContextWindow, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
 import { antigravityModelOf, devinFamilyOf, isModelId, modelLabel } from "../shared/models.js";
+import { antigravityContextWindow, recoverAntigravityContext } from "./antigravity-models.js";
 import type { AttachmentRef, EditEvent, RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
 import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
 import { costFrom, shapeFrom } from "./stream-codec.js";
@@ -839,6 +840,23 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       const thread = await readThread(join(rec.reportsDir, "thread.jsonl"));
       const held = rec.pendingDispatch ?? null;
       const heldImages = held === null ? [] : await rereadAttachments(rec.reportsDir, rec.pendingImages ?? []);
+
+      let context = rec.context ?? null;
+      let nudged = rec.nudged ?? {};
+      if (context && context.window > 0 && context.used > context.window) {
+        // Stored context was inflated by cumulative multi-turn process tokens (#171).
+        // Recover actual context tokens from transcript, or clear if unavailable.
+        const recovered = await recoverAntigravityContext(rec.runtimeSessionId, rec.model);
+        context = recovered ?? null;
+        if (nudged.context === "full") {
+          nudged = { ...nudged, context: undefined };
+        }
+        if (context) {
+          this.remember(this.store.rememberContext(rec.id, context));
+        }
+        this.remember(this.store.rememberNudged(rec.id, nudged));
+      }
+
       this.entries.set(rec.id, {
         reportsDir: rec.reportsDir,
         threadPath: join(rec.reportsDir, "thread.jsonl"),
@@ -871,7 +889,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         // brief rather than failing the whole restore.
         pendingDispatch: held,
         pendingImages: heldImages,
-        nudged: rec.nudged ?? {},
+        nudged,
         clearCount: rec.clearCount,
         row: {
           id: rec.id,
@@ -891,7 +909,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
           answeredReportSeq: answeredReportSeq(thread),
           startedAt: null,
           tokens: 0,
-          context: rec.context ?? null,
+          context,
           activity: [],
           spend: rec.spend ?? null,
           answeredBy: rec.answeredBy ?? null,
