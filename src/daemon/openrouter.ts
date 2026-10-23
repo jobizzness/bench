@@ -301,6 +301,87 @@ export async function catalogue(fetchImpl: typeof fetch = fetch): Promise<Listed
 }
 
 /**
+ * The text the probe asks both requests to cache.
+ *
+ * Large enough that a cache hit is a real token count rather than rounding, and
+ * stable across calls, because the cache key is the prefix itself - a different
+ * prefix is a different cache entry and reads nothing. The content is a code
+ * review brief, which is the kind of standing prompt a specialist re-sends on
+ * every tool call, so the probe measures the thing the bench actually pays for.
+ */
+const PROBE_PREFIX =
+  "You are a careful code reviewer. Follow the house style: keep functions small, "
+  + "one job each; comments explain why, not what; TypeScript strict; no AI "
+  + "attribution in commits. "
+  + Array.from({ length: 80 }, (_, i) => `Rule ${i + 1}: read before you change, and say what you found.`).join(" ");
+
+/**
+ * Whether a model actually delivers the cache-read price its catalogue entry
+ * quotes.
+ *
+ * The catalogue is a promise a model may not keep. deepseek-v4-flash publishes a
+ * cache-read price but returns `cache_read: 0` on an identical second request,
+ * so a specialist re-sending its conversation on every tool call pays full input
+ * every time while Bench's estimate quietly applies the discount. This probe
+ * is the only honest witness: it sends two real requests with the same
+ * `cache_control: ephemeral` prefix and reads the cache-hit count off the
+ * second. Non-zero means the discount is real; zero means the catalogue is
+ * lying.
+ *
+ * Null on any failure, never a guess. A probe that cannot reach the model says
+ * nothing rather than overruling the catalogue on a network blip - leaving the
+ * quoted price trusted is safer than condemning it without evidence. The
+ * caller prices a `null` as "unprobed": the cache discount stands, which is
+ * what every model was assumed to do before this existed.
+ */
+export async function probeCaching(
+  id: string,
+  key: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean | null> {
+  const ask = () => fetchImpl(messagesUrl(CLI_BASE_URL), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${key}`,
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    signal: AbortSignal.timeout(20_000),
+    body: JSON.stringify({
+      model: id,
+      max_tokens: 1,
+      system: [{ type: "text", text: PROBE_PREFIX, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: "ok" }],
+    }),
+  });
+
+  try {
+    const first = await ask();
+    if (!first.ok) return null;
+    // Drain the first body so the connection can be reused, then ask again
+    // with the identical prefix - the cache hit lands on the second request.
+    await first.json();
+    const second = await ask();
+    if (!second.ok) return null;
+
+    const body = await second.json() as { usage?: { cache_read_input_tokens?: unknown } };
+    const read = body?.usage?.cache_read_input_tokens;
+    // A 200 whose usage field is missing or not a number is not a cache
+    // reading at all - a proxy's login page or a shape that has moved, both of
+    // which read as 200. Reporting "does not cache" off one of those would be
+    // overruling the catalogue on no evidence, so it is null: the probe could
+    // not tell.
+    if (typeof read !== "number" || !Number.isFinite(read)) return null;
+    return read > 0;
+  } catch {
+    // Offline, DNS, or the timeout. Says nothing about whether the model
+    // caches - only that the probe could not tell.
+    return null;
+  }
+}
+
+/**
  * The environment a child `claude` needs to be answered by OpenRouter.
  *
  * Three variables and no more. The key goes in ANTHROPIC_API_KEY because that

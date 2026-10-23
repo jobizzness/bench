@@ -49,6 +49,27 @@ describe("costing a turn", () => {
     expect(costOfTurn({ freshIn: 0, cacheWrite: 0, cacheRead: 1_000_000, out: 0 }, nocache)).toBe(1);
   });
 
+  it("charges fresh for cached tokens on a model that quotes a cache it does not deliver", () => {
+    // The catalogue lies: deepseek-v4-flash publishes a cache-read price but
+    // returns cache_read: 0 on an identical second request, so a specialist
+    // re-sending its conversation on every tool call pays full input every
+    // time. A `caches: false` price says "the cache price is a brochure
+    // figure, not a real one" - and is charged the same as a model that
+    // never quoted one, because that is what happens in practice.
+    const lying: Price = { fresh: 1, cacheWrite: 1, cacheRead: 0.1, out: 1, caches: false };
+
+    expect(costOfTurn({ freshIn: 0, cacheWrite: 0, cacheRead: 1_000_000, out: 0 }, lying)).toBe(1);
+  });
+
+  it("honours the cache price on a model that has been shown to cache", () => {
+    // The same price, but with the flag the probe sets once it has watched a
+    // second request come back from cache. The discount is real, so it is
+    // taken - unlike the lying price above.
+    const honest: Price = { fresh: 1, cacheWrite: 1, cacheRead: 0.1, out: 1, caches: true };
+
+    expect(costOfTurn({ freshIn: 0, cacheWrite: 0, cacheRead: 1_000_000, out: 0 }, honest)).toBe(0.1);
+  });
+
   it("says nothing at all when a price is not quoted", () => {
     // A total that quietly leaves out output cost looks like an answer.
     const partial: Price = { fresh: 1, cacheWrite: 1, cacheRead: 1, out: null };

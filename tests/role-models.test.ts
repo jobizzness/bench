@@ -38,8 +38,14 @@ describe("the table itself", () => {
 
 describe("choosing the model for a role", () => {
   it("is the built-in answer when nobody has said otherwise", () => {
+    // deepseek-v4-flash does not cache through OpenRouter - measured: a second
+    // identical request came back cache_read 0 - and the catalogue quotes a
+    // cache-read price it never delivers. A researcher re-sends its whole
+    // conversation on every tool call, so a model that does not cache is the
+    // one workload where that leak bites hardest. qwen3-coder-flash caches
+    // (12x cost drop on the second request) and holds a million-token window.
     expect(modelForRole("researcher", { viaRouter: true }))
-      .toBe("deepseek/deepseek-v4-flash");
+      .toBe("qwen/qwen3-coder-flash");
   });
 
   it("puts a coding model on both roles that read and write code", () => {

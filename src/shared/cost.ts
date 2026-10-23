@@ -84,6 +84,26 @@ export interface Tier extends Rate {
 export interface Price extends Rate {
   /** Dearer rates for larger prompts, cheapest first. Absent for most models. */
   tiers?: readonly Tier[];
+  /**
+   * Whether the model actually delivers the cache-read price it quotes.
+   *
+   * The catalogue is a promise a model may not keep. deepseek-v4-flash publishes
+   * a cache-read rate but returns `cache_read: 0` on an identical second request,
+   * so a specialist re-sending its conversation on every tool call pays full
+   * input every time while Bench's estimate quietly applies the discount. The
+   * flag is set by a probe that watches a real second request, not by the
+   * catalogue - which is the only honest source, since the catalogue is the
+   * thing lying.
+   *
+   * Absent means "not probed": the cache price is trusted, which is what every
+   * price written before this existed did and keeps doing. `false` means
+   * "probed and does not cache": the cache-read and cache-write prices are
+   * ignored and cached tokens are charged fresh, because that is what happens
+   * in practice - a model that does not cache re-reads the conversation at
+   * full price. `true` means "probed and it does cache": the discount is real
+   * and is taken.
+   */
+  caches?: boolean;
 }
 
 /**
@@ -188,8 +208,12 @@ export function costOfTurn(shape: TurnShape, price: Price): number | null {
   const rate = prompt === null ? price : rateForPrompt(price, prompt);
   if (rate.fresh === null || rate.out === null) return null;
 
-  const cacheRead = rate.cacheRead ?? rate.fresh;
-  const cacheWrite = rate.cacheWrite ?? rate.fresh;
+  // A model that has been probed and does not cache charges fresh for the
+  // tokens it pretends to read from cache - see Price.caches. The probe is the
+  // only source that can say this, because the catalogue is the thing lying:
+  // deepseek-v4-flash quotes a cache-read price and returns cache_read: 0.
+  const cacheRead = price.caches === false ? rate.fresh : (rate.cacheRead ?? rate.fresh);
+  const cacheWrite = price.caches === false ? rate.fresh : (rate.cacheWrite ?? rate.fresh);
 
   return (
     shape.freshIn * rate.fresh

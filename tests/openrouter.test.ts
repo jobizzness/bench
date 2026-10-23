@@ -7,6 +7,7 @@ import {
   vendorOf,
   checkKey,
   catalogue,
+  probeCaching,
   sessionEnv,
   credit,
   creditSource,
@@ -790,5 +791,79 @@ describe("the credit the meter reads", () => {
     await source();
 
     expect(calls()).toBe(2);
+  });
+});
+
+/**
+ * Whether a model actually delivers the cache-read price it quotes.
+ *
+ * The catalogue is a promise; the probe is the witness. deepseek-v4-flash
+ * publishes a cache-read price but returns cache_read 0 on an identical second
+ * request, so a specialist re-sending its conversation pays full input every
+ * time while the estimate quietly applies the discount. The probe sends two
+ * real requests with cache_control: ephemeral and reads the cache-hit count
+ * off the second - the only honest source, since the catalogue is the thing
+ * lying.
+ */
+describe("whether a model caches", () => {
+  /** A fetch that answers /v1/messages twice, recording what was asked. */
+  function answering(...responses: Array<{ body?: unknown; status?: number }>) {
+    const seen: Array<{ url: string; auth: string | null; body: string }> = [];
+    const impl = (async (url: string, init?: RequestInit) => {
+      seen.push({
+        url: String(url),
+        auth: new Headers(init?.headers).get("authorization"),
+        body: String(init?.body ?? ""),
+      });
+      const answer = responses[Math.min(seen.length - 1, responses.length - 1)]!;
+      return new Response(JSON.stringify(answer.body ?? {}), { status: answer.status ?? 200 });
+    }) as unknown as typeof fetch;
+    return { impl, seen };
+  }
+
+  /** A messages response with the given cache-read count. */
+  const replied = (cacheRead: number) => ({
+    body: { content: [{ type: "text", text: "ok" }], usage: { cache_read_input_tokens: cacheRead } },
+  });
+
+  it("says a model caches when the second request read from cache", async () => {
+    const { impl, seen } = answering(replied(0), replied(16_128));
+
+    expect(await probeCaching("z-ai/glm-5.2", "sk-or-v1-abc", impl)).toBe(true);
+    expect(seen).toHaveLength(2);
+    expect(seen[0].url).toBe(messagesUrl(CLI_BASE_URL));
+    expect(seen[1].url).toBe(messagesUrl(CLI_BASE_URL));
+    expect(seen[0].auth).toBe("Bearer sk-or-v1-abc");
+  });
+
+  it("says a model does not cache when the second request read nothing", async () => {
+    // deepseek-v4-flash's signature: identical second request, cache_read 0.
+    const { impl } = answering(replied(0), replied(0));
+
+    expect(await probeCaching("deepseek/deepseek-v4-flash", "sk-or-v1-abc", impl)).toBe(false);
+  });
+
+  it("marks the prefix as ephemeral, so OpenRouter knows what to cache", async () => {
+    const { impl, seen } = answering(replied(0), replied(1));
+    await probeCaching("x/y", "k", impl);
+
+    expect(seen[0].body).toContain("cache_control");
+    expect(seen[0].body).toContain("ephemeral");
+    expect(seen[1].body).toContain("cache_control");
+  });
+
+  it("says nothing when the model will not answer at all", async () => {
+    // Never a guess. A probe that cannot reach the model says null rather
+    // than overruling it - leaving the catalogue's price trusted is safer
+    // than overruling it on a network blip.
+    expect(await probeCaching("x/y", "k", answering({ status: 500 }).impl)).toBeNull();
+    expect(await probeCaching("x/y", "k", answering({ status: 429 }).impl)).toBeNull();
+  });
+
+  it("says nothing when the answer is not the shape it promised", async () => {
+    expect(await probeCaching("x/y", "k", answering({ body: {} }, { body: {} }).impl)).toBeNull();
+    expect(
+      await probeCaching("x/y", "k", answering(replied(0), { body: { usage: {} } }).impl),
+    ).toBeNull();
   });
 });

@@ -51,9 +51,9 @@ export const ROLE_MODELS: Record<Role, RoleModel> = {
     because: "Reads code for a living, holds a whole branch, and costs a seventh of what it reviews.",
   },
   researcher: {
-    preferred: "deepseek/deepseek-v4-flash",
+    preferred: "qwen/qwen3-coder-flash",
     direct: "haiku",
-    because: "Reads a great deal and judges little, so the window matters more than the reasoning.",
+    because: "Reads a great deal and judges little, so the window matters more than the reasoning - and re-sends the whole conversation on every tool call, so a model that caches matters more than a cheaper one that does not.",
   },
   assessor: {
     preferred: "google/gemini-3.1-pro-preview",

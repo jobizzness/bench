@@ -234,7 +234,7 @@ describe("the model a role starts on", () => {
     await open();
 
     await ui.pick(ui.$("#f-role"), "researcher");
-    expect(ui.$("#f-model")!.textContent).toBe("deepseek-v4-flash");
+    expect(ui.$("#f-model")!.textContent).toBe("qwen3-coder-flash");
 
     await ui.pick(ui.$("#f-role"), "planner");
     expect(ui.$("#f-model")!.textContent).toBe("Opus 5");
