@@ -156,8 +156,9 @@ export function DecisionSheet({
   // while `row` is set; the fallbacks here only matter for the type and for
   // the dialog sitting dismissed with nothing selected, never for what
   // actually renders while open.
+  const activeReport = open || contentOpen;
   const { content, failed: reportFailed, frameLoaded, frameRef, onFrameLoad } =
-    useReportFrame(row?.id ?? "", row?.latestReportSeq ?? 0);
+    useReportFrame(activeReport ? (row?.id ?? "") : "", activeReport ? (row?.latestReportSeq ?? 0) : 0);
 
   /**
    * The exit, once the answer has actually posted: the row underneath starts

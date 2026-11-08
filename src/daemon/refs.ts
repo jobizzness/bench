@@ -144,11 +144,16 @@ export const slugFromGit: SlugReader = async (project) => {
   }
 };
 
+const MAX_CONCURRENT_RESOLVES = 4;
+
 export class RefIndex {
   private slugs = new Map<string, string | null>();
+  private inFlightSlugs = new Map<string, Promise<string | null>>();
   private refs = new Map<string, { ref: Ref | null; at: number }>();
+  private inFlightRefs = new Map<string, Promise<Ref | null>>();
 
   private lists = new Map<string, { items: Item[]; at: number }>();
+  private inFlightLists = new Map<string, Promise<Item[]>>();
 
   private readonly resolve: Resolver;
   private readonly list: Lister;
@@ -186,8 +191,17 @@ export class RefIndex {
       return { slug, items: cached.items };
     }
 
-    const items = await this.list(slug, limit);
-    this.lists.set(slug, { items, at: this.now() });
+    let pending = this.inFlightLists.get(slug);
+    if (!pending) {
+      pending = this.list(slug, limit).then((items) => {
+        this.lists.set(slug, { items, at: this.now() });
+        return items;
+      }).finally(() => {
+        this.inFlightLists.delete(slug);
+      });
+      this.inFlightLists.set(slug, pending);
+    }
+    const items = await pending;
     return { slug, items };
   }
 
@@ -195,9 +209,37 @@ export class RefIndex {
     const known = this.slugs.get(project);
     if (known !== undefined) return known;
 
-    const slug = await this.readSlug(project);
-    this.slugs.set(project, slug);
-    return slug;
+    let pending = this.inFlightSlugs.get(project);
+    if (!pending) {
+      pending = this.readSlug(project).then((slug) => {
+        this.slugs.set(project, slug);
+        return slug;
+      }).finally(() => {
+        this.inFlightSlugs.delete(project);
+      });
+      this.inFlightSlugs.set(project, pending);
+    }
+    return pending;
+  }
+
+  private resolveOne(slug: string, number: number): Promise<Ref | null> {
+    const key = `${slug}#${number}`;
+    const cached = this.refs.get(key);
+    if (cached && this.now() - cached.at < this.maxAgeMs) return Promise.resolve(cached.ref);
+
+    let pending = this.inFlightRefs.get(key);
+    if (!pending) {
+      pending = this.resolve(slug, number).then((ref) => {
+        // Failures are cached too, or every render retries a number that will
+        // never resolve.
+        this.refs.set(key, { ref, at: this.now() });
+        return ref;
+      }).finally(() => {
+        this.inFlightRefs.delete(key);
+      });
+      this.inFlightRefs.set(key, pending);
+    }
+    return pending;
   }
 
   /** Only what resolved. A number with no answer is simply absent, and the
@@ -207,17 +249,21 @@ export class RefIndex {
     if (!slug) return [];
 
     const wanted = [...new Set(numbers)].filter((n) => Number.isInteger(n) && n > 0);
-    const found = await Promise.all(wanted.map(async (number) => {
-      const key = `${slug}#${number}`;
-      const cached = this.refs.get(key);
-      if (cached && this.now() - cached.at < this.maxAgeMs) return cached.ref;
+    const found: Array<Ref | null> = new Array(wanted.length).fill(null);
+    let cursor = 0;
 
-      const ref = await this.resolve(slug, number);
-      // Failures are cached too, or every render retries a number that will
-      // never resolve.
-      this.refs.set(key, { ref, at: this.now() });
-      return ref;
-    }));
+    const worker = async () => {
+      while (cursor < wanted.length) {
+        const index = cursor++;
+        found[index] = await this.resolveOne(slug, wanted[index]);
+      }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(MAX_CONCURRENT_RESOLVES, wanted.length) },
+      () => worker(),
+    );
+    await Promise.all(workers);
 
     return found.filter((ref): ref is Ref => ref !== null);
   }

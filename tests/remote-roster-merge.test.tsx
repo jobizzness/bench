@@ -158,6 +158,33 @@ describe("useRoster with a signed-in Firebase user", () => {
     expect(data.watching).toBe("");
   });
 
+  it("heartbeats the owning machine immediately when its roster arrives for a watched session, without repeating on every mirror tick", async () => {
+    currentUser.value = { uid: "u1" };
+    mount("s9");
+    await act(async () => {});
+    emitCollection("users/u1/machines", [{ id: "m2", data: { name: "desktop", lastSeen: Date.now() } }]);
+    await act(async () => {});
+
+    // Initial heartbeat before m2's roster arrived had watching: "".
+    expect(updateDocMock).toHaveBeenCalledTimes(1);
+    expect((updateDocMock.mock.calls[0] as any)[2].watching).toBe("");
+
+    // Now m2's roster arrives containing s9 -> immediately sends watching: "s9".
+    emitDoc("users/u1/machines/m2/mirror/roster", {
+      payload: encode([{ id: "s9", broadcast: true } as any]),
+    });
+    await act(async () => {});
+    expect(updateDocMock).toHaveBeenCalledTimes(2);
+    expect((updateDocMock.mock.calls[1] as any)[2].watching).toBe("s9");
+
+    // Subsequent mirror updates for the same session do not trigger extra heartbeats.
+    emitDoc("users/u1/machines/m2/mirror/roster", {
+      payload: encode([{ id: "s9", broadcast: true, detail: "next step" } as any]),
+    });
+    await act(async () => {});
+    expect(updateDocMock).toHaveBeenCalledTimes(2);
+  });
+
   it("marks a machine with no recent heartbeat as asleep", async () => {
     currentUser.value = { uid: "u1" };
     mount();

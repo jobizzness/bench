@@ -1,4 +1,4 @@
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
@@ -67,6 +67,7 @@ export interface Total {
 
 export class Ledger {
   private readonly path: string;
+  private cache: { mtimeMs: number; size: number; entries: Entry[] } | null = null;
 
   constructor(home: string) {
     this.path = join(home, "spend.jsonl");
@@ -83,8 +84,20 @@ export class Ledger {
    * the ledger already tolerates for a crash mid-write.
    */
   async record(entry: Entry): Promise<void> {
+    const line = JSON.stringify(entry) + "\n";
     try {
-      await appendFile(this.path, JSON.stringify(entry) + "\n");
+      await appendFile(this.path, line);
+      if (this.cache && isEntry(entry)) {
+        const expectedSize = this.cache.size + Buffer.byteLength(line, "utf8");
+        const st = await stat(this.path);
+        if (st.size === expectedSize) {
+          this.cache.entries.push(entry);
+          this.cache.mtimeMs = st.mtimeMs;
+          this.cache.size = st.size;
+        } else {
+          this.cache = null;
+        }
+      }
     } catch {
       // Deliberately silent. See above.
     }
@@ -100,11 +113,17 @@ export class Ledger {
    */
   async all(): Promise<Entry[]> {
     let raw: string;
+    let st: { mtimeMs: number; size: number };
     try {
+      st = await stat(this.path);
+      if (this.cache && this.cache.mtimeMs === st.mtimeMs && this.cache.size === st.size) {
+        return this.cache.entries;
+      }
       raw = await readFile(this.path, "utf8");
     } catch {
       // No ledger yet is an empty one. A bench that has never billed a turn
       // is not a bench with a problem.
+      this.cache = null;
       return [];
     }
 
@@ -118,6 +137,7 @@ export class Ledger {
         // A half-written last line. Skip it and keep the rest.
       }
     }
+    this.cache = { mtimeMs: st.mtimeMs, size: st.size, entries };
     return entries;
   }
 

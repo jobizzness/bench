@@ -63,6 +63,15 @@ describe("useReportFrame when the report cannot be loaded", () => {
     expect((latest as { failed: boolean }).failed).toBe(false);
     expect((latest as { content: unknown }).content).toEqual({ kind: "url", url: "http://d/r/s1/3/report.html" });
   });
+
+  it("does not call loadArtifact when sessionId is empty or seq is 0", async () => {
+    mount("", 0);
+    await act(async () => { await Promise.resolve(); });
+    mount("s1", 0);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(loadArtifact).not.toHaveBeenCalled();
+  });
 });
 
 const plain: Decision = {
@@ -97,5 +106,26 @@ describe("DecisionSheet when the report cannot be loaded", () => {
     expect(host.querySelector("#unblock-report-failed")).not.toBeNull();
     expect(host.querySelector("#unblock-frame")).toBeNull();
     expect(host.querySelector("#unblock-options .option")).not.toBeNull();
+  });
+
+  it("does not fetch the report while DecisionSheet is closed", async () => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(
+        <DecisionSheet
+          open={false}
+          row={row({ id: "a", latestReportSeq: 1 })}
+          decision={plain}
+          waitingCount={1}
+          onAnswered={() => {}}
+          onClose={() => {}}
+        />,
+      );
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(loadArtifact).not.toHaveBeenCalled();
   });
 });

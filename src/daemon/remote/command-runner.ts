@@ -47,6 +47,8 @@ export type LocalCaller = (
  * Returns how many Firestore writes this pass made, so the caller can charge
  * the write budget without this module needing to know about it.
  */
+const inFlightCommands = new Set<string>();
+
 export async function runPendingCommands(
   client: FirestoreClient,
   uid: string,
@@ -56,24 +58,32 @@ export async function runPendingCommands(
 ): Promise<number> {
   const broadcast = new Set(broadcastRows.map((r) => r.id));
   const pending = await client.list(commandsPath(uid, machineId));
-  let writes = 0;
 
-  for (const { id, data } of pending) {
-    const method = String(data.method ?? "GET");
-    const path = String(data.path ?? "");
-    const bodyText = typeof data.body === "string" ? data.body : "";
+  const counts = await Promise.all(pending.map(async ({ id, data }) => {
+    const key = `${uid}/${machineId}/${id}`;
+    if (inFlightCommands.has(key)) return 0;
+    inFlightCommands.add(key);
+    try {
+      const method = String(data.method ?? "GET");
+      const path = String(data.path ?? "");
+      const bodyText = typeof data.body === "string" ? data.body : "";
 
-    const namedSession = sessionIdIn(path);
-    const result: ResultDoc = namedSession !== null && !broadcast.has(namedSession)
-      ? { status: 403, contentType: "application/json", body: encode({ error: "this specialist is not broadcast" }) }
-      : await run(callLocal, method, path, bodyText);
+      const namedSession = sessionIdIn(path);
+      const result: ResultDoc = namedSession !== null && !broadcast.has(namedSession)
+        ? { status: 403, contentType: "application/json", body: encode({ error: "this specialist is not broadcast" }) }
+        : await run(callLocal, method, path, bodyText);
 
-    await client.set(resultPath(uid, machineId, id), result as unknown as Record<string, string | number>);
-    writes += 1;
-    await client.remove(`${commandsPath(uid, machineId)}/${id}`);
-  }
+      await Promise.all([
+        client.set(resultPath(uid, machineId, id), result as unknown as Record<string, string | number>),
+        client.remove(`${commandsPath(uid, machineId)}/${id}`),
+      ]);
+      return 1;
+    } finally {
+      inFlightCommands.delete(key);
+    }
+  }));
 
-  return writes;
+  return counts.reduce<number>((sum, n) => sum + n, 0);
 }
 
 async function run(callLocal: LocalCaller, method: string, path: string, bodyText: string): Promise<ResultDoc> {

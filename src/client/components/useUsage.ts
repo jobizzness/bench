@@ -19,21 +19,37 @@ import type { Usage } from "../../shared/usage.js";
  */
 const EVERY = 60_000;
 
+let inFlightUsage: Promise<Usage | null> | null = null;
+
+async function fetchUsageOnce(): Promise<Usage | null> {
+  if (inFlightUsage) return inFlightUsage;
+  inFlightUsage = (async () => {
+    try {
+      const res = await authFetch("/api/usage");
+      if (!res.ok) return null;
+      return (await res.json()) as Usage;
+    } catch {
+      return null;
+    } finally {
+      inFlightUsage = null;
+    }
+  })();
+  return inFlightUsage;
+}
+
 export function useUsage(): { usage: Usage | null; refresh: () => Promise<void> } {
   const [usage, setUsage] = useState<Usage | null>(null);
 
   const refresh = useCallback(async () => {
-    const res = await authFetch("/api/usage");
-    if (!res.ok) return;
-    setUsage(await res.json());
+    const next = await fetchUsageOnce();
+    if (next !== null) setUsage(next);
   }, []);
 
   useEffect(() => {
     let live = true;
     void (async () => {
-      const res = await authFetch("/api/usage");
-      if (!live || !res.ok) return;
-      setUsage(await res.json());
+      const next = await fetchUsageOnce();
+      if (live && next !== null) setUsage(next);
     })();
     return () => { live = false; };
   }, []);

@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { getDefaultResultOrder, setDefaultResultOrder } from "node:dns";
 import { getDefaultAutoSelectFamilyAttemptTimeout, setDefaultAutoSelectFamilyAttemptTimeout } from "node:net";
 import { CONNECT_ATTEMPT_MS, widenConnectAttempts } from "../src/daemon/network.js";
 
@@ -11,12 +12,18 @@ import { CONNECT_ATTEMPT_MS, widenConnectAttempts } from "../src/daemon/network.
  */
 describe("widenConnectAttempts", () => {
   const original = getDefaultAutoSelectFamilyAttemptTimeout();
-  afterEach(() => setDefaultAutoSelectFamilyAttemptTimeout(original));
+  const originalOrder = getDefaultResultOrder();
+  afterEach(() => {
+    setDefaultAutoSelectFamilyAttemptTimeout(original);
+    setDefaultResultOrder(originalOrder);
+  });
 
-  it("gives each address long enough for a slow handshake", () => {
+  it("gives each address long enough for a slow handshake and prefers ipv4", () => {
     setDefaultAutoSelectFamilyAttemptTimeout(250);
+    setDefaultResultOrder("verbatim");
     widenConnectAttempts();
     expect(getDefaultAutoSelectFamilyAttemptTimeout()).toBe(CONNECT_ATTEMPT_MS);
     expect(CONNECT_ATTEMPT_MS).toBeGreaterThanOrEqual(2000);
+    expect(getDefaultResultOrder()).toBe("ipv4first");
   });
 });

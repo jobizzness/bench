@@ -24,12 +24,16 @@ export function useRefs(sessionId: string | null, entries: ThreadEntry[]): Refer
 
     let live = true;
     void (async () => {
-      const res = await authFetch(`/api/sessions/${sessionId}/refs?n=${key}`);
-      if (!live || !res.ok) return;
-      const body = await res.json();
-      // A number nobody could resolve is simply absent, and renders as the
-      // text it always was.
-      setRefs(new Map((body.refs ?? []).map((r: Reference) => [r.number, r])));
+      try {
+        const res = await authFetch(`/api/sessions/${sessionId}/refs?n=${key}`);
+        if (!live || !res.ok) return;
+        const body = await res.json();
+        // A number nobody could resolve is simply absent, and renders as the
+        // text it always was.
+        if (live) setRefs(new Map((body.refs ?? []).map((r: Reference) => [r.number, r])));
+      } catch {
+        // Leave unresolved numbers as plain text when unreachable.
+      }
     })();
 
     return () => { live = false; };

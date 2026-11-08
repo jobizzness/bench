@@ -54,6 +54,7 @@ export function useReportFrame(sessionId: string, seq: number): ReportFrame {
     setContent(null);
     setFailed(false);
     setFrameLoaded(false);
+    if (!sessionId || seq <= 0) return;
     let live = true;
     loadArtifact(sessionId, seq, "report.html")
       .then((result) => { if (live) setContent(result); })

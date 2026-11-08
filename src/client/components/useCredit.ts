@@ -19,21 +19,37 @@ import type { Credit } from "../../shared/credit.js";
  */
 const EVERY = 60_000;
 
+let inFlightCredit: Promise<Credit | null> | null = null;
+
+async function fetchCreditOnce(): Promise<Credit | null> {
+  if (inFlightCredit) return inFlightCredit;
+  inFlightCredit = (async () => {
+    try {
+      const res = await authFetch("/api/openrouter/usage");
+      if (!res.ok) return null;
+      return (await res.json()) as Credit;
+    } catch {
+      return null;
+    } finally {
+      inFlightCredit = null;
+    }
+  })();
+  return inFlightCredit;
+}
+
 export function useCredit(): { credit: Credit | null; refresh: () => Promise<void> } {
   const [credit, setCredit] = useState<Credit | null>(null);
 
   const refresh = useCallback(async () => {
-    const res = await authFetch("/api/openrouter/usage");
-    if (!res.ok) return;
-    setCredit(await res.json());
+    const next = await fetchCreditOnce();
+    if (next !== null) setCredit(next);
   }, []);
 
   useEffect(() => {
     let live = true;
     void (async () => {
-      const res = await authFetch("/api/openrouter/usage");
-      if (!live || !res.ok) return;
-      setCredit(await res.json());
+      const next = await fetchCreditOnce();
+      if (live && next !== null) setCredit(next);
     })();
     return () => { live = false; };
   }, []);

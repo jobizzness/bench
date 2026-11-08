@@ -183,15 +183,16 @@ function useRemoteRoster(watching: string | null): {
 
   /**
    * What a beat needs to know, held in a ref rather than read from the
-   * closure. The effect below must re-run only when the *set of machines*
-   * changes, and `watching` and `byMachine` change far more often than that
-   * - `byMachine` is a fresh Map on every mirror update. Depending on them
-   * restarted the interval and beat again each time, so a watched live turn
-   * heartbeated every two seconds instead of every sixty: ~1,800 writes an
-   * hour where the design budgets 60.
+   * closure. The interval effect below must re-run only when the *set of
+   * machines* changes, and `byMachine` is a fresh Map on every mirror update.
+   * Depending on `byMachine` restarted the interval and beat again each time,
+   * so a watched live turn heartbeated every two seconds instead of every
+   * sixty: ~1,800 writes an hour where the design budgets 60.
    */
-  const beatState = useRef({ watching, byMachine, machines });
-  beatState.current = { watching, byMachine, machines };
+  const watchedOwner = watching === null ? null : machineOwning(byMachine, watching);
+  const beatState = useRef({ watching, watchedOwner, machines });
+  beatState.current = { watching, watchedOwner, machines };
+  const lastSentWatching = useRef(new Map<string, string | null>());
 
   /** Only the identity of the machines matters here, not the objects - a
    * fresh but value-identical array from a `lastSeen` touch must not
@@ -209,10 +210,11 @@ function useRemoteRoster(watching: string | null): {
 
     const beat = () => {
       if (document.visibilityState !== "visible") return;
-      const { watching: open, byMachine: rosters, machines: known } = beatState.current;
-      const owner = open === null ? null : machineOwning(rosters, open);
+      const { watching: open, watchedOwner: owner, machines: known } = beatState.current;
       for (const machine of known) {
-        void heartbeat(db, uid, machine.id, id, machine.id === owner ? open : null);
+        const target = machine.id === owner ? open : null;
+        lastSentWatching.current.set(machine.id, target);
+        void heartbeat(db, uid, machine.id, id, target);
       }
     };
 
@@ -225,6 +227,7 @@ function useRemoteRoster(watching: string | null): {
      * finds nobody and stands the mirror down.
      */
     const leave = () => {
+      lastSentWatching.current.clear();
       for (const machine of beatState.current.machines) void stopWatching(db, uid, machine.id, id);
     };
 
@@ -246,6 +249,23 @@ function useRemoteRoster(watching: string | null): {
       window.removeEventListener("pagehide", leave);
     };
   }, [db, uid, local.settled, machineKey]);
+
+  // When the selected specialist changes (or its owning machine's roster
+  // arrives for the first time), tell the affected machine(s) immediately
+  // rather than waiting up to HEARTBEAT_MS (60s) for the interval timer.
+  // Keyed on the primitive `watching` and `watchedOwner` strings - never on
+  // `byMachine` itself - so 2s mirror updates do not trigger extra writes.
+  useEffect(() => {
+    if (db === null || uid === null || !local.settled || machineKey === "") return;
+    if (document.visibilityState !== "visible") return;
+    const id = deviceId();
+    for (const machine of beatState.current.machines) {
+      const target = machine.id === watchedOwner ? watching : null;
+      if (lastSentWatching.current.get(machine.id) === target) continue;
+      lastSentWatching.current.set(machine.id, target);
+      void heartbeat(db, uid, machine.id, id, target);
+    }
+  }, [db, uid, local.settled, machineKey, watching, watchedOwner]);
 
   const rows = useMemo(() => {
     const now = Date.now();

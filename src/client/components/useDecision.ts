@@ -50,8 +50,13 @@ export function useDecision(row: RosterRow | null): DecisionState {
     setSettled(false);
     let cancelled = false;
     void (async () => {
-      const res = await authFetch(`/api/sessions/${id}/report/${seq}`);
-      const next: Decision | null = res.ok ? (await res.json()).decision : null;
+      let next: Decision | null = null;
+      try {
+        const res = await authFetch(`/api/sessions/${id}/report/${seq}`);
+        next = res.ok ? (await res.json()).decision : null;
+      } catch {
+        next = null;
+      }
       if (cancelled) return;
       setDecision(next);
       setAnswers(seedAnswers(next));

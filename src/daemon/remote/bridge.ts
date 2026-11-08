@@ -90,6 +90,8 @@ export class RemoteBridge {
   private supervisorTimer: ReturnType<typeof setInterval> | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private active = false;
+  private supervising = false;
+  private ticking = false;
   private watching = new Set<string>();
   private lastPollAt = 0;
   private lastActiveAt: number;
@@ -155,11 +157,15 @@ export class RemoteBridge {
    * cadence is already the retry: a failed poll costs one poll.
    */
   private async supervise(): Promise<void> {
+    if (this.supervising) return;
+    this.supervising = true;
     try {
       await this.superviseOnce();
       this.noteReachable("presence poll");
     } catch (error) {
       this.noteUnreachable("presence poll", error);
+    } finally {
+      this.supervising = false;
     }
   }
 
@@ -214,11 +220,15 @@ export class RemoteBridge {
 
   /** Never rejects, for the same reason `supervise` does not. */
   private async tick(): Promise<void> {
+    if (this.ticking) return;
+    this.ticking = true;
     try {
       await this.tickOnce();
       this.noteReachable("mirror tick");
     } catch (error) {
       this.noteUnreachable("mirror tick", error);
+    } finally {
+      this.ticking = false;
     }
   }
 

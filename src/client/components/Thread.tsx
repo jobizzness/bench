@@ -38,10 +38,10 @@ export function Thread({
   newSeqs: ReadonlySet<number>;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  // Resolved once for the whole thread: the same number turns up in several
-  // messages, and the answer is the same in all of them.
-  const refs = useRefs(sessionId, entries);
   const { visible, hiddenCount, expand } = useThreadWindow(host, sessionId, entries);
+  // Resolved once for the visible thread window: the same number turns up in
+  // several messages, and the answer is the same in all of them.
+  const refs = useRefs(sessionId, visible);
   const { hasNewBelow, scrollToBottom } = useThreadScroll(host, sessionId, entries, pending, visible, hiddenCount);
 
   return (

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RosterRow, ThreadEntry } from "../../shared/types.js";
-import { authFetch } from "../api.js";
+import { authFetch, getSessionMachine } from "../api.js";
+import { firestore } from "../firebase-app.js";
+import { watchSessionMirror } from "../remote-roster.js";
 
 /**
  * What changes a thread: a turn starting or ending, and a report landing.
@@ -27,6 +29,14 @@ async function fetchThread(id: string): Promise<ThreadEntry[] | null> {
   } catch {
     return null;
   }
+}
+
+function entriesFromMirror(raw: unknown): ThreadEntry[] | null {
+  if (Array.isArray(raw)) return raw as ThreadEntry[];
+  if (raw && typeof raw === "object" && Array.isArray((raw as { entries?: unknown }).entries)) {
+    return (raw as { entries: ThreadEntry[] }).entries;
+  }
+  return null;
 }
 
 const NOTHING: ThreadEntry[] = [];
@@ -95,11 +105,15 @@ export function useThread(id: string | null, signature: string): {
   // conversation under another's name, which is worse than showing none.
   const [loaded, setLoaded] = useState<{ id: string | null; entries: ThreadEntry[] }>({ id: null, entries: NOTHING });
   const [unreachable, setUnreachable] = useState(false);
+  const mirroredSessionRef = useRef<string | null>(null);
 
   const entries = useMemo(
     () => (loaded.id === id ? loaded.entries : NOTHING),
     [loaded, id],
   );
+
+  const machine = id === null ? null : getSessionMachine(id);
+  const machineKey = machine ? `${machine.uid}:${machine.machineId}` : null;
 
   const reload = useCallback(async () => {
     if (!id) { setLoaded({ id: null, entries: NOTHING }); setUnreachable(false); return; }
@@ -108,6 +122,28 @@ export function useThread(id: string | null, signature: string): {
     setLoaded({ id, entries: next });
     setUnreachable(false);
   }, [id]);
+
+  // Relayed session: subscribe to `mirror/{sessionId}` so live thread updates
+  // arrive from the document `MirrorWriter` already maintains, without paying
+  // a command round-trip on every roster signature change.
+  useEffect(() => {
+    mirroredSessionRef.current = null;
+    if (!id || machine === null) return;
+    try {
+      return watchSessionMirror(firestore(), machine.uid, machine.machineId, id, (detail) => {
+        const mirrored = entriesFromMirror(detail?.thread);
+        if (mirrored === null) {
+          mirroredSessionRef.current = null;
+          return;
+        }
+        mirroredSessionRef.current = id;
+        setLoaded({ id, entries: mirrored });
+        setUnreachable(false);
+      });
+    } catch {
+      return;
+    }
+  }, [id, machineKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,9 +156,13 @@ export function useThread(id: string | null, signature: string): {
     // the rest of #80).
     setUnreachable(false);
 
+    // When `mirror/{id}` is already feeding this session's thread, the mirror
+    // snapshot carries the new entries on the same tick as the roster update.
+    if (mirroredSessionRef.current === id) return;
+
     void (async () => {
       const next = await fetchThread(id);
-      if (cancelled) return;
+      if (cancelled || mirroredSessionRef.current === id) return;
       // Left alone on failure: `entries` is already empty for a specialist
       // this hook has not loaded yet, and the last good copy for one it has.
       if (next === null) { setUnreachable(true); return; }

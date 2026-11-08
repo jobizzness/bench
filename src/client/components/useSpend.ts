@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { authFetch } from "../api.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { authFetch, getActiveMachine } from "../api.js";
 import { useBenchState } from "./context.js";
 import type { Total } from "../../daemon/ledger.js";
 
@@ -60,16 +60,40 @@ export function useSpend(project?: string): {
   // pushes that carry only a status or an activity line, so the ordinary
   // chatter of a working bench does not refetch anything.
   const billed = rows.map((r) => `${r.id}:${r.spend?.turns ?? 0}`).join(",");
+  const active = getActiveMachine();
+  const scopeKey = `${active ? `${active.uid}:${active.machineId}` : "local"}|${billed}`;
+  const cacheRef = useRef<{
+    scopeKey: string;
+    bench: Total | null;
+    projects: Map<string, Total>;
+  }>({ scopeKey: "", bench: null, projects: new Map() });
 
-  const load = useCallback(async (): Promise<Spending> => {
-    // Both at once. The whole-bench figure has to be reachable from here and
-    // the daemon totals a filtered set and an unfiltered one from the same
-    // file, so asking for both costs one extra round trip to localhost rather
-    // than a second view for the developer to go and find.
+  const load = useCallback(async (force = false): Promise<Spending> => {
+    if (cacheRef.current.scopeKey !== scopeKey || force) {
+      cacheRef.current = { scopeKey, bench: null, projects: new Map() };
+    }
+    const cache = cacheRef.current;
+    const cachedBench = cache.bench;
+    const cachedProject = project === undefined ? null : (cache.projects.get(project) ?? null);
+
+    // Both at once when cold. When only `project` changed (switching between
+    // specialists while `billed` has not moved), reuse the bench total and any
+    // project total already fetched for this exact `billed` snapshot so
+    // clicking around a remote roster does not fire two Firestore commands per
+    // click.
     const [forProject, forBench] = await Promise.all([
-      project === undefined ? Promise.resolve(null) : ask(project),
-      ask(),
+      project === undefined
+        ? Promise.resolve(null)
+        : cachedProject !== null
+          ? Promise.resolve(cachedProject)
+          : ask(project),
+      cachedBench !== null ? Promise.resolve(cachedBench) : ask(),
     ]);
+
+    if (cacheRef.current === cache) {
+      if (forBench !== null) cache.bench = forBench;
+      if (project !== undefined && forProject !== null) cache.projects.set(project, forProject);
+    }
 
     // A missing project total is a failure even though null is also how "no
     // project selected" is spelled below, which is why it is decided here
@@ -78,30 +102,34 @@ export function useSpend(project?: string): {
       return { known: false };
     }
     return { known: true, project: forProject, bench: forBench };
-  }, [project]);
+  }, [project, scopeKey]);
 
-  const refresh = useCallback(async () => { setSpending(await load()); }, [load]);
+  const refresh = useCallback(async () => { setSpending(await load(true)); }, [load]);
 
   useEffect(() => {
     let live = true;
     void (async () => {
-      const next = await load();
+      const next = await load(false);
       if (live) setSpending(next);
     })();
     return () => { live = false; };
-  }, [load, billed]);
+  }, [load]);
 
   return { spending, refresh };
 }
 
 /** One total, or null for a daemon that would not answer. */
 async function ask(project?: string): Promise<Total | null> {
-  const res = await authFetch(
-    project === undefined ? "/api/spend" : `/api/spend?project=${encodeURIComponent(project)}`,
-  );
-  if (!res.ok) return null;
-  const body: unknown = await res.json();
-  return isTotal(body) ? body : null;
+  try {
+    const res = await authFetch(
+      project === undefined ? "/api/spend" : `/api/spend?project=${encodeURIComponent(project)}`,
+    );
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isTotal(body) ? body : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -54,29 +54,30 @@ export class MirrorWriter {
     const broadcastIds = new Set(broadcastRows.map((r) => r.id));
     const shouldMirror = [...watching].filter((id) => broadcastIds.has(id));
     await this.deleteUnwanted(new Set(shouldMirror));
-    for (const id of shouldMirror) writes += await this.syncSession(id, callLocal);
+    const sessionWrites = await Promise.all(shouldMirror.map((id) => this.syncSession(id, callLocal)));
+    for (const count of sessionWrites) writes += count;
     return writes;
   }
 
   /** Everything this machine currently mirrors, gone - the viewer that made
    * it worth writing has gone stale. */
   async deleteAll(): Promise<void> {
-    await this.client.remove(mirrorRosterPath(this.uid, this.machineId));
-    for (const id of this.mirroredSessions()) {
-      await this.client.remove(mirrorSessionPath(this.uid, this.machineId, id));
-    }
+    await Promise.all([
+      this.client.remove(mirrorRosterPath(this.uid, this.machineId)),
+      ...this.mirroredSessions().map((id) => this.client.remove(mirrorSessionPath(this.uid, this.machineId, id))),
+    ]);
     this.lastRoster = null;
     this.sessionPayloads.clear();
     this.sessionWriteAt.clear();
   }
 
   private async syncRoster(rows: RosterRow[]): Promise<number> {
-    const payload = encode(rows);
-    if (payload === this.lastRoster) return 0;
-
     const cadence = this.budget.cadence(BASE_COALESCE_MS);
     if (!cadence.timedWritesAllowed) return 0;
     if (this.now() - this.lastRosterWriteAt < cadence.coalesceMs) return 0;
+
+    const payload = encode(rows);
+    if (payload === this.lastRoster) return 0;
 
     await this.client.set(mirrorRosterPath(this.uid, this.machineId), {
       payload,
@@ -89,14 +90,14 @@ export class MirrorWriter {
   }
 
   private async syncSession(id: string, callLocal: LocalCaller): Promise<number> {
-    const detail = await this.readDetail(id, callLocal);
-    const payload = encode(detail);
-    if (payload === this.sessionPayloads.get(id)) return 0;
-
     const cadence = this.budget.cadence(BASE_COALESCE_MS);
     if (!cadence.timedWritesAllowed) return 0;
     const lastWrite = this.sessionWriteAt.get(id) ?? 0;
     if (this.now() - lastWrite < cadence.coalesceMs) return 0;
+
+    const detail = await this.readDetail(id, callLocal);
+    const payload = encode(detail);
+    if (payload === this.sessionPayloads.get(id)) return 0;
 
     await this.client.set(mirrorSessionPath(this.uid, this.machineId, id), { payload });
     this.sessionPayloads.set(id, payload);
@@ -121,11 +122,11 @@ export class MirrorWriter {
   }
 
   private async deleteUnwanted(shouldMirror: Set<string>): Promise<void> {
-    for (const id of this.mirroredSessions()) {
-      if (shouldMirror.has(id)) continue;
+    const unwanted = this.mirroredSessions().filter((id) => !shouldMirror.has(id));
+    await Promise.all(unwanted.map(async (id) => {
       await this.client.remove(mirrorSessionPath(this.uid, this.machineId, id));
       this.sessionPayloads.delete(id);
       this.sessionWriteAt.delete(id);
-    }
+    }));
   }
 }
