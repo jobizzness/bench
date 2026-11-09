@@ -26,7 +26,7 @@ import { asRole, isRole, type Role } from "../shared/roles.js";
 import { modelForRole } from "../shared/role-models.js";
 import { labelIsUsable } from "../shared/slug.js";
 import { houseRules, readSettings, writeSettings, NO_SETTINGS, type Settings } from "./settings.js";
-import { isOauthToken, isUsageLimitError, limitResetsAt, type ManagedKey } from "./anthropic-key.js";
+import { credentialEnv, isOauthToken, isUsageLimitError, limitResetsAt, type LentKey, type ManagedKey } from "./anthropic-key.js";
 import { fullestPercent, type Usage, type UsageWindow } from "../shared/usage.js";
 import { catalogue, geminiContextWindow, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
 import { antigravityModelOf, devinFamilyOf, isModelId, modelLabel } from "../shared/models.js";
@@ -463,6 +463,31 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     this.activeManagedKeyId = next?.id ?? null;
     this.applyApiKey(next?.key ?? null);
     return next !== undefined;
+  }
+
+  /**
+   * The key a specialist would be spawned with right now, for another program
+   * on this machine to bill the same account (#174). Whether the caller may
+   * have it at all is the server's question, not this one's.
+   */
+  lendActiveManagedKey(): LentKey {
+    const active = this.managedApiKeys.find((item) => item.id === this.activeManagedKeyId);
+    if (!active) return { id: null, label: null, env: null };
+    return { id: active.id, label: active.label, env: credentialEnv(active.key) };
+  }
+
+  /**
+   * A borrower's report that the key it was lent hit a usage limit: the same
+   * rotation a specialist's refused turn runs, so the pin and the reset time
+   * read from `said` behave exactly as they do there.
+   *
+   * Only when `id` is still the active key. A borrower that was lent a key
+   * before some other rotation moved off it is reporting old news, and
+   * acting on it would mark the fresh key spent.
+   */
+  reportManagedKeyExhausted(id: string, said = ""): LentKey {
+    if (id === this.activeManagedKeyId) this.rotateManagedApiKey(said);
+    return this.lendActiveManagedKey();
   }
 
   /**

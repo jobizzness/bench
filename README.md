@@ -143,6 +143,18 @@ key in use reports a usage limit, the next turn moves to the next available
 key on the list. With no usable key, specialists run on this machine's own
 Claude login.
 
+Another program on the same machine can borrow the key in use, so it bills
+your profile's keys and moves on with them rather than running on the
+machine's login. `GET /api/anthropic-keys/active` gives back `{ id, label,
+env }`, where `env` is the one variable a specialist would be spawned with
+(`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`), or nulls when there is no
+usable key. When that key hits a usage limit, `POST
+/api/anthropic-keys/exhausted` with `{ id, said }` moves to the next one and
+returns it; an `id` that is no longer the one in use moves nothing. Both need
+the token from `~/.bench/token`, and both refuse any caller that is not on
+this machine, token or not, including commands relayed from `bench remote`:
+a key never leaves the machine.
+
 An OpenRouter key lives there too, on its own list — see the next section
 for what it is for.
 

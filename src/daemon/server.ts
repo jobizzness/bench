@@ -14,7 +14,8 @@ import { shareMessage } from "./share.js";
 import { readThread } from "./thread.js";
 import { listProjects } from "./projects.js";
 import { houseRules, type Settings } from "./settings.js";
-import { checkKey, type KeyCheck, type ManagedKey } from "./anthropic-key.js";
+import { checkKey, type KeyCheck, type LentKey, type ManagedKey } from "./anthropic-key.js";
+import { isLoopbackOnlyPath, isLoopbackPeer } from "./loopback-only.js";
 import { checkManaged } from "./managed-keys.js";
 import type { TurnShape } from "../shared/cost.js";
 import { isRole, type Role } from "../shared/roles.js";
@@ -46,10 +47,16 @@ export interface SessionRegistryLike {
   list(): RosterRow[];
   getSettings(): Settings;
   saveSettings(input: unknown): Promise<Settings>;
-  // No reader for the keys themselves. They go to the daemon for the CLI's
-  // benefit, and a server that cannot ask for them is a server that cannot
-  // serve them back.
+  // No reader for the keys themselves beyond the one lent below. They go to
+  // the daemon for the CLI's benefit, and a server that cannot ask for them is
+  // a server that cannot serve them back.
   setManagedApiKeys(keys: ManagedKey[]): void;
+  /** The active key as a specialist would be spawned with it. Served only to
+   * a caller on this machine; see `/api/anthropic-keys/active`. */
+  lendActiveManagedKey(): LentKey;
+  /** A borrower's word that the key it was lent is spent. Rotates only when
+   * `id` is still the active key. */
+  reportManagedKeyExhausted(id: string, said?: string): LentKey;
   managedApiKeyStates(): Array<Omit<ManagedKey, "key"> & { active: boolean; pinned: boolean }>;
   /** Re-ask the OAuth keys what they have spent, and move off one that has
    * filled its window. Called from the route the profile polls. */
@@ -561,6 +568,37 @@ export function createServer(opts: {
       }
       registry.setManagedApiKeys(await checkManaged(input, { check: verify, usageOf, fallbackLabel: "Anthropic key" }));
       json(res, 200, { credentials: registry.managedApiKeyStates() });
+      return;
+    }
+
+    /**
+     * Lending the active key to another program on this machine (#174), so it
+     * bills the profile's keys and rotates with them instead of running on
+     * the machine's own login.
+     *
+     * The token is not enough here. The cockpit can be opened from a phone,
+     * and these two answer with a key, so the socket's own peer has to be this
+     * machine as well. Never a header: anything in a header the client wrote.
+     */
+    if (isLoopbackOnlyPath(path) && !isLoopbackPeer(req.socket.remoteAddress)) {
+      json(res, 403, { error: "only a program on this machine may borrow a key" });
+      return;
+    }
+
+    if (path === "/api/anthropic-keys/active" && req.method === "GET") {
+      json(res, 200, registry.lendActiveManagedKey(), { "cache-control": "no-store" });
+      return;
+    }
+
+    if (path === "/api/anthropic-keys/exhausted" && req.method === "POST") {
+      const input = await readBody(req);
+      const body = (input && typeof input === "object" ? input : {}) as { id?: unknown; said?: unknown };
+      const { id, said } = body;
+      if (typeof id !== "string" || (said !== undefined && typeof said !== "string")) {
+        json(res, 400, { error: "id must be a string, and said a string if given" });
+        return;
+      }
+      json(res, 200, registry.reportManagedKeyExhausted(id, said), { "cache-control": "no-store" });
       return;
     }
 

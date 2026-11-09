@@ -8,6 +8,7 @@ import { SessionRegistry } from "../src/daemon/registry.js";
 import { SessionStore } from "../src/daemon/store.js";
 import { Ledger } from "../src/daemon/ledger.js";
 import { readThread } from "../src/daemon/thread.js";
+import { credentialEnv } from "../src/daemon/anthropic-key.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -1944,6 +1945,111 @@ describe("pinning an Anthropic credential", () => {
 
       expect(registry.pinnedKeyNotice()).toBeNull();
     });
+  });
+});
+
+/**
+ * Lending the active Anthropic key to another program on this machine (#174),
+ * so it bills the profile's keys and rotates on a usage limit the same way a
+ * specialist does. What it is lent is what a specialist would be spawned with,
+ * and what it reports spent goes through the same rotation.
+ */
+describe("lending the active Anthropic key", () => {
+  const managed = (status: string, id: string, key: string) =>
+    ({ id, key, label: `label-${id}`, status, checkedAt: Date.now() }) as any;
+  const CONSOLE = "sk-ant-api03-console-aaaa-0000";
+  const SETUP = "sk-ant-oat01-setup-bbbb-1111";
+  const THIRD = "sk-ant-api03-third-cccc-2222";
+
+  it("lends a console key as ANTHROPIC_API_KEY, exactly as a specialist gets it", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+    registry.setManagedApiKeys([managed("available", "a", CONSOLE)]);
+
+    expect(registry.lendActiveManagedKey()).toEqual({ id: "a", label: "label-a", env: credentialEnv(CONSOLE) });
+    expect(registry.lendActiveManagedKey().env).toEqual({ ANTHROPIC_API_KEY: CONSOLE });
+  });
+
+  it("lends a setup token as CLAUDE_CODE_OAUTH_TOKEN", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+    registry.setManagedApiKeys([managed("available", "b", SETUP)]);
+
+    expect(registry.lendActiveManagedKey().env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: SETUP });
+  });
+
+  it("lends nothing when there is no usable managed key, so the caller uses its own login", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+    expect(registry.lendActiveManagedKey()).toEqual({ id: null, label: null, env: null });
+
+    registry.setManagedApiKeys([managed("exhausted", "a", CONSOLE), managed("refused", "b", SETUP)]);
+    expect(registry.lendActiveManagedKey()).toEqual({ id: null, label: null, env: null });
+  });
+
+  it("marks the active key spent when the borrower reports it, and lends the next", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+    registry.setManagedApiKeys([managed("available", "a", CONSOLE), managed("available", "b", SETUP)]);
+
+    const next = registry.reportManagedKeyExhausted("a", "");
+
+    expect(next).toEqual({ id: "b", label: "label-b", env: { CLAUDE_CODE_OAUTH_TOKEN: SETUP } });
+    expect(registry.managedApiKeyStates().find((k) => k.id === "a")!.status).toBe("exhausted");
+    expect(registry.getApiKey()).toBe(SETUP);
+  });
+
+  it("reads the reset time out of what the borrower was told", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+    registry.setManagedApiKeys([managed("available", "a", SETUP), managed("available", "b", CONSOLE)]);
+
+    registry.reportManagedKeyExhausted("a", "You've hit your session limit · resets 8:30pm (Africa/Banjul)");
+
+    const resetsAt = registry.managedApiKeyStates().find((k) => k.id === "a")!.resetsAt!;
+    expect(resetsAt).toMatch(/T20:30:00\.000Z$/);
+  });
+
+  it("lends nothing once the last key is reported spent", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+    registry.setManagedApiKeys([managed("available", "a", CONSOLE)]);
+
+    expect(registry.reportManagedKeyExhausted("a")).toEqual({ id: null, label: null, env: null });
+  });
+
+  it("rotates nothing when the reported key is not the active one", async () => {
+    // A borrower still holding the key it was lent before a rotation must not
+    // knock out the fresh one it has not heard about yet.
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+    registry.setManagedApiKeys([managed("available", "a", CONSOLE), managed("available", "b", SETUP)]);
+
+    const lent = registry.reportManagedKeyExhausted("b", "");
+
+    expect(lent.id).toBe("a");
+    expect(registry.managedApiKeyStates().every((k) => k.status === "available")).toBe(true);
+    expect(registry.getApiKey()).toBe(CONSOLE);
+  });
+
+  it("keeps the pin's precedence, both in what is lent and in where a rotation lands", async () => {
+    const { config } = await setup();
+    const registry = new SessionRegistry({ ...config } as any);
+    const all = () => [
+      managed("available", "a", CONSOLE),
+      managed("available", "b", SETUP),
+      managed("available", "c", THIRD),
+    ];
+    registry.setManagedApiKeys(all());
+    await registry.setPinnedManagedKey("c");
+    expect(registry.lendActiveManagedKey().id).toBe("c");
+
+    // The pinned key spent: falls back the way any rotation does.
+    expect(registry.reportManagedKeyExhausted("c").id).toBe("a");
+
+    // The pin recovers on the next sync and is lent again over the fallback.
+    registry.setManagedApiKeys(all());
+    expect(registry.lendActiveManagedKey().id).toBe("c");
   });
 });
 
