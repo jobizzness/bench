@@ -184,6 +184,34 @@ describe("RemoteBridge with a fresh viewer", () => {
     expect(h.localCalls.some((c) => c.path === "/api/settings")).toBe(true);
     expect(h.getResult("c1")?.status).toBe(200);
   });
+
+  /**
+   * The relay runs a phone's command against this daemon over loopback, so
+   * the server's own loopback check would wave it through - and the answer,
+   * a key, would then be written to Firestore. The relay refuses these
+   * itself (#174).
+   */
+  for (const [method, path] of [
+    ["GET", "/api/anthropic-keys/active"],
+    ["GET", "/api/anthropic-keys/active?token=x"],
+    ["GET", "/api/anthropic-keys/./active"],
+    ["POST", "/api/anthropic-keys/exhausted"],
+  ] as const) {
+    it(`refuses ${method} ${path} from a phone without calling the local server`, async () => {
+      const h = harness();
+      h.setRows([row("public", { broadcast: true })]);
+      h.localHandlers.set(`${method} ${path}`, () => ({ status: 200, contentType: "application/json", text: "{\"env\":{}}" }));
+      h.setViewer("dev1", null);
+      h.bridge.start();
+      await h.setCommand("c1", method, path, method === "POST" ? { id: "one" } : undefined);
+      await h.supervise();
+      await h.tick();
+
+      expect(h.localCalls.some((c) => c.path === path)).toBe(false);
+      expect(h.getResult("c1")?.status).toBe(403);
+      expect(h.backend.docs.has(`users/${UID}/machines/${MACHINE}/commands/c1`)).toBe(false);
+    });
+  }
 });
 
 describe("RemoteBridge and broadcast turning off", () => {

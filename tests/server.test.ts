@@ -7,7 +7,7 @@ import type { AddressInfo } from "node:net";
 import WebSocket from "ws";
 import { createServer, formatIntake } from "../src/daemon/server.js";
 import { waitFor } from "./helpers/wait-for.js";
-import { type KeyCheck, type ManagedKey } from "../src/daemon/anthropic-key.js";
+import { credentialEnv, type KeyCheck, type ManagedKey } from "../src/daemon/anthropic-key.js";
 import type { Usage } from "../src/daemon/usage.js";
 import type { Credit } from "../src/shared/credit.js";
 import type { IntakeAnswer, RosterRow } from "../src/shared/types.js";
@@ -56,6 +56,21 @@ class StubRegistry extends EventEmitter {
   /** Set by tests that want to see which keys a refresh was asked about. */
   usageAsked?: (fetchUsage: (key: string) => Promise<unknown>) => void;
   getApiKey() { return this.managedKeys.find((item) => item.status === "available")?.key ?? null; }
+  /** The real rule lives in the registry and is tested there; the stub only
+   * has to lend the first key not yet spent, and spend it when told to. */
+  lendActiveManagedKey() {
+    const active = this.managedKeys.find((item) => item.status !== "exhausted");
+    return active
+      ? { id: active.id, label: active.label, env: credentialEnv(active.key) }
+      : { id: null, label: null, env: null };
+  }
+  exhaustedReports: Array<{ id: string; said?: string }> = [];
+  reportManagedKeyExhausted(id: string, said?: string) {
+    this.exhaustedReports.push({ id, said });
+    const active = this.managedKeys.find((item) => item.status !== "exhausted");
+    if (active && active.id === id) active.status = "exhausted";
+    return this.lendActiveManagedKey();
+  }
   managedRouterKeys: ManagedKey[] = [];
   setManagedRouterKeys(keys: ManagedKey[]) { this.managedRouterKeys = keys; }
   managedRouterKeyStates() { return this.managedRouterKeys.map(({ key: _key, ...item }, index) => ({ ...item, active: index === 0 })); }
@@ -168,6 +183,9 @@ let restartCalls: Array<{ home: string; build: boolean; cliPath: string }> = [];
  * concurrency lock needs a request that has not resolved yet to land a
  * second one against. */
 let updateGate: Promise<void> | null = null;
+/** The address a connection claims to come from, for staging a request from
+ * another device. `null` is the real loopback peer. */
+let pretendPeer: string | null = null;
 
 beforeAll(async () => {
   registry = new StubRegistry();
@@ -224,6 +242,13 @@ beforeAll(async () => {
     },
     runSelfUpdate: async (deps) => { updateCalls.push(deps); if (updateGate) await updateGate; return updateResult; },
     askForRestart: (home, build, cliPath) => { restartCalls.push({ home, build, cliPath }); },
+  });
+  // A test can only ever connect over loopback, so a request from another
+  // device is staged by changing what the socket says its peer is - the one
+  // thing the loopback-only routes are allowed to trust.
+  server.prependListener("connection", (socket) => {
+    const real = socket.remoteAddress;
+    Object.defineProperty(socket, "remoteAddress", { get: () => pretendPeer ?? real });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -993,6 +1018,140 @@ describe("the developer's API keys", () => {
 
     expect(res.status).toBe(401);
     expect(registry.pinnedId).toBeNull();
+  });
+});
+
+/**
+ * Another program on this machine borrowing the key a specialist would be
+ * spawned with (#174). The token is not enough on its own: the cockpit is
+ * reachable from other devices, and a key must never leave the machine.
+ */
+describe("lending the active Anthropic key to a local program", () => {
+  const CONSOLE = "sk-ant-api03-lent-console-key-1a2b";
+  const SETUP = "sk-ant-oat01-lent-setup-token-3c4d";
+  const key = (id: string, secret: string): ManagedKey =>
+    ({ id, key: secret, label: `label-${id}`, status: "available", checkedAt: 1 });
+
+  beforeEach(() => {
+    pretendPeer = null;
+    registry.managedKeys = [key("one", CONSOLE), key("two", SETUP)];
+    registry.exhaustedReports = [];
+  });
+
+  afterAll(() => { pretendPeer = null; });
+
+  it("refuses a caller without the token", async () => {
+    const res = await fetch(`${base}/api/anthropic-keys/active`);
+    const text = await res.text();
+
+    expect(res.status).toBe(401);
+    expect(text).not.toContain(CONSOLE);
+  });
+
+  for (const peer of ["192.168.1.20", "::ffff:192.168.1.20", "fe80::1", "10.0.0.7"]) {
+    it(`refuses a caller with the token from ${peer}, with no key in the body`, async () => {
+      pretendPeer = peer;
+      const res = await fetch(`${base}/api/anthropic-keys/active`, auth);
+      const text = await res.text();
+
+      expect(res.status).toBe(403);
+      expect(text).not.toContain(CONSOLE);
+      expect(text).not.toContain(SETUP);
+    });
+  }
+
+  it("does not take a client's word for being local", async () => {
+    pretendPeer = "192.168.1.20";
+    const res = await fetch(`${base}/api/anthropic-keys/active`, {
+      headers: { "x-bench-token": TOKEN, "x-forwarded-for": "127.0.0.1", "x-real-ip": "127.0.0.1" },
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  for (const peer of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) {
+    it(`lends the active key to a caller on ${peer}, as a specialist would get it`, async () => {
+      pretendPeer = peer;
+      const res = await fetch(`${base}/api/anthropic-keys/active`, auth);
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ id: "one", label: "label-one", env: { ANTHROPIC_API_KEY: CONSOLE } });
+    });
+  }
+
+  it("lends a setup token as CLAUDE_CODE_OAUTH_TOKEN", async () => {
+    registry.managedKeys = [key("two", SETUP)];
+    const res = await fetch(`${base}/api/anthropic-keys/active`, auth);
+
+    expect(await res.json()).toMatchObject({ id: "two", env: { CLAUDE_CODE_OAUTH_TOKEN: SETUP } });
+  });
+
+  it("lends nothing, with a 200, when there is no usable managed key", async () => {
+    registry.managedKeys = [];
+    const res = await fetch(`${base}/api/anthropic-keys/active`, auth);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: null, env: null });
+  });
+
+  it("is never cached", async () => {
+    const res = await fetch(`${base}/api/anthropic-keys/active`, auth);
+
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("spends the active key when told it is exhausted, and lends the next", async () => {
+    const res = await fetch(`${base}/api/anthropic-keys/exhausted`, {
+      method: "POST", ...auth, body: JSON.stringify({ id: "one", said: "resets 8:30pm (Africa/Banjul)" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: "two", label: "label-two", env: { CLAUDE_CODE_OAUTH_TOKEN: SETUP } });
+    expect(registry.exhaustedReports).toEqual([{ id: "one", said: "resets 8:30pm (Africa/Banjul)" }]);
+
+    const states = await (await fetch(`${base}/api/anthropic-keys`, auth)).json();
+    expect(states.credentials.find((k: any) => k.id === "one").status).toBe("exhausted");
+  });
+
+  it("rotates nothing when the reported key is not the active one", async () => {
+    const res = await fetch(`${base}/api/anthropic-keys/exhausted`, {
+      method: "POST", ...auth, body: JSON.stringify({ id: "two" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).id).toBe("one");
+    expect(registry.managedKeys.every((item) => item.status === "available")).toBe(true);
+  });
+
+  it("refuses a report whose id is not a string, or whose said is not one", async () => {
+    for (const body of [{}, { id: 5 }, { id: "one", said: 7 }]) {
+      const res = await fetch(`${base}/api/anthropic-keys/exhausted`, {
+        method: "POST", ...auth, body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(registry.exhaustedReports).toEqual([]);
+  });
+
+  it("refuses a report from another device, and rotates nothing", async () => {
+    pretendPeer = "192.168.1.20";
+    const res = await fetch(`${base}/api/anthropic-keys/exhausted`, {
+      method: "POST", ...auth, body: JSON.stringify({ id: "one" }),
+    });
+    const text = await res.text();
+
+    expect(res.status).toBe(403);
+    expect(text).not.toContain(SETUP);
+    expect(registry.exhaustedReports).toEqual([]);
+  });
+
+  it("refuses a report without the token", async () => {
+    const res = await fetch(`${base}/api/anthropic-keys/exhausted`, {
+      method: "POST", body: JSON.stringify({ id: "one" }),
+    });
+
+    expect(res.status).toBe(401);
+    expect(registry.exhaustedReports).toEqual([]);
   });
 });
 

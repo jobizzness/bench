@@ -1,6 +1,7 @@
 import type { FirestoreClient } from "./firestore-rest.js";
 import { decode, encode } from "../../shared/remote-codec.js";
 import { sessionIdIn } from "../../shared/remote-paths.js";
+import { isLoopbackOnlyPath } from "../loopback-only.js";
 import type { RosterRow } from "../../shared/types.js";
 
 /** `/users/{uid}/machines/{machineId}/commands/{id}` - a phone's request to
@@ -69,9 +70,16 @@ export async function runPendingCommands(
       const bodyText = typeof data.body === "string" ? data.body : "";
 
       const namedSession = sessionIdIn(path);
-      const result: ResultDoc = namedSession !== null && !broadcast.has(namedSession)
-        ? { status: 403, contentType: "application/json", body: encode({ error: "this specialist is not broadcast" }) }
-        : await run(callLocal, method, path, bodyText);
+      let result: ResultDoc;
+      if (isLoopbackOnlyPath(path)) {
+        // `callLocal` reaches the server over loopback, so the server's own
+        // check would let this through and the key would land in Firestore.
+        result = { status: 403, contentType: "application/json", body: encode({ error: "only a program on this machine may borrow a key" }) };
+      } else if (namedSession !== null && !broadcast.has(namedSession)) {
+        result = { status: 403, contentType: "application/json", body: encode({ error: "this specialist is not broadcast" }) };
+      } else {
+        result = await run(callLocal, method, path, bodyText);
+      }
 
       await Promise.all([
         client.set(resultPath(uid, machineId, id), result as unknown as Record<string, string | number>),

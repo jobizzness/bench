@@ -159,3 +159,12 @@ export async function checkKey(key: string, fetchImpl: typeof fetch = fetch): Pr
 export function credentialEnv(key: string): Record<string, string> {
   return isOauthToken(key) ? { CLAUDE_CODE_OAUTH_TOKEN: key } : { ANTHROPIC_API_KEY: key };
 }
+
+/**
+ * The active managed key as lent to another program on this machine (#174):
+ * the environment a specialist would be spawned with, or all nulls when there
+ * is no managed key to spend and the borrower should use its own login.
+ */
+export type LentKey =
+  | { id: string; label: string; env: Record<string, string> }
+  | { id: null; label: null; env: null };
