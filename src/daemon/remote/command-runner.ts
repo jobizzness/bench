@@ -50,19 +50,40 @@ export type LocalCaller = (
  */
 const inFlightCommands = new Set<string>();
 
+/**
+ * Commands already answered, by key, with when - owned by the caller (one
+ * per bridge) and passed in. A listener's cache can still
+ * hold a command for a moment after this daemon deleted it - the delete has
+ * to travel to Firestore and back as a change before the cache forgets it -
+ * and a tick in that window must not run the same action twice. Kept for a
+ * few minutes, far longer than that round trip, then forgotten.
+ */
+const DONE_TTL_MS = 5 * 60_000;
+
+function forgetOldDone(done: Map<string, number>, now: number): void {
+  for (const [key, at] of done) {
+    if (now - at > DONE_TTL_MS) done.delete(key);
+  }
+}
+
 export async function runPendingCommands(
   client: FirestoreClient,
   uid: string,
   machineId: string,
   broadcastRows: RosterRow[],
   callLocal: LocalCaller,
+  /** The pending commands, when a listener already has them - skips the
+   * `list` read that polling has to pay for. */
+  known?: Array<{ id: string; data: Record<string, unknown> }>,
+  doneCommands: Map<string, number> = new Map(),
 ): Promise<number> {
   const broadcast = new Set(broadcastRows.map((r) => r.id));
-  const pending = await client.list(commandsPath(uid, machineId));
+  const pending = known ?? await client.list(commandsPath(uid, machineId));
+  forgetOldDone(doneCommands, Date.now());
 
   const counts = await Promise.all(pending.map(async ({ id, data }) => {
     const key = `${uid}/${machineId}/${id}`;
-    if (inFlightCommands.has(key)) return 0;
+    if (inFlightCommands.has(key) || doneCommands.has(key)) return 0;
     inFlightCommands.add(key);
     try {
       const method = String(data.method ?? "GET");
@@ -85,6 +106,7 @@ export async function runPendingCommands(
         client.set(resultPath(uid, machineId, id), result as unknown as Record<string, string | number>),
         client.remove(`${commandsPath(uid, machineId)}/${id}`),
       ]);
+      doneCommands.set(key, Date.now());
       return 1;
     } finally {
       inFlightCommands.delete(key);

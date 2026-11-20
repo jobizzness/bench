@@ -278,6 +278,14 @@ bench restart [--build]          stop the daemon and start it again
 bench remote off                 stop being reachable from your other devices
 ```
 
+`bench remote` carries commands and presence over a Firestore `Listen`
+stream, so a tap on your phone reaches the daemon in well under a second and
+an idle machine costs reads only when something changes. If the stream
+cannot be opened (a network that blocks long-lived HTTP/2, say) the daemon
+logs it once and polls instead, as it always did; `BENCH_REMOTE_LISTEN=0`
+skips the stream entirely. `npx tsx scripts/listen-check.ts` checks the
+stream against your signed-in account without writing anything.
+
 A specialist may only open, tell and close tabs on its own project, and may
 only close one it opened itself — not the developer's, and not its own. That
 check is in the command rather than the daemon, because the token is shared

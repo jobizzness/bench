@@ -1,5 +1,6 @@
 import type { FirestoreClient } from "./firestore-rest.js";
-import { readPresence, presencePath, VIEWER_STALE_MS } from "./presence.js";
+import { evaluatePresence, readPresence, presencePath, VIEWER_STALE_MS, type Presence } from "./presence.js";
+import type { ListenerTargetSpec, RemoteListener } from "./firestore-listen.js";
 import { commandsPath, resultPath, runPendingCommands, type LocalCaller } from "./command-runner.js";
 import { MirrorWriter, mirrorSessionPath, mirrorRosterPath } from "./mirror-writer.js";
 import { WriteBudget } from "./write-budget.js";
@@ -26,7 +27,16 @@ function describe(error: unknown): string {
  * The daemon's half of "the wire": presence, commands, and the mirror, all
  * gated on the same question - is anyone actually watching this machine.
  *
- * No push listener. `firestore-rest.ts`'s own comment explains why: a real
+ * Push first, polling as the fallback. When `listen` is supplied (the daemon
+ * always supplies it, see `firestore-listen.ts`), one Firestore `Listen`
+ * stream carries presence and commands: a command runs the moment it lands,
+ * a viewer is noticed the moment it heartbeats, and nothing is billed to
+ * confirm that nothing changed. Everything below describes what happens
+ * while that stream is not healthy - before it first connects, or on a
+ * network that will not carry it - and is what this file did on its own
+ * before the listener existed.
+ *
+ * The polling fallback, and why it was ever the only path: a real
  * `onSnapshot` needs the Firestore client SDK authenticated, and that SDK has
  * no supported way to establish a session from a bare refresh token without
  * either the Admin SDK (ruled out - see the design's identity section) or
@@ -79,13 +89,25 @@ export interface RemoteBridgeOptions {
   viewerStaleMs?: number;
   idleAfterMs?: number;
   budget?: WriteBudget;
+  /** Opens a push listener on the given targets. Absent means poll only -
+   * what every test that predates the listener gets by not passing it. */
+  listen?: (targets: ListenerTargetSpec[], onChange: (key: string) => void) => RemoteListener;
   /** Where an unreachable-Firestore notice goes. Injected so a test can read
    * what was said rather than watch the process's own stderr. */
   warn?: (message: string) => void;
 }
 
 export class RemoteBridge {
-  private readonly opts: Required<Omit<RemoteBridgeOptions, "budget">> & { budget: WriteBudget };
+  private readonly opts: Required<Omit<RemoteBridgeOptions, "budget" | "listen">> & {
+    budget: WriteBudget;
+    listen: RemoteBridgeOptions["listen"];
+  };
+  private listener: RemoteListener | null = null;
+  /** Set when a push arrives mid-supervise, so it is acted on as soon as
+   * the current pass ends rather than at the next timer tick. */
+  private superviseAgain = false;
+  /** Commands this bridge has already answered - see `command-runner.ts`. */
+  private readonly doneCommands = new Map<string, number>();
   private readonly mirror: MirrorWriter;
   private supervisorTimer: ReturnType<typeof setInterval> | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -120,6 +142,7 @@ export class RemoteBridge {
       viewerStaleMs: opts.viewerStaleMs ?? VIEWER_STALE_MS,
       idleAfterMs: opts.idleAfterMs ?? IDLE_AFTER_MS,
       budget: opts.budget ?? new WriteBudget({ now }),
+      listen: opts.listen,
       warn: opts.warn ?? ((message: string) => { process.stderr.write(message); }),
     };
     this.mirror = new MirrorWriter(opts.client, opts.uid, opts.machineId, this.opts.budget, now);
@@ -143,6 +166,52 @@ export class RemoteBridge {
     if (this.supervisorTimer) this.opts.clearIntervalImpl(this.supervisorTimer);
     this.supervisorTimer = null;
     this.stopTicking();
+    this.stopListening();
+  }
+
+  private startListening(): void {
+    if (this.listener || !this.opts.listen) return;
+    const base = `users/${this.opts.uid}/machines/${this.opts.machineId}`;
+    this.listener = this.opts.listen([
+      { key: "presence", kind: "document", path: presencePath(this.opts.uid, this.opts.machineId) },
+      { key: "commands", kind: "collection", path: `${base}/commands` },
+    ], (key) => {
+      if (key === "presence") void this.supervise();
+      else if (key === "commands") void this.runPushedCommands();
+    });
+    this.listener.start();
+  }
+
+  private stopListening(): void {
+    this.listener?.stop();
+    this.listener = null;
+  }
+
+  /** The listener is up and consistent - its cache is what Firestore holds. */
+  private listening(): boolean {
+    return this.listener?.healthy() ?? false;
+  }
+
+  /**
+   * A command pushed by the listener: run it now, whether or not a viewer has
+   * been seen yet. A command is itself proof someone is looking, and gating
+   * it on presence would only add a heartbeat's worth of latency to the very
+   * first tap. Broadcast is still enforced inside `runPendingCommands`.
+   */
+  private async runPushedCommands(): Promise<void> {
+    if (!this.listener) return;
+    const broadcastRows = this.opts.listBroadcast();
+    if (broadcastRows.length === 0) return;
+    try {
+      const writes = await runPendingCommands(
+        this.opts.client, this.opts.uid, this.opts.machineId, broadcastRows, this.opts.callLocal,
+        this.listener.docs("commands"), this.doneCommands,
+      );
+      this.opts.budget.record(writes);
+      this.noteReachable("command run");
+    } catch (error) {
+      this.noteUnreachable("command run", error);
+    }
   }
 
   /**
@@ -157,13 +226,18 @@ export class RemoteBridge {
    * cadence is already the retry: a failed poll costs one poll.
    */
   private async supervise(): Promise<void> {
-    if (this.supervising) return;
+    if (this.supervising) { this.superviseAgain = true; return; }
     this.supervising = true;
     try {
-      await this.superviseOnce();
-      this.noteReachable("presence poll");
-    } catch (error) {
-      this.noteUnreachable("presence poll", error);
+      do {
+        this.superviseAgain = false;
+        try {
+          await this.superviseOnce();
+          this.noteReachable("presence poll");
+        } catch (error) {
+          this.noteUnreachable("presence poll", error);
+        }
+      } while (this.superviseAgain);
     } finally {
       this.supervising = false;
     }
@@ -171,6 +245,8 @@ export class RemoteBridge {
 
   private async superviseOnce(): Promise<void> {
     if (this.opts.listBroadcast().length === 0) {
+      // Nothing a viewer could see, so nothing worth a stream either.
+      this.stopListening();
       if (this.active) {
         this.stopTicking();
         // Emptied before the flag flips, not after: if this throws, the
@@ -183,13 +259,24 @@ export class RemoteBridge {
       return;
     }
 
-    const now = this.opts.now();
-    const watched = now - this.lastActiveAt < this.opts.idleAfterMs;
-    const cadence = watched ? this.opts.viewerPollMs : this.opts.idlePollMs;
-    if (now - this.lastPollAt < cadence) return;
-    this.lastPollAt = now;
+    this.startListening();
+    this.listener?.refreshAuth();
 
-    const presence = await readPresence(this.opts.client, this.opts.uid, this.opts.machineId, now, this.opts.viewerStaleMs);
+    const now = this.opts.now();
+    let presence: Presence;
+    if (this.listening()) {
+      // Pushed, so free to re-evaluate on every pass - which is also what
+      // notices a viewer going stale, since staleness is a matter of time
+      // passing rather than of the document changing.
+      const doc = this.listener!.docs("presence")[0]?.data ?? null;
+      presence = evaluatePresence(doc, now, this.opts.viewerStaleMs);
+    } else {
+      const watched = now - this.lastActiveAt < this.opts.idleAfterMs;
+      const cadence = watched ? this.opts.viewerPollMs : this.opts.idlePollMs;
+      if (now - this.lastPollAt < cadence) return;
+      this.lastPollAt = now;
+      presence = await readPresence(this.opts.client, this.opts.uid, this.opts.machineId, now, this.opts.viewerStaleMs);
+    }
     this.watching = presence.watching;
     if (presence.active) this.lastActiveAt = now;
 
@@ -236,10 +323,18 @@ export class RemoteBridge {
     if (!this.active) return;
     const broadcastRows = this.opts.listBroadcast();
 
-    const commandWrites = await runPendingCommands(
-      this.opts.client, this.opts.uid, this.opts.machineId, broadcastRows, this.opts.callLocal,
-    );
-    this.opts.budget.record(commandWrites);
+    if (this.listening()) {
+      // Commands already run as they are pushed. This sweep costs no read
+      // and catches one whose push landed while broadcast was briefly empty;
+      // it is not awaited, so a slow command never holds the mirror back.
+      void this.runPushedCommands();
+    } else {
+      const commandWrites = await runPendingCommands(
+        this.opts.client, this.opts.uid, this.opts.machineId, broadcastRows, this.opts.callLocal,
+        undefined, this.doneCommands,
+      );
+      this.opts.budget.record(commandWrites);
+    }
 
     await this.mirror.sync(broadcastRows, this.watching, this.opts.callLocal);
   }

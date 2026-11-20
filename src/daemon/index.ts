@@ -111,6 +111,10 @@ const remote = new RemoteController({
   version,
   listBroadcast: () => registry.list().filter((row) => row.broadcast),
   callLocal,
+  // Push over a Firestore Listen stream, polling only while it is down.
+  // `BENCH_REMOTE_LISTEN=0` is the way back to polling alone, for a network
+  // that mangles long-lived HTTP/2 streams.
+  pushListener: process.env.BENCH_REMOTE_LISTEN !== "0",
   onClient: (client, uid) => (client && uid ? keySync.start(client, uid) : keySync.stop()),
 });
 
