@@ -16,12 +16,14 @@
     "typecheck:editor": "tsc -p editor/vscode --noEmit",
     "build:editor": "tsc -p editor/vscode",
     "test:e2e": "BENCH_E2E=1 vitest run tests/e2e.test.ts tests/e2e-chat.test.ts",
+    "test:listen": "firebase emulators:exec --only firestore --project demo-bench \"BENCH_LISTEN_TEST=1 vitest run tests/firestore-listen.emulator.test.ts\"",
     "test:rules": "firebase emulators:exec --only firestore \"BENCH_RULES_TEST=1 vitest run tests/firestore-rules.test.ts\"",
     "dev:client": "esbuild src/client/main.tsx --bundle --format=esm --target=es2022 --outfile=dist/client/app.js --watch",
     "icons": "node scripts/icons.mjs",
     "deploy:web": "pnpm build && firebase deploy --only hosting"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.7",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
   },

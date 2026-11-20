@@ -58,8 +58,8 @@ function fromFields(fields: FirestoreFields | undefined): DecodedDoc {
   return data;
 }
 
-function documentUrl(projectId: string, path: string): string {
-  return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${path}`;
+function documentUrl(projectId: string, path: string, baseUrl = "https://firestore.googleapis.com"): string {
+  return `${baseUrl}/v1/projects/${projectId}/databases/(default)/documents/${path}`;
 }
 
 export interface FirestoreClientOptions {
@@ -69,6 +69,8 @@ export interface FirestoreClientOptions {
    * and left to go stale. */
   idToken: () => string | null;
   fetchImpl?: typeof fetch;
+  /** For the emulator tests: `http://127.0.0.1:8080`. Production otherwise. */
+  baseUrl?: string;
 }
 
 /** Thrown for anything the caller should treat as "that write did not
@@ -96,7 +98,7 @@ export function firestoreClient(opts: FirestoreClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
 
   async function set(path: string, data: DocData): Promise<void> {
-    const res = await fetchImpl(documentUrl(opts.projectId, path), {
+    const res = await fetchImpl(documentUrl(opts.projectId, path, opts.baseUrl), {
       method: "PATCH",
       headers: { "content-type": "application/json", ...authHeader(opts.idToken()) },
       body: JSON.stringify({ fields: toFields(data) }),
@@ -105,7 +107,7 @@ export function firestoreClient(opts: FirestoreClientOptions) {
   }
 
   async function get(path: string): Promise<DecodedDoc | null> {
-    const res = await fetchImpl(documentUrl(opts.projectId, path), {
+    const res = await fetchImpl(documentUrl(opts.projectId, path, opts.baseUrl), {
       headers: authHeader(opts.idToken()),
     });
     if (res.status === 404) return null;
@@ -114,7 +116,7 @@ export function firestoreClient(opts: FirestoreClientOptions) {
   }
 
   async function remove(path: string): Promise<void> {
-    const res = await fetchImpl(documentUrl(opts.projectId, path), {
+    const res = await fetchImpl(documentUrl(opts.projectId, path, opts.baseUrl), {
       method: "DELETE",
       headers: authHeader(opts.idToken()),
     });
@@ -135,7 +137,7 @@ export function firestoreClient(opts: FirestoreClientOptions) {
    * construction: pending actions and the handful of devices watching.
    */
   async function list(path: string): Promise<Array<{ id: string; data: DecodedDoc }>> {
-    const res = await fetchImpl(documentUrl(opts.projectId, path), {
+    const res = await fetchImpl(documentUrl(opts.projectId, path, opts.baseUrl), {
       headers: authHeader(opts.idToken()),
     });
     if (res.status === 404) return [];

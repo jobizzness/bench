@@ -6,6 +6,7 @@ import { RefreshRejected, Refresher } from "./token-refresh.js";
 import { firestoreClient, type FirestoreClient } from "./firestore-rest.js";
 import { deregisterMachine, heartbeat, registerMachine } from "./machine.js";
 import { RemoteBridge } from "./bridge.js";
+import { FirestoreListener } from "./firestore-listen.js";
 import type { LocalCaller } from "./command-runner.js";
 import type { RosterRow } from "../../shared/types.js";
 import type { RemoteState } from "../../shared/remote.js";
@@ -51,6 +52,12 @@ export interface RemoteControllerOptions {
    * either alone is a daemon that can hold an identity but never carries
    * remote traffic. */
   callLocal?: LocalCaller;
+  /** Carry presence and commands over a Firestore `Listen` stream rather
+   * than polling for them (see `firestore-listen.ts`), falling back to
+   * polling whenever the stream is down. Off unless asked for, so tests that
+   * build a controller never open a real gRPC connection; the daemon turns
+   * it on in `index.ts`. */
+  pushListener?: boolean;
   bridgeOpts?: {
     viewerPollMs?: number;
     tickMs?: number;
@@ -231,6 +238,15 @@ export class RemoteController implements RemoteControllerLike {
         machineId: identity.machineId,
         listBroadcast: this.opts.listBroadcast,
         callLocal: this.opts.callLocal,
+        ...(this.opts.pushListener ? {
+          listen: (targets, onChange) => new FirestoreListener({
+            projectId: this.opts.projectId,
+            idToken: () => refresher.idToken(),
+            targets,
+            onChange,
+            warn: (message) => { process.stderr.write(message); },
+          }),
+        } : {}),
         ...this.opts.bridgeOpts,
       });
       this.bridge.start();

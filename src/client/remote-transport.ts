@@ -19,9 +19,11 @@ export interface RemoteResult {
 
 /**
  * How long the phone waits for a machine to answer before saying it did not.
- * Longer than the slowest legitimate reply: an idle daemon notices a new
- * viewer on its 60s presence poll, then runs commands on its 2s tick (see
- * `bridge.ts`). Anything past this is a daemon that is not listening at all.
+ * A daemon on its push listener (`firestore-listen.ts`) answers in well under
+ * a second. This stays sized for the polling fallback the daemon drops to
+ * when that stream is down: an idle daemon notices a new viewer on its 60s
+ * presence poll, then runs commands on its 2s tick (see `bridge.ts`).
+ * Anything past this is a daemon that is not listening at all.
  */
 export const COMMAND_TIMEOUT_MS = 90_000;
 

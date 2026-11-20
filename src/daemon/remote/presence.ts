@@ -1,4 +1,4 @@
-import type { FirestoreClient } from "./firestore-rest.js";
+import type { DecodedDoc, FirestoreClient } from "./firestore-rest.js";
 
 /**
  * `/users/{uid}/machines/{machineId}/presence/state` - one document, holding
@@ -54,7 +54,14 @@ export async function readPresence(
   now: number,
   staleMs = VIEWER_STALE_MS,
 ): Promise<Presence> {
-  const doc = await client.get(presencePath(uid, machineId));
+  return evaluatePresence(await client.get(presencePath(uid, machineId)), now, staleMs);
+}
+
+/** The decision half of `readPresence`, for a presence document that is
+ * already in hand - pushed by the listener in `firestore-listen.ts` rather
+ * than read. Staleness is a question about *now*, so it is asked again on
+ * every supervisor tick against the same cached document, for free. */
+export function evaluatePresence(doc: DecodedDoc | null, now: number, staleMs = VIEWER_STALE_MS): Presence {
   const viewers = doc?.viewers;
   const watching = new Set<string>();
   let active = false;
