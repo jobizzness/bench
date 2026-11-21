@@ -26,6 +26,15 @@ export function manifestHref(token: string): string {
 export function installManifest(doc: Document, token: string): void {
   const link = doc.querySelector<HTMLLinkElement>('link[rel="manifest"]')
     ?? doc.head.appendChild(Object.assign(doc.createElement("link"), { rel: "manifest" }));
+  // A manifest is fetched in CORS mode with cookies left off unless this is
+  // set, which is fine on a plain origin and fatal behind one that
+  // authenticates with a cookie. On a Cloud Workstations gateway the
+  // cookieless fetch is bounced to /_workstation/forwardAuthCookie, and a
+  // redirect with no Access-Control-Allow-Origin on it is a CORS error
+  // rather than a login, so the cockpit loads and is silently not
+  // installable. Same-origin requests skip the CORS check, so asking for
+  // credentials costs nothing anywhere else.
+  link.crossOrigin = "use-credentials";
   link.href = token === "" ? "/manifest.webmanifest" : manifestHref(token);
 }
 

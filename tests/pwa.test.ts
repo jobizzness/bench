@@ -26,6 +26,14 @@ describe("the manifest link", () => {
     expect(link()!.getAttribute("href")).toBe("/manifest.webmanifest");
   });
 
+  it("asks for credentials, or a cookie-authenticated host never serves it", () => {
+    // Behind a Cloud Workstations gateway the cookieless fetch is redirected
+    // to an auth endpoint that carries no CORS header, so the cockpit loads
+    // and is quietly not installable.
+    installManifest(document, "tok-123");
+    expect(link()!.getAttribute("crossorigin")).toBe("use-credentials");
+  });
+
   it("replaces its link rather than adding a second", () => {
     installManifest(document, "one");
     installManifest(document, "two");
