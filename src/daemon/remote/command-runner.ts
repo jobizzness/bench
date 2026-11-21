@@ -3,6 +3,7 @@ import { decode, encode } from "../../shared/remote-codec.js";
 import { sessionIdIn } from "../../shared/remote-paths.js";
 import { isLoopbackOnlyPath } from "../loopback-only.js";
 import type { RosterRow } from "../../shared/types.js";
+import { relayThreadText } from "./relay-thread.js";
 
 /** `/users/{uid}/machines/{machineId}/commands/{id}` - a phone's request to
  * this machine's own HTTP server. `/results/{id}` is the daemon's answer to
@@ -119,5 +120,19 @@ export async function runPendingCommands(
 async function run(callLocal: LocalCaller, method: string, path: string, bodyText: string): Promise<ResultDoc> {
   const body = bodyText === "" ? undefined : decode(bodyText);
   const { status, contentType, text } = await callLocal(method, path, body);
-  return { status, contentType, body: encode(text) };
+  const relayed = status === 200 && method === "GET" && THREAD_ROUTE.test(path) ? relayThreadText(text) : text;
+  const encoded = encode(relayed);
+  // Firestore refuses a field this size, and a refused write leaves the
+  // command in place to be retried - forever, with the phone waiting on it.
+  // An answer that says so is better than one that never comes.
+  if (Buffer.byteLength(encoded) > MAX_RESULT_BYTES) {
+    return { status: 413, contentType: "application/json", body: encode(JSON.stringify({ error: "too large to send to a remote cockpit; open it on the machine" })) };
+  }
+  return { status, contentType, body: encoded };
 }
+
+const THREAD_ROUTE = /^\/api\/sessions\/[^/]+\/thread$/;
+
+/** Under Firestore's 1,048,487-byte field limit, with room for the rest of
+ * the document. */
+const MAX_RESULT_BYTES = 1_000_000;

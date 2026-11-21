@@ -3,6 +3,7 @@ import type { WriteBudget } from "./write-budget.js";
 import type { LocalCaller } from "./command-runner.js";
 import { encode } from "../../shared/remote-codec.js";
 import type { RosterRow } from "../../shared/types.js";
+import { relayThreadText } from "./relay-thread.js";
 
 export function mirrorRosterPath(uid: string, machineId: string): string {
   return `users/${uid}/machines/${machineId}/mirror/roster`;
@@ -116,7 +117,7 @@ export class MirrorWriter {
       callLocal("GET", `/api/sessions/${id}/plan`, undefined),
     ]);
     return {
-      thread: thread.status === 200 ? JSON.parse(thread.text) : null,
+      thread: thread.status === 200 ? JSON.parse(relayThreadText(thread.text)) : null,
       plan: plan.status === 200 ? JSON.parse(plan.text) : null,
     };
   }
