@@ -63,6 +63,26 @@ describe("which daemon a page is for", () => {
     expect(currentEndpoint({ origin: "https://bench.web.app", search: "" }, store())).toBeNull();
   });
 
+  // A token in the address bar of the static-hosted cockpit used to make the
+  // hosting origin itself "the daemon": every /api call then went to
+  // bench-cockpit.web.app and came back 404, threads and settings included.
+  it("never takes a static-hosting origin for a daemon, from the URL", () => {
+    for (const origin of ["https://bench-cockpit.web.app", "https://bench-cockpit.firebaseapp.com"]) {
+      expect(currentEndpoint({ origin, search: "?token=abc" }, store())).toBeNull();
+    }
+  });
+
+  it("still falls back to the remembered daemon when the hosted URL carries a token", () => {
+    const remembered = store({ "bench:endpoint": JSON.stringify({ origin: "http://desk:7420", token: "t" }) });
+    expect(currentEndpoint({ origin: "https://bench-cockpit.web.app", search: "?token=abc" }, remembered))
+      .toEqual({ origin: "http://desk:7420", token: "t" });
+  });
+
+  it("ignores a remembered endpoint that names static hosting", () => {
+    const poisoned = store({ "bench:endpoint": JSON.stringify({ origin: "https://bench-cockpit.web.app", token: "abc" }) });
+    expect(currentEndpoint({ origin: "https://bench-cockpit.web.app", search: "" }, poisoned)).toBeNull();
+  });
+
   it("round-trips what it saved", () => {
     const s = store();
     saveEndpoint({ origin: "http://desk:7420", token: "t" }, s);

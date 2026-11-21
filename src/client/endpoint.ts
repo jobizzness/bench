@@ -78,8 +78,26 @@ export function currentEndpoint(
   store: Storage = localStorage,
 ): Endpoint | null {
   const token = new URLSearchParams(where.search).get("token") ?? "";
-  if (token !== "") return { origin: where.origin, token };
-  return savedEndpoint(store);
+  if (token !== "" && !isStaticHosting(where.origin)) return { origin: where.origin, token };
+  const saved = savedEndpoint(store);
+  return saved !== null && !isStaticHosting(saved.origin) ? saved : null;
+}
+
+/**
+ * Whether an origin is Firebase Hosting, which serves the cockpit's files and
+ * nothing else. A daemon is never there, so a token in that address bar - a
+ * daemon link with its host swapped, say - must not turn the hosting origin
+ * into "the daemon": every /api call would go to static hosting and 404,
+ * and the page would stop relaying through Firestore, which is the only way
+ * a hosted copy can reach a machine.
+ */
+function isStaticHosting(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname;
+    return host.endsWith(".web.app") || host.endsWith(".firebaseapp.com");
+  } catch {
+    return false;
+  }
 }
 
 /** The socket address for an endpoint: the same host, the other scheme. */
