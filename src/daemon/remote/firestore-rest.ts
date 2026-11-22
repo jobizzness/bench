@@ -75,7 +75,14 @@ export interface FirestoreClientOptions {
 
 /** Thrown for anything the caller should treat as "that write did not
  * happen" - including no ID token being available yet. */
-export class FirestoreRequestFailed extends Error {}
+export class FirestoreRequestFailed extends Error {
+  /** The HTTP status Firestore answered with, when it answered at all -
+   * 429 is the daily free quota running out, which the bridge treats very
+   * differently from a network blip. */
+  constructor(message: string, readonly status?: number) {
+    super(message);
+  }
+}
 
 function authHeader(idToken: string | null): Record<string, string> {
   if (idToken === null) throw new FirestoreRequestFailed("no ID token to call Firestore with");
@@ -103,7 +110,7 @@ export function firestoreClient(opts: FirestoreClientOptions) {
       headers: { "content-type": "application/json", ...authHeader(opts.idToken()) },
       body: JSON.stringify({ fields: toFields(data) }),
     });
-    if (!res.ok) throw new FirestoreRequestFailed(`could not write ${path}: ${res.status} ${await res.text()}`);
+    if (!res.ok) throw new FirestoreRequestFailed(`could not write ${path}: ${res.status} ${await res.text()}`, res.status);
   }
 
   async function get(path: string): Promise<DecodedDoc | null> {
@@ -111,7 +118,7 @@ export function firestoreClient(opts: FirestoreClientOptions) {
       headers: authHeader(opts.idToken()),
     });
     if (res.status === 404) return null;
-    if (!res.ok) throw new FirestoreRequestFailed(`could not read ${path}: ${res.status} ${await res.text()}`);
+    if (!res.ok) throw new FirestoreRequestFailed(`could not read ${path}: ${res.status} ${await res.text()}`, res.status);
     return fromFields((await res.json()).fields);
   }
 
@@ -123,7 +130,7 @@ export function firestoreClient(opts: FirestoreClientOptions) {
     // A document already gone is the state a delete was asked for - not a
     // failure to report back.
     if (!res.ok && res.status !== 404) {
-      throw new FirestoreRequestFailed(`could not delete ${path}: ${res.status} ${await res.text()}`);
+      throw new FirestoreRequestFailed(`could not delete ${path}: ${res.status} ${await res.text()}`, res.status);
     }
   }
 
@@ -141,7 +148,7 @@ export function firestoreClient(opts: FirestoreClientOptions) {
       headers: authHeader(opts.idToken()),
     });
     if (res.status === 404) return [];
-    if (!res.ok) throw new FirestoreRequestFailed(`could not list ${path}: ${res.status} ${await res.text()}`);
+    if (!res.ok) throw new FirestoreRequestFailed(`could not list ${path}: ${res.status} ${await res.text()}`, res.status);
     const body = (await res.json()) as { documents?: Array<{ name: string; fields?: FirestoreFields }> };
     return (body.documents ?? []).map((doc) => ({
       id: doc.name.slice(doc.name.lastIndexOf("/") + 1),

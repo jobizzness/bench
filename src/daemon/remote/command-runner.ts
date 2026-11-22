@@ -82,7 +82,7 @@ export async function runPendingCommands(
   const pending = known ?? await client.list(commandsPath(uid, machineId));
   forgetOldDone(doneCommands, Date.now());
 
-  const counts = await Promise.all(pending.map(async ({ id, data }) => {
+  const settled = await Promise.allSettled(pending.map(async ({ id, data }) => {
     const key = `${uid}/${machineId}/${id}`;
     if (inFlightCommands.has(key) || doneCommands.has(key)) return 0;
     inFlightCommands.add(key);
@@ -114,12 +114,42 @@ export async function runPendingCommands(
     }
   }));
 
-  return counts.reduce<number>((sum, n) => sum + n, 0);
+  // Settled rather than all-or-nothing: one command whose result could not
+  // be written must not hide the writes the others did make from the budget.
+  // The first failure is still thrown so the bridge reports Firestore as
+  // unreachable, and that command stays in place for the next pass.
+  let writes = 0;
+  let failure: unknown = null;
+  for (const outcome of settled) {
+    if (outcome.status === "fulfilled") writes += outcome.value;
+    else failure ??= outcome.reason;
+  }
+  if (failure !== null) throw Object.assign(failure as object, { writesBeforeFailure: writes });
+  return writes;
 }
 
 async function run(callLocal: LocalCaller, method: string, path: string, bodyText: string): Promise<ResultDoc> {
-  const body = bodyText === "" ? undefined : decode(bodyText);
-  const { status, contentType, text } = await callLocal(method, path, body);
+  // Neither failure here is Firestore's, so neither is worth a retry: a body
+  // that will not parse never will, and a local call that threw would throw
+  // again on the next tick - leaving the command in place to be retried
+  // forever while the phone waits out its full timeout. Answer instead.
+  let body: unknown;
+  try {
+    body = bodyText === "" ? undefined : decode(bodyText);
+  } catch {
+    return { status: 400, contentType: "application/json", body: encode(JSON.stringify({ error: "the command body was not valid" })) };
+  }
+  let answer: Awaited<ReturnType<LocalCaller>>;
+  try {
+    answer = await callLocal(method, path, body);
+  } catch (error) {
+    return {
+      status: 502,
+      contentType: "application/json",
+      body: encode(JSON.stringify({ error: `the daemon could not handle that: ${error instanceof Error ? error.message : String(error)}` })),
+    };
+  }
+  const { status, contentType, text } = answer;
   const relayed = status === 200 && method === "GET" && THREAD_ROUTE.test(path) ? relayThreadText(text) : text;
   const encoded = encode(relayed);
   // Firestore refuses a field this size, and a refused write leaves the
