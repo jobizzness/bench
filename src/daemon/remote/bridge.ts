@@ -12,6 +12,11 @@ import type { RosterRow } from "../../shared/types.js";
  * broadcasting it, so this only ever widens the interval, never opens it. */
 const IDLE_AFTER_MS = 5 * 60_000;
 
+/** How long to stop calling Firestore after it says the daily quota is
+ * spent - long enough that a paused day costs a few dozen refused probes
+ * rather than thousands, short enough to resume soon after the reset. */
+const QUOTA_PAUSE_MS = 15 * 60_000;
+
 /**
  * An error worth reading. `undici` reports every network failure as the same
  * `TypeError: fetch failed` and puts the thing you actually need - a connect
@@ -124,6 +129,11 @@ export class RemoteBridge {
    * flapping network - 189 "could not reach" lines alternating perfectly with
    * 189 "reached again" lines, which is a log that actively misleads. */
   private readonly unreachable = new Set<string>();
+  /** Set when Firestore answers 429 - the project's daily free quota is
+   * spent. Every further call would be refused the same way until it resets
+   * (around midnight Pacific), so retrying on the usual cadence only adds
+   * refused calls; this waits, then probes once. */
+  private quotaPausedUntil = 0;
 
   constructor(opts: RemoteBridgeOptions) {
     const now = opts.now ?? Date.now;
@@ -199,7 +209,7 @@ export class RemoteBridge {
    * first tap. Broadcast is still enforced inside `runPendingCommands`.
    */
   private async runPushedCommands(): Promise<void> {
-    if (!this.listener) return;
+    if (!this.listener || this.quotaPaused()) return;
     const broadcastRows = this.opts.listBroadcast();
     if (broadcastRows.length === 0) return;
     try {
@@ -210,6 +220,7 @@ export class RemoteBridge {
       this.opts.budget.record(writes);
       this.noteReachable("command run");
     } catch (error) {
+      this.opts.budget.record(writesBeforeFailure(error));
       this.noteUnreachable("command run", error);
     }
   }
@@ -271,6 +282,7 @@ export class RemoteBridge {
       const doc = this.listener!.docs("presence")[0]?.data ?? null;
       presence = evaluatePresence(doc, now, this.opts.viewerStaleMs);
     } else {
+      if (this.quotaPaused()) return;
       const watched = now - this.lastActiveAt < this.opts.idleAfterMs;
       const cadence = watched ? this.opts.viewerPollMs : this.opts.idlePollMs;
       if (now - this.lastPollAt < cadence) return;
@@ -320,7 +332,7 @@ export class RemoteBridge {
   }
 
   private async tickOnce(): Promise<void> {
-    if (!this.active) return;
+    if (!this.active || this.quotaPaused()) return;
     const broadcastRows = this.opts.listBroadcast();
 
     if (this.listening()) {
@@ -329,11 +341,19 @@ export class RemoteBridge {
       // it is not awaited, so a slow command never holds the mirror back.
       void this.runPushedCommands();
     } else {
-      const commandWrites = await runPendingCommands(
-        this.opts.client, this.opts.uid, this.opts.machineId, broadcastRows, this.opts.callLocal,
-        undefined, this.doneCommands,
-      );
-      this.opts.budget.record(commandWrites);
+      // A failed command pass must not cost the viewer its mirror update as
+      // well: the two are independent, so report it and carry on.
+      try {
+        const commandWrites = await runPendingCommands(
+          this.opts.client, this.opts.uid, this.opts.machineId, broadcastRows, this.opts.callLocal,
+          undefined, this.doneCommands,
+        );
+        this.opts.budget.record(commandWrites);
+        this.noteReachable("command run");
+      } catch (error) {
+        this.opts.budget.record(writesBeforeFailure(error));
+        this.noteUnreachable("command run", error);
+      }
     }
 
     await this.mirror.sync(broadcastRows, this.watching, this.opts.callLocal);
@@ -347,9 +367,20 @@ export class RemoteBridge {
    * without anyone noticing.
    */
   private noteUnreachable(what: string, error: unknown): void {
+    if ((error as { status?: unknown } | null)?.status === 429) {
+      const wasPaused = this.quotaPaused();
+      this.quotaPausedUntil = this.opts.now() + QUOTA_PAUSE_MS;
+      if (!wasPaused) {
+        this.opts.warn(`bench: Firestore's daily quota is spent; remote pauses and checks again every ${QUOTA_PAUSE_MS / 60_000} minutes until it resets (around midnight Pacific)\n`);
+      }
+    }
     if (this.unreachable.has(what)) return;
     this.unreachable.add(what);
     this.opts.warn(`bench: remote ${what} failing, retrying on the next poll: ${describe(error)}\n`);
+  }
+
+  private quotaPaused(): boolean {
+    return this.opts.now() < this.quotaPausedUntil;
   }
 
   private noteReachable(what: string): void {
@@ -371,10 +402,19 @@ export class RemoteBridge {
       `users/${this.opts.uid}/machines/${this.opts.machineId}/results`,
       `users/${this.opts.uid}/machines/${this.opts.machineId}/mirror`,
     ]) {
+      // In parallel: `bench remote off` waits on this, and one round trip per
+      // leftover document, one after another, is what made it slow.
       const docs = await this.opts.client.list(path);
-      for (const { id } of docs) await this.opts.client.remove(`${path}/${id}`);
+      await Promise.all(docs.map(({ id }) => this.opts.client.remove(`${path}/${id}`)));
     }
   }
+}
+
+/** Writes a failed `runPendingCommands` pass did make before it threw - see
+ * that function's own comment. Zero for any other error. */
+function writesBeforeFailure(error: unknown): number {
+  const n = (error as { writesBeforeFailure?: unknown } | null)?.writesBeforeFailure;
+  return typeof n === "number" ? n : 0;
 }
 
 export { mirrorRosterPath, mirrorSessionPath, resultPath };

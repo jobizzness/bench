@@ -49,27 +49,39 @@ export class MirrorWriter {
   /** Returns the number of Firestore *writes* made this tick (deletes are
    * not budget-limited by the design and are not counted here). */
   async sync(broadcastRows: RosterRow[], watching: Set<string>, callLocal: LocalCaller): Promise<number> {
-    let writes = 0;
-    writes += await this.syncRoster(broadcastRows);
-
     const broadcastIds = new Set(broadcastRows.map((r) => r.id));
     const shouldMirror = [...watching].filter((id) => broadcastIds.has(id));
-    await this.deleteUnwanted(new Set(shouldMirror));
-    const sessionWrites = await Promise.all(shouldMirror.map((id) => this.syncSession(id, callLocal)));
-    for (const count of sessionWrites) writes += count;
-    return writes;
+
+    // Every document on its own: a roster write Firestore refuses, or one
+    // session whose detail cannot be read, must not freeze the mirror of
+    // every other session a viewer has open. The first failure is still
+    // thrown, after the rest have had their turn, so the bridge reports it.
+    const outcomes = await Promise.allSettled([
+      this.syncRoster(broadcastRows),
+      this.deleteUnwanted(new Set(shouldMirror)).then(() => 0),
+      ...shouldMirror.map((id) => this.syncSession(id, callLocal)),
+    ]);
+    return settle(outcomes);
   }
 
   /** Everything this machine currently mirrors, gone - the viewer that made
    * it worth writing has gone stale. */
   async deleteAll(): Promise<void> {
-    await Promise.all([
-      this.client.remove(mirrorRosterPath(this.uid, this.machineId)),
-      ...this.mirroredSessions().map((id) => this.client.remove(mirrorSessionPath(this.uid, this.machineId, id))),
+    // Forget only what was actually deleted, so a retry after a partial
+    // failure goes back for exactly what is still up there.
+    const outcomes = await Promise.allSettled([
+      this.client.remove(mirrorRosterPath(this.uid, this.machineId)).then(() => {
+        this.lastRoster = null;
+        this.lastRosterWriteAt = 0;
+        return 0;
+      }),
+      ...this.mirroredSessions().map((id) => this.client.remove(mirrorSessionPath(this.uid, this.machineId, id)).then(() => {
+        this.sessionPayloads.delete(id);
+        this.sessionWriteAt.delete(id);
+        return 0;
+      })),
     ]);
-    this.lastRoster = null;
-    this.sessionPayloads.clear();
-    this.sessionWriteAt.clear();
+    settle(outcomes);
   }
 
   private async syncRoster(rows: RosterRow[]): Promise<number> {
@@ -124,10 +136,23 @@ export class MirrorWriter {
 
   private async deleteUnwanted(shouldMirror: Set<string>): Promise<void> {
     const unwanted = this.mirroredSessions().filter((id) => !shouldMirror.has(id));
-    await Promise.all(unwanted.map(async (id) => {
+    settle(await Promise.allSettled(unwanted.map(async (id) => {
       await this.client.remove(mirrorSessionPath(this.uid, this.machineId, id));
       this.sessionPayloads.delete(id);
       this.sessionWriteAt.delete(id);
-    }));
+      return 0;
+    })));
   }
+}
+
+/** Sum what succeeded, then throw the first failure, if any. */
+function settle(outcomes: PromiseSettledResult<number>[]): number {
+  let total = 0;
+  let failure: unknown = null;
+  for (const outcome of outcomes) {
+    if (outcome.status === "fulfilled") total += outcome.value;
+    else failure ??= outcome.reason;
+  }
+  if (failure !== null) throw failure;
+  return total;
 }
