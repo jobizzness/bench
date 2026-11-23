@@ -5082,3 +5082,19 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   #dispatch-prompt { max-height: 40vh; }
 }
 
+
+/* Who said it (#who-said-what). `--who` is set per entry by ThreadEntry.tsx:
+   the developer in plain text, bench faint, every specialist its own hue. */
+.entry .who-name { color: var(--who, var(--faint)); }
+.entry.user .bubble { border-left: 2px solid var(--who, var(--line-firm)); }
+
+/* What this specialist sent another tab, and what it was told about one
+   without being woken: both quieter than something said to it. */
+.entry.sent .bubble,
+.entry.note .bubble {
+  background: transparent;
+  border: 1px dashed var(--line-firm);
+  border-left: 2px solid var(--who, var(--line-firm));
+  color: var(--muted);
+  font-size: 13px;
+}

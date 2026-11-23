@@ -31,7 +31,8 @@ import { fullestPercent, type Usage, type UsageWindow } from "../shared/usage.js
 import { catalogue, geminiContextWindow, isOpenRouterModel, settledCostOfTurn, type Listed } from "./gemini.js";
 import { antigravityModelOf, devinFamilyOf, isModelId, modelLabel } from "../shared/models.js";
 import { antigravityContextWindow, recoverAntigravityContext } from "./antigravity-models.js";
-import type { AttachmentRef, EditEvent, RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
+import type { AttachmentRef, EditEvent, MessageSender, RosterRow, SessionStatus, Spend, StoredAttachment } from "../shared/types.js";
+import { BENCH, DEVELOPER, promptHeader } from "../shared/sender.js";
 import { costOfTurn, type Price, type TurnShape } from "../shared/cost.js";
 import { costFrom, shapeFrom } from "./stream-codec.js";
 import type { FileTouch, ResultEvent } from "./stream-codec.js";
@@ -108,6 +109,14 @@ interface Entry {
    * brief is on disk too now (`pendingDispatch`), so both halves of that job
    * survive a restart together. */
   createdBy: string | null;
+  /** Who started the turn in flight - so an answer to the specialist that
+   * opened this tab goes back to it when the turn ends. */
+  turnFrom?: MessageSender;
+  /** The last thing said out loud this turn: what goes back to the opener. */
+  lastReply?: string;
+  /** Things this specialist was told about without being woken, delivered
+   * with its next prompt. In memory only: the thread keeps the visible copy. */
+  pendingNotes?: string[];
   /** Whether the held first message has ever been released to the process.
    * Turn count alone used to stand in for this, which held every message -
    * not just the first - back onto `pendingDispatch` for as long as the tab
@@ -1010,6 +1019,16 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
   private update(id: string, status: SessionStatus, detail: string): void {
     const entry = this.entries.get(id);
     if (!entry) return;
+    // A tab another specialist opened, gone down: its opener is told, or it
+    // waits on an answer that is never coming.
+    if (status === "crashed" && entry.row.status !== "crashed" && entry.createdBy !== null && this.entries.has(entry.createdBy)) {
+      const opener = entry.createdBy;
+      queueMicrotask(() => this.send(
+        opener,
+        `${entry.row.label} crashed: ${detail}. bench tell ${entry.row.label} anything to bring it back, or bench close ${entry.row.label}.`,
+        id,
+      ));
+    }
     entry.row.status = status;
     entry.row.detail = detail;
     this.emit("roster");
@@ -1292,6 +1311,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         .then(() => true)
         .catch(() => false);
 
+      entry.lastReply = text;
       await appendEntry(entry.threadPath, {
         kind: "reply",
         body: text,
@@ -1354,7 +1374,19 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
             entry.row.id,
           );
         }
+      } else if (
+        // No report, but its opener asked it something: the answer goes back
+        // to whoever asked, or the opener waits on a reply that only ever
+        // reached the developer's screen. A turn the developer started stays
+        // between them - its opener already has a note of it.
+        entry.createdBy !== null
+        && entry.turnFrom?.kind === "specialist" && entry.turnFrom.id === entry.createdBy
+        && entry.lastReply
+      ) {
+        const answer = entry.lastReply.length > 4000 ? `${entry.lastReply.slice(0, 4000)}…` : entry.lastReply;
+        this.send(entry.createdBy, `${entry.row.label} answered:\n\n${answer}`, entry.row.id);
       }
+      entry.turnFrom = undefined;
 
       // How full the conversation is now. Kept on disk as well as on the row:
       // a cockpit that has just started should be able to say whether a cold
@@ -1640,7 +1672,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
    * one (#160). Returns `true` without queueing anything when this id has
    * already been seen for this session.
    */
-  send(id: string, text: string, from?: string, images: StoredAttachment[] = [], messageId?: string): boolean {
+  send(
+    id: string, text: string, from?: string, images: StoredAttachment[] = [], messageId?: string,
+    /** Overrides who this is recorded as being from. Only for words bench
+     * writes itself; everything else is decided by `from`. */
+    as?: MessageSender,
+  ): boolean {
     const entry = this.entries.get(id);
     if (!entry) return false;
 
@@ -1663,8 +1700,37 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       return false;
     }
 
-    this.deliver(id, entry, text, images);
+    this.deliver(id, entry, text, images, as ?? this.senderFor(from));
     return false;
+  }
+
+  /** A session id as a sender: the specialist it names, or the developer
+   * when none was named - the cockpit's composer never names one. */
+  private senderFor(from: string | undefined): MessageSender {
+    if (from === undefined) return DEVELOPER;
+    const label = this.entries.get(from)?.row.label ?? "a specialist";
+    return { kind: "specialist", id: from, label };
+  }
+
+  /** The specialist that opened this tab, while it is still on the roster. */
+  private openerOf(entry: Entry): { id: string; label: string } | null {
+    if (entry.createdBy === null) return null;
+    const parent = this.entries.get(entry.createdBy);
+    return parent ? { id: entry.createdBy, label: parent.row.label } : null;
+  }
+
+  /**
+   * A message one specialist sent another, written into the sender's own
+   * thread too - so reading the opener you can see what it asked, not only
+   * what came back.
+   */
+  recordSent(fromId: string, toId: string, text: string): void {
+    const sender = this.entries.get(fromId);
+    const target = this.entries.get(toId);
+    if (!sender || !target) return;
+    void appendEntry(sender.threadPath, {
+      kind: "sent", body: text, to: { id: toId, label: target.row.label },
+    }).then(() => this.emit("roster"));
   }
 
   /** True, and remembered, the first time this id is seen for this session;
@@ -1691,7 +1757,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.row.pendingPrompt = null;
     entry.dispatched = true;
     this.rememberDispatch(id, null);
-    this.deliver(id, entry, text, images);
+    // Only a message from a specialist is ever held, and only on a tab a
+    // specialist opened - so it came from the opener.
+    this.deliver(id, entry, text, images, this.senderFor(entry.createdBy ?? undefined));
   }
 
   /**
@@ -1727,7 +1795,9 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
 
   /** The part of prompting a specialist that a held message also has to go
    * through once it is released: the same path `send()` always took. */
-  private deliver(id: string, entry: Entry, text: string, images: StoredAttachment[] = []): void {
+  private deliver(
+    id: string, entry: Entry, text: string, images: StoredAttachment[] = [], sender: MessageSender = DEVELOPER,
+  ): void {
     // A specialist restored from disk has no process yet. Bring it back on
     // the first prompt, resuming the transcript the CLI still holds, so it
     // remembers what it was doing.
@@ -1738,9 +1808,19 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       return;
     }
 
-    let promptText = text;
+    // Who is talking goes first, so the agent never has to guess whether
+    // these are the developer's words or its opener's - and notes it was
+    // sent while idle ride along rather than each costing it a turn.
+    const opener = this.openerOf(entry);
+    const notes = entry.pendingNotes ?? [];
+    entry.pendingNotes = [];
+    let promptText = [
+      ...(notes.length > 0 ? [`[notes since your last turn - nothing to answer unless you want to]\n${notes.map((n) => `- ${n}`).join("\n")}\n`] : []),
+      promptHeader(sender, { opener }),
+      text,
+    ].join("\n");
     if (entry.threadSummary) {
-      promptText = `${entry.threadSummary}\n\n${text}`;
+      promptText = `${entry.threadSummary}\n\n${promptText}`;
       entry.threadSummary = null;
     }
 
@@ -1748,10 +1828,27 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     void appendEntry(entry.threadPath, {
       kind: "user",
       body: text,
+      from: sender,
       ...(images.length > 0
         ? { images: images.map(({ name, mediaType }) => ({ name, mediaType })) }
         : {}),
     });
+    entry.turnFrom = sender;
+    entry.lastReply = undefined;
+
+    // The developer talking straight to a tab another specialist opened:
+    // that specialist hears of it, as a note for its next turn rather than a
+    // turn of its own - aware without being woken and billed for it.
+    if (sender.kind === "developer" && opener) {
+      const parent = this.entries.get(opener.id);
+      if (parent) {
+        const quoted = text.length > 600 ? `${text.slice(0, 600)}…` : text;
+        (parent.pendingNotes ??= []).push(`The developer told ${entry.row.label} directly: "${quoted}"`);
+        void appendEntry(parent.threadPath, {
+          kind: "note", body: text, from: DEVELOPER, to: { id, label: entry.row.label },
+        }).then(() => this.emit("roster"));
+      }
+    }
     // Prompting a specialist is how a decision gets answered, so whatever
     // was on the table is answered now.
     entry.row.answeredReportSeq = entry.row.latestReportSeq;
@@ -2069,7 +2166,7 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     void Promise.all([reportReady, exited]).then(([summary]) => {
       const revived = this.entries.get(id);
       if (!revived || summary === "") return;
-      this.deliver(id, revived, "[bench] Context was cleared. Continue from where you left off.");
+      this.deliver(id, revived, "[bench] Context was cleared. Continue from where you left off.", [], BENCH);
     });
 
     return true;

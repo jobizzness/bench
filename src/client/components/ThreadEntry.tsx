@@ -1,11 +1,32 @@
+import type { CSSProperties } from "react";
 import type { ThreadEntry as Entry } from "../../shared/types.js";
 import { relativeTime } from "../format.js";
 import { ArtifactCard, type ArtifactRef } from "./ArtifactCard.js";
 import { Markdown } from "./Markdown.js";
 import type { References } from "../markdown.js";
 import { useArrival } from "./useArrival.js";
+import { senderName, senderOf, DEVELOPER } from "../../shared/sender.js";
+import { labelColour, senderColour } from "../sender-colour.js";
 
-const WHO: Record<string, string> = { user: "you", reply: "specialist" };
+/**
+ * The label above an entry: who said it, in their colour. A message is from
+ * the developer, a named specialist, or bench - never just "you", which is
+ * what every one of them used to say whoever sent it.
+ */
+function whoOf(entry: Entry): { name: string; colour: string } | null {
+  switch (entry.kind) {
+    case "user": {
+      const sender = senderOf(entry);
+      return { name: senderName(sender), colour: senderColour(sender) };
+    }
+    case "reply": return { name: "specialist", colour: "var(--faint)" };
+    case "sent": return entry.to ? { name: `→ ${entry.to.label}`, colour: labelColour(entry.to.label) } : null;
+    case "note": return entry.to
+      ? { name: `${senderName(entry.from ?? DEVELOPER)} → ${entry.to.label} · note`, colour: senderColour(entry.from ?? DEVELOPER) }
+      : null;
+    default: return null;
+  }
+}
 
 /** A report card, a reply card, or something somebody said.
  *
@@ -27,7 +48,7 @@ export function ThreadEntry({
    * the thread being redrawn or revisited. */
   isNew: boolean;
 }) {
-  const who = WHO[entry.kind];
+  const who = whoOf(entry);
   const arrival = useArrival(isNew, "entry");
 
   const artifact: ArtifactRef | null =
@@ -43,13 +64,14 @@ export function ThreadEntry({
     // guessing from a total height delta that would also include whatever
     // landed off-screen at the bottom.
     <div
+      style={who ? ({ "--who": who.colour } as CSSProperties) : undefined}
       className={`entry ${entry.kind}${arrival.className ? ` ${arrival.className}` : ""}`}
       data-seq={entry.seq}
       onTransitionEnd={arrival.onTransitionEnd}
     >
       {who && (
         <div className="who">
-          {who}
+          <span className="who-name">{who.name}</span>
           <span className="when">{relativeTime(entry.at)}</span>
         </div>
       )}

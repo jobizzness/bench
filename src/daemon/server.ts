@@ -34,7 +34,7 @@ import { antigravityModels } from "./antigravity-models.js";
 import { cockpitOrigins, isLoopback } from "./urls.js";
 import type { RemoteControllerLike } from "./remote/controller.js";
 import { REMOTE_OFF as REMOTE_OFF_STATE } from "../shared/remote.js";
-import type { EditEvent, IntakeAnswer, RosterRow, StoredAttachment } from "../shared/types.js";
+import type { EditEvent, IntakeAnswer, MessageSender, RosterRow, StoredAttachment } from "../shared/types.js";
 import type { SelfUpdateStatus } from "../shared/self-update.js";
 import { runSelfUpdate, type UpdateResult } from "./self-update-run.js";
 import { askForRestart } from "../cli/restart.js";
@@ -86,8 +86,11 @@ export interface SessionRegistryLike {
   /** True when `messageId` has already been seen for this session, so the
    * message was a repeat and nothing was queued for it (#160). */
   send(
-    id: string, text: string, from?: string, images?: StoredAttachment[], messageId?: string,
+    id: string, text: string, from?: string, images?: StoredAttachment[], messageId?: string, as?: MessageSender,
   ): boolean;
+  /** A message one specialist sent another, copied into the sender's own
+   * thread. Optional so test doubles that never relay can leave it out. */
+  recordSent?(fromId: string, toId: string, text: string): void;
   /** What a specialist has changed since its branch started, and the commit
    * that was - see #128. Null when there is no such session. */
   changes(id: string): Promise<SessionChanges | null>;
@@ -1028,6 +1031,7 @@ export function createServer(opts: {
       const messageId = typeof body.messageId === "string" && body.messageId !== "" ? body.messageId : undefined;
 
       const duplicate = registry.send(message[1], text, from, attached.images, messageId);
+      if (!duplicate && from !== undefined) registry.recordSent?.(from, message[1], text);
 
       // #160: 126 of 289 deliveries in one transcript were duplicates, in
       // bursts as tight as 86ms median - a retry loop somewhere on the way
@@ -1080,7 +1084,7 @@ export function createServer(opts: {
         label: subject.label,
         branch: subject.branch,
         reportPath,
-      }));
+      }), undefined, [], undefined, { kind: "bench" });
 
       json(res, 200, { id });
       return;

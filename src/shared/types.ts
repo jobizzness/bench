@@ -226,11 +226,28 @@ export interface AttachmentRef {
  */
 export interface StoredAttachment extends Attachment, AttachmentRef {}
 
-export type ThreadEntryKind = "user" | "reply" | "report" | "system";
+/**
+ * - `user`: a message this specialist was given, by whoever `from` names.
+ * - `sent`: a message this specialist gave another tab (`to`).
+ * - `note`: something it was told about without being woken - the developer
+ *   talking to a tab it opened - delivered with its next prompt.
+ */
+export type ThreadEntryKind = "user" | "reply" | "report" | "system" | "sent" | "note";
+
+/** Who a message came from. Entries written before this was recorded have
+ * none; `senderOf` in `shared/sender.ts` reads one off their wording. */
+export type MessageSender =
+  | { kind: "developer" }
+  | { kind: "specialist"; id: string; label: string }
+  | { kind: "bench" };
 
 export interface ThreadEntryInput {
   kind: ThreadEntryKind;
   body: string;
+  /** On `user` and `note` entries: who said it. */
+  from?: MessageSender;
+  /** On `sent` and `note` entries: the tab it was said to. */
+  to?: { id: string; label: string };
   /** Set on report entries: the turn whose report.html this refers to. */
   reportSeq?: number;
   /** Set on reply entries the specialist answered with a rendered page. */
