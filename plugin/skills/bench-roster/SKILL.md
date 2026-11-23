@@ -95,6 +95,24 @@ not yours - report rather than guessing it."
 Then say in your own reply that you opened it and what you told it, so the
 developer knows there is a new tab and does not find it by surprise.
 
+## Who is talking, and how answers come back
+
+Every prompt starts with a line saying who it is from - `[from the
+developer]`, `[from cto, the specialist that opened this tab …]`, `[from
+Bench]`. Read it. The developer can message a tab you opened directly, and
+their words and yours are not the same instruction.
+
+- **You opened a tab and told it something.** When its turn ends, its answer
+  comes back to you as a message `"<label> answered: …"` - or `"<label> wrote
+  a report: …"` if it wrote one. If it crashes, you are told that too. Do not
+  poll it, and do not ask it to `bench tell` you back.
+- **You are a tab another specialist opened.** Answer in your reply; it goes
+  back to your opener on its own. If the developer messages you directly, do
+  what they asked - your opener is sent a note of it, not woken.
+- **Notes.** A prompt can start with `[notes since your last turn]` - things
+  you were told about without being woken, usually the developer talking to
+  a tab you opened. Take them into account; they need no answer of their own.
+
 ## Closing one when you're done with it
 
 Once a sub-agent you opened has reported back and you have what you needed,

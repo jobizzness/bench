@@ -1,6 +1,7 @@
 import { appendFile, readFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ThreadEntry, ThreadEntryInput } from "../shared/types.js";
+import { senderOf } from "../shared/sender.js";
 
 /**
  * One JSON object per line. Sequence numbers are assigned at read time from
@@ -81,7 +82,13 @@ export function summariseThread(entries: ThreadEntry[]): string {
     }
 
     if (entry.kind === "user") {
-      lines.push(`- Developer: ${body}`);
+      const sender = senderOf(entry);
+      const who = sender.kind === "developer" ? "Developer" : sender.kind === "bench" ? "Bench" : `${sender.label} (another specialist)`;
+      lines.push(`- ${who}: ${body}`);
+    } else if (entry.kind === "sent" && entry.to) {
+      lines.push(`- You told ${entry.to.label}: ${body}`);
+    } else if (entry.kind === "note" && entry.to) {
+      lines.push(`- (note) The developer told ${entry.to.label} directly: ${body}`);
     } else if (entry.kind === "reply") {
       lines.push(`- Specialist: ${body}`);
     } else if (entry.kind === "report") {

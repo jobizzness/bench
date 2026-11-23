@@ -2230,7 +2230,7 @@ describe("a tab another specialist spins up", () => {
       const deliver = vi.spyOn(next as any, "deliver").mockImplementation(() => {});
       await next.dispatch(id);
 
-      expect(deliver).toHaveBeenCalledWith(id, expect.anything(), "line one\n\nline two", []);
+      expect(deliver).toHaveBeenCalledWith(id, expect.anything(), "line one\n\nline two", [], { kind: "specialist", id: "sess-parent", label: expect.any(String) });
     });
 
     it("keeps a decline declined, rather than resurrecting the brief", async () => {
@@ -2495,5 +2495,116 @@ describe("a report on a tab another specialist opened", () => {
 
     await waitFor(() => (rowOf(registry, soloId).status !== "working" ? true : null), "the turn to finish");
     expect(rowOf(registry, soloId).status).not.toBe("crashed");
+  });
+});
+
+/** Answers every prompt by saying it back, so a test can read exactly what
+ * the agent was given - header line included - off its reply. */
+const ECHO_CLI = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init" }) + "\\n");
+let carry = "";
+process.stdin.on("data", (chunk) => {
+  carry += chunk.toString();
+  const lines = carry.split("\\n");
+  carry = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    let said = "";
+    try {
+      const content = JSON.parse(line).message.content;
+      said = typeof content === "string" ? content : content.filter((p) => p.type === "text").map((p) => p.text).join("\\n");
+    } catch {}
+    process.stdout.write(JSON.stringify({
+      type: "result", subtype: "success", is_error: false, session_id: "sess-restore", result: "ECHO " + said,
+    }) + "\\n");
+  }
+});
+`;
+
+describe("who said what, between a specialist and a tab it opened", () => {
+  async function pair() {
+    const { project, registry } = await setupForCreate(ECHO_CLI);
+    const parentId = await registry.create({ project, label: "cto", model: "opus" });
+    registry.send(parentId, "get started");
+    await waitFor(() => (rowOf(registry, parentId).status !== "working" ? true : null), "parent's first turn");
+    const childId = await registry.create({ project, label: "impl", model: "opus", createdBy: parentId });
+    registry.send(childId, "build it", parentId);
+    await registry.dispatch(childId);
+    await waitFor(() => (rowOf(registry, childId).status !== "working" ? true : null), "child's first turn");
+    return { registry, parentId, childId };
+  }
+  const lines = (path: string) => {
+    try { return readFileSync(path, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; }
+  };
+
+  it("records the sender on every message and tells the agent who it is", async () => {
+    const { registry, parentId, childId } = await pair();
+    const child = registry.get(childId)!;
+
+    const fromParent = lines(child.threadPath).find((e) => e.kind === "user");
+    expect(fromParent.from).toEqual({ kind: "specialist", id: parentId, label: "cto" });
+    // The reply is appended after the turn is marked over, so poll for it.
+    const reply = await waitFor(() => lines(child.threadPath).find((e) => e.kind === "reply") ?? null, "the reply");
+    expect(reply.body).toContain("[from cto, the specialist that opened this tab");
+
+    const own = lines(registry.get(parentId)!.threadPath).find((e) => e.kind === "user");
+    expect(own.from).toEqual({ kind: "developer" });
+  });
+
+  it("sends a plain answer back to the opener that asked, with no report", async () => {
+    const { registry, parentId } = await pair();
+    const parent = registry.get(parentId)!;
+    const answered = await waitFor(
+      () => lines(parent.threadPath).find((e) => e.kind === "user" && String(e.body).startsWith("impl answered:")) ?? null,
+      "the opener to get the answer",
+    );
+    expect(answered.from).toMatchObject({ kind: "specialist", label: "impl" });
+    expect(answered.body).toContain("build it");
+  });
+
+  it("does not wake the opener when the developer talks to its tab, but leaves it a note", async () => {
+    const { registry, parentId, childId } = await pair();
+    const parent = registry.get(parentId)!;
+    await waitFor(() => (rowOf(registry, parentId).status !== "working" ? true : null), "opener to settle");
+    const before = lines(parent.threadPath).filter((e) => e.kind === "user").length;
+
+    registry.send(childId, "make the badges green");
+    await waitFor(() => (rowOf(registry, childId).status !== "working" ? true : null), "child's turn");
+
+    const note = await waitFor(() => lines(parent.threadPath).find((e) => e.kind === "note") ?? null, "the note");
+    expect(note).toMatchObject({ body: "make the badges green", from: { kind: "developer" }, to: { label: "impl" } });
+    // The child's answer to the developer stays between them.
+    expect(lines(parent.threadPath).filter((e) => e.kind === "user").length).toBe(before);
+
+    // ...and the note rides along on the opener's next prompt.
+    registry.send(parentId, "status?");
+    await waitFor(() => (rowOf(registry, parentId).status !== "working" ? true : null), "opener's turn");
+    const last = await waitFor(
+      () => lines(parent.threadPath).filter((e) => e.kind === "reply").find((e) => String(e.body).includes("status?")) ?? null,
+      "the opener's reply to status?",
+    );
+    expect(last.body).toContain('The developer told impl directly: "make the badges green"');
+  });
+
+  it("tells the opener when its tab crashes, once", async () => {
+    const { registry, parentId, childId } = await pair();
+    await waitFor(() => (rowOf(registry, parentId).status !== "working" ? true : null), "opener to settle");
+    const update = (registry as unknown as { update(id: string, s: string, d: string): void }).update.bind(registry);
+    update(childId, "crashed", "process exited (1)");
+    update(childId, "crashed", "process exited (1)");
+    const parent = registry.get(parentId)!;
+    await waitFor(
+      () => lines(parent.threadPath).find((e) => String(e.body).startsWith("impl crashed:")) ?? null, "the crash notice",
+    );
+    expect(lines(parent.threadPath).filter((e) => String(e.body).startsWith("impl crashed:"))).toHaveLength(1);
+  });
+
+  it("copies what one specialist sends another into the sender's own thread", async () => {
+    const { registry, parentId, childId } = await pair();
+    registry.recordSent(parentId, childId, "also add tests");
+    const sent = await waitFor(
+      () => lines(registry.get(parentId)!.threadPath).find((e) => e.kind === "sent") ?? null, "the sent line",
+    );
+    expect(sent).toMatchObject({ body: "also add tests", to: { id: childId, label: "impl" } });
   });
 });
