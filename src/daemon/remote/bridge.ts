@@ -18,6 +18,16 @@ const IDLE_AFTER_MS = 5 * 60_000;
 const QUOTA_PAUSE_MS = 15 * 60_000;
 
 /**
+ * How long the mirror outlives its last viewer. A reload is the page leaving
+ * and the same page coming straight back: tearing the mirror down on the
+ * leave meant the page that came back found no roster, showed "waking", and
+ * waited for the whole mirror to be written again. Long enough for a reload
+ * or a quick tab-away; short enough that an abandoned mirror is not kept up
+ * for long.
+ */
+const MIRROR_GRACE_MS = 2 * 60_000;
+
+/**
  * An error worth reading. `undici` reports every network failure as the same
  * `TypeError: fetch failed` and puts the thing you actually need - a connect
  * timeout, a reset, a DNS failure - in `cause`, so logging the error alone
@@ -119,6 +129,7 @@ export class RemoteBridge {
   private active = false;
   private supervising = false;
   private ticking = false;
+  private tickAgain = false;
   private watching = new Set<string>();
   private lastPollAt = 0;
   private lastActiveAt: number;
@@ -289,8 +300,13 @@ export class RemoteBridge {
       this.lastPollAt = now;
       presence = await readPresence(this.opts.client, this.opts.uid, this.opts.machineId, now, this.opts.viewerStaleMs);
     }
-    this.watching = presence.watching;
-    if (presence.active) this.lastActiveAt = now;
+    // While nobody is watching, keep mirroring what was last watched: the
+    // grace below exists for the page that is about to come back to it.
+    const newlyWatched = presence.active && [...presence.watching].some((id) => !this.watching.has(id));
+    if (presence.active) {
+      this.watching = presence.watching;
+      this.lastActiveAt = now;
+    }
 
     if (presence.active && !this.active) {
       this.active = true;
@@ -299,7 +315,10 @@ export class RemoteBridge {
       // interval for its first mirror - the poll that noticed it also
       // serves it.
       await this.tick();
-    } else if (!presence.active && this.active) {
+    } else if (presence.active && newlyWatched) {
+      // A tab switch: write its mirror now rather than on the next tick.
+      await this.tick();
+    } else if (!presence.active && this.active && now - this.lastActiveAt >= MIRROR_GRACE_MS) {
       this.active = false;
       this.stopTicking();
       await this.mirror.deleteAll();
@@ -319,13 +338,20 @@ export class RemoteBridge {
 
   /** Never rejects, for the same reason `supervise` does not. */
   private async tick(): Promise<void> {
-    if (this.ticking) return;
+    // Asked for while one is running, it runs straight after - so a tab
+    // switch that lands mid-tick is not left for the next interval.
+    if (this.ticking) { this.tickAgain = true; return; }
     this.ticking = true;
     try {
-      await this.tickOnce();
-      this.noteReachable("mirror tick");
-    } catch (error) {
-      this.noteUnreachable("mirror tick", error);
+      do {
+        this.tickAgain = false;
+        try {
+          await this.tickOnce();
+          this.noteReachable("mirror tick");
+        } catch (error) {
+          this.noteUnreachable("mirror tick", error);
+        }
+      } while (this.tickAgain);
     } finally {
       this.ticking = false;
     }
