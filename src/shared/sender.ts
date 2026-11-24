@@ -38,7 +38,10 @@ export function senderName(sender: MessageSender): string {
  * tab, when one did - the case agents got wrong, taking the developer's
  * words for their opener's and the other way round.
  */
-export function promptHeader(sender: MessageSender, recipient: { opener: { id: string; label: string } | null }): string {
+export function promptHeader(
+  sender: MessageSender,
+  recipient: { opener: { id: string; label: string } | null; openedSender?: boolean },
+): string {
   const { opener } = recipient;
   if (sender.kind === "bench") return "[from Bench]";
   if (sender.kind === "developer") {
@@ -48,6 +51,10 @@ export function promptHeader(sender: MessageSender, recipient: { opener: { id: s
   }
   if (opener && sender.id === opener.id) {
     return `[from ${sender.label}, the specialist that opened this tab. When this turn ends your answer goes back to ${sender.label} automatically - no need to bench tell it.]`;
+  }
+  // The other direction: one of this specialist's own tabs reporting back.
+  if (recipient.openedSender) {
+    return `[from ${sender.label}, a tab you opened - not the developer. This is it reporting back to you.]`;
   }
   return `[from ${sender.label}, another specialist on this project - not the developer]`;
 }

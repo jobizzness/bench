@@ -2560,6 +2560,12 @@ describe("who said what, between a specialist and a tab it opened", () => {
     );
     expect(answered.from).toMatchObject({ kind: "specialist", label: "impl" });
     expect(answered.body).toContain("build it");
+    // The opener is told this is its own tab reporting back, not a stranger.
+    const echoed = await waitFor(
+      () => lines(parent.threadPath).find((e) => e.kind === "reply" && String(e.body).includes("impl answered:")) ?? null,
+      "the opener's reply to the answer",
+    );
+    expect(echoed.body).toContain("[from impl, a tab you opened");
   });
 
   it("does not wake the opener when the developer talks to its tab, but leaves it a note", async () => {

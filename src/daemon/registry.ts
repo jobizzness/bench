@@ -1816,7 +1816,10 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
     entry.pendingNotes = [];
     let promptText = [
       ...(notes.length > 0 ? [`[notes since your last turn - nothing to answer unless you want to]\n${notes.map((n) => `- ${n}`).join("\n")}\n`] : []),
-      promptHeader(sender, { opener }),
+      promptHeader(sender, {
+        opener,
+        openedSender: sender.kind === "specialist" && this.entries.get(sender.id)?.createdBy === id,
+      }),
       text,
     ].join("\n");
     if (entry.threadSummary) {
