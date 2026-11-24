@@ -39,7 +39,7 @@ describe("the theme picker", () => {
     await openSettings();
 
     const names = ui.$$("#s-theme-list .s-theme-name").map((n) => n.textContent);
-    expect(names).toEqual(["Bench", "Slate", "Ink", "Paper", "Contrast"]);
+    expect(names).toEqual(["Bench", "Slate", "Ink", "Paper", "Contrast", "Dusk", "Spectrum", "Tide", "Aurora", "Dawn"]);
 
     // Each chip carries the theme it offers, which is what makes it a sample
     // of that palette rather than a description of one.

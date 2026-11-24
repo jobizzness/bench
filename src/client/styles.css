@@ -104,6 +104,10 @@
   --wash-2: rgba(216, 164, 95, 0.045);
   --figure: rgba(120, 214, 168, 0.11);
 
+  /* No moving ground: the original five stay still. */
+  --ground: none;
+  --ground-motion: none;
+
   color-scheme: dark;
 }
 
@@ -138,6 +142,10 @@
   --wash-2: rgba(177, 146, 232, 0.05);
   --figure: rgba(168, 202, 232, 0.1);
 
+  /* No moving ground: the original five stay still. */
+  --ground: none;
+  --ground-motion: none;
+
   color-scheme: dark;
 }
 
@@ -171,6 +179,10 @@
   --wash-1: rgba(171, 141, 245, 0.1);
   --wash-2: rgba(127, 168, 240, 0.06);
   --figure: rgba(186, 172, 240, 0.12);
+
+  /* No moving ground: the original five stay still. */
+  --ground: none;
+  --ground-motion: none;
 
   color-scheme: dark;
 }
@@ -211,6 +223,10 @@
   --wash-2: rgba(145, 96, 15, 0.07);
   --figure: rgba(31, 38, 31, 0.11);
 
+  /* No moving ground: the original five stay still. */
+  --ground: none;
+  --ground-motion: none;
+
   color-scheme: light;
 }
 
@@ -249,7 +265,196 @@
   --wash-2: rgba(255, 179, 0, 0.03);
   --figure: rgba(255, 255, 255, 0.07);
 
+  /* No moving ground: the original five stay still. */
+  --ground: none;
+  --ground-motion: none;
+
   color-scheme: dark;
+}
+
+/* Dusk. The sky after the sun has gone: indigo, violet and plum crossing the
+   ground in one direction, slowly enough that you only notice it has changed. */
+[data-theme="dusk"] {
+  --bg:            #100c1a;
+  --panel:         #161126;
+  --raised:        #1f1833;
+  --sunk:          #0b0813;
+  --line:          rgba(255, 255, 255, 0.08);
+  --line-firm:     rgba(255, 255, 255, 0.155);
+  --hover:         rgba(255, 255, 255, 0.05);
+
+  --text:          #e8e2f2;
+  --muted:         #a89ebd;
+  --faint:         #7d7392;
+
+  --wants:         #6fdcaa;
+  --wants-dim:     #1f5240;
+  --busy:          #e6b062;
+  --busy-dim:      #4d3b1c;
+  --broken:        #f0766a;
+  --merged:        #8fb4ff;
+
+  --on-accent:     #06140e;
+  --scrim:         rgba(6, 4, 12, 0.74);
+  --scrim-soft:    rgba(6, 4, 12, 0.55);
+  --shadow:        rgba(0, 0, 0, 0.55);
+
+  --wash-1:        rgba(124, 92, 255, 0.10);
+  --wash-2:        rgba(214, 80, 150, 0.06);
+  --figure:        rgba(196, 170, 240, 0.11);
+
+  --ground:        linear-gradient(90deg, rgba(74, 60, 200, 0.21), rgba(140, 60, 190, 0.21), rgba(190, 50, 120, 0.16), rgba(60, 70, 190, 0.19), rgba(74, 60, 200, 0.21)) 0 0 / 33.333% 100%;
+  --ground-motion: ground-flow 90s linear infinite;
+
+  color-scheme: dark;
+}
+
+/* Spectrum. Four colours that never sit still and never hurry: the widest
+   palette of any ground here, on the darkest blue that will hold it. */
+[data-theme="spectrum"] {
+  --bg:            #0a0d1a;
+  --panel:         #0f1424;
+  --raised:        #171d33;
+  --sunk:          #070912;
+  --line:          rgba(255, 255, 255, 0.08);
+  --line-firm:     rgba(255, 255, 255, 0.155);
+  --hover:         rgba(255, 255, 255, 0.05);
+
+  --text:          #e3e7f4;
+  --muted:         #9aa3c0;
+  --faint:         #717a99;
+
+  --wants:         #5fe3a1;
+  --wants-dim:     #1b5239;
+  --busy:          #ecb45e;
+  --busy-dim:      #4c3a1a;
+  --broken:        #f27a6c;
+  --merged:        #c59bf5;
+
+  --on-accent:     #04140c;
+  --scrim:         rgba(4, 5, 12, 0.74);
+  --scrim-soft:    rgba(4, 5, 12, 0.55);
+  --shadow:        rgba(0, 0, 0, 0.55);
+
+  --wash-1:        rgba(90, 110, 255, 0.09);
+  --wash-2:        rgba(170, 70, 200, 0.06);
+  --figure:        rgba(170, 190, 250, 0.11);
+
+  --ground:        radial-gradient(15% 17% at 39% 40%, rgba(110, 80, 255, 0.22), transparent), radial-gradient(14% 16% at 60% 42%, rgba(30, 140, 230, 0.18), transparent), radial-gradient(15% 16% at 44% 60%, rgba(20, 170, 150, 0.16), transparent), radial-gradient(13% 15% at 63% 62%, rgba(190, 60, 170, 0.16), transparent);
+  --ground-motion: ground-wander 100s ease-in-out infinite;
+
+  color-scheme: dark;
+}
+
+/* Tide. Deep water seen from under it: bands of navy, teal and indigo rising
+   through the ground. Lime wants you, because every blue is already taken. */
+[data-theme="tide"] {
+  --bg:            #07111c;
+  --panel:         #0b1826;
+  --raised:        #112334;
+  --sunk:          #050c14;
+  --line:          rgba(255, 255, 255, 0.08);
+  --line-firm:     rgba(255, 255, 255, 0.155);
+  --hover:         rgba(255, 255, 255, 0.05);
+
+  --text:          #dcebf2;
+  --muted:         #8eaabb;
+  --faint:         #668293;
+
+  --wants:         #b4e36a;
+  --wants-dim:     #3c5219;
+  --busy:          #f2a55a;
+  --busy-dim:      #54361a;
+  --broken:        #ff7a85;
+  --merged:        #b79cf2;
+
+  --on-accent:     #0d1602;
+  --scrim:         rgba(3, 7, 12, 0.74);
+  --scrim-soft:    rgba(3, 7, 12, 0.55);
+  --shadow:        rgba(0, 0, 0, 0.55);
+
+  --wash-1:        rgba(40, 150, 220, 0.09);
+  --wash-2:        rgba(30, 190, 170, 0.055);
+  --figure:        rgba(150, 210, 230, 0.10);
+
+  --ground:        linear-gradient(180deg, rgba(20, 70, 170, 0.21), rgba(15, 130, 150, 0.18), rgba(50, 60, 180, 0.20), rgba(15, 110, 170, 0.18), rgba(20, 70, 170, 0.21)) 0 0 / 100% 33.333%;
+  --ground-motion: ground-rise 120s linear infinite;
+
+  color-scheme: dark;
+}
+
+/* Aurora. The darkest ground of the moving ones, so the light on it can be
+   the brightest: green and violet sheets that lean one way, then the other. */
+[data-theme="aurora"] {
+  --bg:            #060b0f;
+  --panel:         #0a1217;
+  --raised:        #101c22;
+  --sunk:          #04080b;
+  --line:          rgba(255, 255, 255, 0.08);
+  --line-firm:     rgba(255, 255, 255, 0.155);
+  --hover:         rgba(255, 255, 255, 0.05);
+
+  --text:          #dfeceb;
+  --muted:         #8faaaa;
+  --faint:         #688181;
+
+  --wants:         #6cc8ff;
+  --wants-dim:     #1b4763;
+  --busy:          #f0b458;
+  --busy-dim:      #4d3a18;
+  --broken:        #f27468;
+  --merged:        #c9a2ff;
+
+  --on-accent:     #03111b;
+  --scrim:         rgba(2, 5, 7, 0.76);
+  --scrim-soft:    rgba(2, 5, 7, 0.55);
+  --shadow:        rgba(0, 0, 0, 0.6);
+
+  --wash-1:        rgba(60, 220, 160, 0.07);
+  --wash-2:        rgba(140, 100, 255, 0.05);
+  --figure:        rgba(140, 230, 200, 0.10);
+
+  --ground:        linear-gradient(100deg, transparent 34%, rgba(40, 210, 140, 0.13) 42%, transparent 50%, rgba(150, 90, 255, 0.11) 57%, transparent 64%, rgba(40, 200, 190, 0.09) 69%, transparent 76%);
+  --ground-motion: ground-sway 70s ease-in-out infinite alternate;
+
+  color-scheme: dark;
+}
+
+/* Dawn. The light one that moves. Pale colour on a warm white, with the
+   status hues darkened until they are text on it, as Paper's are. */
+[data-theme="dawn"] {
+  --bg:            #f6f1f2;
+  --panel:         #fdf9f9;
+  --raised:        #ffffff;
+  --sunk:          #ebe3e6;
+  --line:          rgba(40, 24, 36, 0.11);
+  --line-firm:     rgba(40, 24, 36, 0.22);
+  --hover:         rgba(40, 24, 36, 0.05);
+
+  --text:          #261d27;
+  --muted:         #594c61;
+  --faint:         #7a6c80;
+
+  --wants:         #17754a;
+  --wants-dim:     #a9d9c0;
+  --busy:          #8f5a0a;
+  --busy-dim:      #edd8a8;
+  --broken:        #b3342c;
+  --merged:        #6a47b0;
+
+  --on-accent:     #ffffff;
+  --scrim:         rgba(40, 28, 38, 0.34);
+  --scrim-soft:    rgba(40, 28, 38, 0.2);
+  --shadow:        rgba(40, 28, 38, 0.2);
+
+  --wash-1:        rgba(255, 150, 120, 0.10);
+  --wash-2:        rgba(140, 120, 255, 0.08);
+  --figure:        rgba(60, 36, 60, 0.10);
+
+  --ground:        radial-gradient(15% 17% at 39% 40%, rgba(255, 170, 120, 0.36), transparent), radial-gradient(14% 16% at 60% 42%, rgba(245, 130, 170, 0.26), transparent), radial-gradient(15% 16% at 44% 60%, rgba(160, 140, 250, 0.28), transparent), radial-gradient(13% 15% at 63% 62%, rgba(120, 190, 250, 0.28), transparent);
+  --ground-motion: ground-breathe 80s ease-in-out infinite alternate;
+
+  color-scheme: light;
 }
 
 /* ────────────────────────────────────────────── end: themes ────────── */
@@ -324,6 +529,30 @@ body::before {
    the ground rather than a page printed on it, and a figure that slid past
    behind the messages would be the second moving thing on a screen whose
    first one is the work. */
+
+/* The moving ground (Dusk, Spectrum, Tide, Aurora, Dawn). One fixed layer
+   three windows wide and tall, so it can travel a whole window in any
+   direction without an edge ever showing. Only `transform` moves, so it is
+   composited and never repaints the gradients. Themes that do not move set
+   both tokens to none and the layer draws nothing. Under the figure and
+   under #app. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: -100%;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--ground, none);
+  animation: var(--ground-motion, none);
+}
+@keyframes ground-flow    { to { transform: translateX(-33.333%); } }
+@keyframes ground-rise    { to { transform: translateY(-33.333%); } }
+@keyframes ground-wander  { 0%, 100% { transform: translate(-5%, -6%); } 25% { transform: translate(5%, -6%); } 50% { transform: translate(5%, 6%); } 75% { transform: translate(-5%, 6%); } }
+@keyframes ground-sway    { from { transform: translateX(-6%) rotate(-4deg); } to { transform: translateX(6%) rotate(4deg); } }
+@keyframes ground-breathe { from { transform: translate(-4%, -3%) scale(1); } to { transform: translate(4%, 4%) scale(1.12); } }
+@media (prefers-reduced-motion: reduce) {
+  body::after { animation: none; }
+}
 
 /* ────────────────────────────────────────────── end: ground ────────── */
 
