@@ -108,6 +108,9 @@
   --ground: none;
   --ground-motion: none;
 
+  --reply-bg:      var(--raised);
+  --reply-motion:  none;
+
   color-scheme: dark;
 }
 
@@ -146,6 +149,9 @@
   --ground: none;
   --ground-motion: none;
 
+  --reply-bg:      var(--raised);
+  --reply-motion:  none;
+
   color-scheme: dark;
 }
 
@@ -183,6 +189,9 @@
   /* No moving ground: the original five stay still. */
   --ground: none;
   --ground-motion: none;
+
+  --reply-bg:      var(--raised);
+  --reply-motion:  none;
 
   color-scheme: dark;
 }
@@ -227,6 +236,9 @@
   --ground: none;
   --ground-motion: none;
 
+  --reply-bg:      var(--raised);
+  --reply-motion:  none;
+
   color-scheme: light;
 }
 
@@ -269,6 +281,9 @@
   --ground: none;
   --ground-motion: none;
 
+  --reply-bg:      var(--raised);
+  --reply-motion:  none;
+
   color-scheme: dark;
 }
 
@@ -303,8 +318,12 @@
   --wash-2:        rgba(214, 80, 150, 0.06);
   --figure:        rgba(196, 170, 240, 0.11);
 
-  --ground:        linear-gradient(90deg, rgba(74, 60, 200, 0.21), rgba(140, 60, 190, 0.21), rgba(190, 50, 120, 0.16), rgba(60, 70, 190, 0.19), rgba(74, 60, 200, 0.21)) 0 0 / 33.333% 100%;
+  --ground:        linear-gradient(90deg, rgba(74, 60, 200, 0.063), rgba(140, 60, 190, 0.063), rgba(190, 50, 120, 0.048), rgba(60, 70, 190, 0.057), rgba(74, 60, 200, 0.063)) 0 0 / 33.333% 100%;
   --ground-motion: ground-flow 90s linear infinite;
+
+  /* The agent's replies carry this theme's colour; the ground stays quiet. */
+  --reply-bg:      linear-gradient(115deg, #2b1d5c, #42205a, #561c45, #24245e, #2b1d5c) 0 0 / 400% 400%;
+  --reply-motion:  reply-drift 20s ease-in-out infinite;
 
   color-scheme: dark;
 }
@@ -340,8 +359,12 @@
   --wash-2:        rgba(170, 70, 200, 0.06);
   --figure:        rgba(170, 190, 250, 0.11);
 
-  --ground:        radial-gradient(15% 17% at 39% 40%, rgba(110, 80, 255, 0.22), transparent), radial-gradient(14% 16% at 60% 42%, rgba(30, 140, 230, 0.18), transparent), radial-gradient(15% 16% at 44% 60%, rgba(20, 170, 150, 0.16), transparent), radial-gradient(13% 15% at 63% 62%, rgba(190, 60, 170, 0.16), transparent);
+  --ground:        radial-gradient(15% 17% at 39% 40%, rgba(110, 80, 255, 0.066), transparent), radial-gradient(14% 16% at 60% 42%, rgba(30, 140, 230, 0.054), transparent), radial-gradient(15% 16% at 44% 60%, rgba(20, 170, 150, 0.048), transparent), radial-gradient(13% 15% at 63% 62%, rgba(190, 60, 170, 0.048), transparent);
   --ground-motion: ground-wander 100s ease-in-out infinite;
+
+  /* The agent's replies carry this theme's colour; the ground stays quiet. */
+  --reply-bg:      linear-gradient(115deg, #2a1a5e, #0b4a6f, #0f5a46, #5a1a4e, #2a1a5e) 0 0 / 400% 400%;
+  --reply-motion:  reply-drift 20s ease-in-out infinite;
 
   color-scheme: dark;
 }
@@ -377,8 +400,12 @@
   --wash-2:        rgba(30, 190, 170, 0.055);
   --figure:        rgba(150, 210, 230, 0.10);
 
-  --ground:        linear-gradient(180deg, rgba(20, 70, 170, 0.21), rgba(15, 130, 150, 0.18), rgba(50, 60, 180, 0.20), rgba(15, 110, 170, 0.18), rgba(20, 70, 170, 0.21)) 0 0 / 100% 33.333%;
+  --ground:        linear-gradient(180deg, rgba(20, 70, 170, 0.063), rgba(15, 130, 150, 0.054), rgba(50, 60, 180, 0.06), rgba(15, 110, 170, 0.054), rgba(20, 70, 170, 0.063)) 0 0 / 100% 33.333%;
   --ground-motion: ground-rise 120s linear infinite;
+
+  /* The agent's replies carry this theme's colour; the ground stays quiet. */
+  --reply-bg:      linear-gradient(115deg, #0f2d5a, #0b4652, #1c2a63, #0b3f5c, #0f2d5a) 0 0 / 400% 400%;
+  --reply-motion:  reply-drift 20s ease-in-out infinite;
 
   color-scheme: dark;
 }
@@ -414,8 +441,12 @@
   --wash-2:        rgba(140, 100, 255, 0.05);
   --figure:        rgba(140, 230, 200, 0.10);
 
-  --ground:        linear-gradient(100deg, transparent 34%, rgba(40, 210, 140, 0.13) 42%, transparent 50%, rgba(150, 90, 255, 0.11) 57%, transparent 64%, rgba(40, 200, 190, 0.09) 69%, transparent 76%);
+  --ground:        linear-gradient(100deg, transparent 34%, rgba(40, 210, 140, 0.039) 42%, transparent 50%, rgba(150, 90, 255, 0.033) 57%, transparent 64%, rgba(40, 200, 190, 0.027) 69%, transparent 76%);
   --ground-motion: ground-sway 70s ease-in-out infinite alternate;
+
+  /* The agent's replies carry this theme's colour; the ground stays quiet. */
+  --reply-bg:      linear-gradient(115deg, #0b3a30, #1d2a55, #2c1d58, #0b3d3f, #0b3a30) 0 0 / 400% 400%;
+  --reply-motion:  reply-drift 20s ease-in-out infinite;
 
   color-scheme: dark;
 }
@@ -451,8 +482,12 @@
   --wash-2:        rgba(140, 120, 255, 0.08);
   --figure:        rgba(60, 36, 60, 0.10);
 
-  --ground:        radial-gradient(15% 17% at 39% 40%, rgba(255, 170, 120, 0.36), transparent), radial-gradient(14% 16% at 60% 42%, rgba(245, 130, 170, 0.26), transparent), radial-gradient(15% 16% at 44% 60%, rgba(160, 140, 250, 0.28), transparent), radial-gradient(13% 15% at 63% 62%, rgba(120, 190, 250, 0.28), transparent);
+  --ground:        radial-gradient(15% 17% at 39% 40%, rgba(255, 170, 120, 0.108), transparent), radial-gradient(14% 16% at 60% 42%, rgba(245, 130, 170, 0.078), transparent), radial-gradient(15% 16% at 44% 60%, rgba(160, 140, 250, 0.084), transparent), radial-gradient(13% 15% at 63% 62%, rgba(120, 190, 250, 0.084), transparent);
   --ground-motion: ground-breathe 80s ease-in-out infinite alternate;
+
+  /* The agent's replies carry this theme's colour; the ground stays quiet. */
+  --reply-bg:      linear-gradient(115deg, #efe4ff, #dcefff, #ddf5ea, #ffe1ef, #efe4ff) 0 0 / 400% 400%;
+  --reply-motion:  reply-drift 20s ease-in-out infinite;
 
   color-scheme: light;
 }
@@ -550,8 +585,16 @@ body::after {
 @keyframes ground-wander  { 0%, 100% { transform: translate(-5%, -6%); } 25% { transform: translate(5%, -6%); } 50% { transform: translate(5%, 6%); } 75% { transform: translate(-5%, 6%); } }
 @keyframes ground-sway    { from { transform: translateX(-6%) rotate(-4deg); } to { transform: translateX(6%) rotate(4deg); } }
 @keyframes ground-breathe { from { transform: translate(-4%, -3%) scale(1); } to { transform: translate(4%, 4%) scale(1.12); } }
+/* An agent's reply sits on its theme's colour (#reply-themes). Every reply
+   wears it; only the newest moves, so a long thread is one animation, not
+   two hundred. Themes without one set --reply-bg to --raised and none. */
+.entry.reply .bubble { background: var(--reply-bg, var(--raised)); }
+.entry.reply.entry-latest .bubble { animation: var(--reply-motion, none); }
+@keyframes reply-drift { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+
 @media (prefers-reduced-motion: reduce) {
   body::after { animation: none; }
+  .entry.reply .bubble { animation: none !important; }
 }
 
 /* ────────────────────────────────────────────── end: ground ────────── */
