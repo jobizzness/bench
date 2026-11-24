@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useMemo } from "react";
 import type { ThreadEntry as Entry } from "../../shared/types.js";
 import type { ArtifactRef } from "./ArtifactCard.js";
 import { PendingEntry, type PendingMessage } from "./PendingEntry.js";
@@ -43,6 +43,14 @@ export function Thread({
   // several messages, and the answer is the same in all of them.
   const refs = useRefs(sessionId, visible);
   const { hasNewBelow, scrollToBottom } = useThreadScroll(host, sessionId, entries, pending, visible, hiddenCount);
+  // The one reply whose themed background moves: the newest. A plain reply
+  // bubble only - a reply that is a rendered page shows as a card instead.
+  const latestReplySeq = useMemo(() => {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (entries[i].kind === "reply") return entries[i].seq;
+    }
+    return null;
+  }, [entries]);
 
   return (
     <div id="thread" ref={host}>
@@ -72,6 +80,7 @@ export function Thread({
                   <ThreadEntry
                     key={entry.seq}
                     entry={entry}
+                    latest={entry.seq === latestReplySeq}
                     sessionId={sessionId}
                     refs={refs}
                     onOpen={onOpen}

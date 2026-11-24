@@ -59,3 +59,15 @@ describe("old entries, written before senders were recorded", () => {
     expect(senderOf({ kind: "user", body: '[bench] decision: chose "recent"' })).toEqual({ kind: "developer" });
   });
 });
+
+describe("the newest reply", () => {
+  it("is marked, so its themed background is the one that moves", () => {
+    const el = render({ kind: "reply", body: "done" });
+    expect(el.querySelector(".entry")!.classList.contains("entry-latest")).toBe(false);
+    act(() => root?.unmount()); host?.remove();
+    host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    const full = { seq: 2, at: new Date().toISOString(), kind: "reply", body: "done" } as Entry;
+    act(() => root!.render(<ThreadEntry entry={full} sessionId="s" onOpen={() => {}} isNew={false} latest />));
+    expect(host.querySelector(".entry")!.classList.contains("entry-latest")).toBe(true);
+  });
+});

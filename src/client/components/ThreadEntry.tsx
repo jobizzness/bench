@@ -37,8 +37,11 @@ function whoOf(entry: Entry): { name: string; colour: string } | null {
  * (`ArtifactCard.tsx`'s own comment), so this entry's fade already carries
  * it in. */
 export function ThreadEntry({
-  entry, sessionId, refs, onOpen, isNew,
+  entry, sessionId, refs, onOpen, isNew, latest = false,
 }: {
+  /** The newest reply in the thread - the one reply whose themed background
+   * moves (see `.entry-latest` in styles.css). */
+  latest?: boolean;
   entry: Entry;
   sessionId: string;
   refs?: References;
@@ -65,7 +68,7 @@ export function ThreadEntry({
     // landed off-screen at the bottom.
     <div
       style={who ? ({ "--who": who.colour } as CSSProperties) : undefined}
-      className={`entry ${entry.kind}${arrival.className ? ` ${arrival.className}` : ""}`}
+      className={`entry ${entry.kind}${latest ? " entry-latest" : ""}${arrival.className ? ` ${arrival.className}` : ""}`}
       data-seq={entry.seq}
       onTransitionEnd={arrival.onTransitionEnd}
     >

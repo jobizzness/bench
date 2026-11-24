@@ -155,3 +155,19 @@ describe("the moving ground", () => {
     for (const id of ["bench", "slate", "ink", "paper", "contrast"]) expect(motion(id)).toBe("none");
   });
 });
+
+describe("a ground that stays behind the work", () => {
+  // The first build shipped grounds at 16-36% and the background swamped the
+  // cockpit. The other themes' washes sit at 3-10%; a moving ground stays
+  // in that range.
+  it.each(THEMES)("$label keeps every colour in its ground faint", (theme) => {
+    const ground = block(`[data-theme="${theme.id}"]`).match(/--ground:\s*([^;]+);/)![1];
+    for (const m of ground.matchAll(/rgba\([^)]*,\s*([0-9.]+)\)/g)) expect(Number(m[1])).toBeLessThanOrEqual(0.12);
+  });
+
+  it("moves only the newest reply, and nothing under reduced motion", () => {
+    expect(css).toMatch(/\.entry\.reply\.entry-latest \.bubble \{ animation: var\(--reply-motion, none\); \}/);
+    expect(css).not.toMatch(/\.entry\.reply \.bubble \{[^}]*animation: var/);
+    expect(css).toMatch(/prefers-reduced-motion: reduce\) \{[^}]*body::after \{ animation: none; \}\s*\.entry\.reply \.bubble \{ animation: none !important; \}/);
+  });
+});
