@@ -508,3 +508,62 @@ describe("RemoteBridge.wipe", () => {
     expect(remaining).toEqual([]);
   });
 });
+
+describe("RemoteBridge across a reload", () => {
+  const mirror = (id: string) => `users/${UID}/machines/${MACHINE}/mirror/${id}`;
+  const leave = (h: ReturnType<typeof harness>) => h.backend.docs.set(PRESENCE_PATH, { viewers: {} });
+
+  // A reload is the page leaving and the same page coming straight back. The
+  // mirror used to be deleted on the leave, so the page that came back found
+  // no roster and waited for the daemon to write it all again.
+  it("keeps the mirror while the last viewer has only just left", async () => {
+    const h = harness();
+    h.setRows([row("s1", { broadcast: true })]);
+    h.setViewer("dev1", "s1");
+    h.bridge.start();
+    await h.supervise();
+    await h.tick();
+    expect(h.backend.docs.has(mirror("s1"))).toBe(true);
+
+    leave(h);
+    h.advance(5_000);
+    await h.supervise();
+    await h.tick();
+    expect(h.backend.docs.has(mirror("roster"))).toBe(true);
+    expect(h.backend.docs.has(mirror("s1"))).toBe(true);
+  });
+
+  it("still tears it all down once nobody has come back for two minutes", async () => {
+    const h = harness();
+    h.setRows([row("s1", { broadcast: true })]);
+    h.setViewer("dev1", "s1");
+    h.bridge.start();
+    await h.supervise();
+    await h.tick();
+
+    leave(h);
+    h.advance(2 * 60_000 + 5_000);
+    await h.supervise();
+    expect(h.backend.docs.has(mirror("roster"))).toBe(false);
+    expect(h.backend.docs.has(mirror("s1"))).toBe(false);
+  });
+});
+
+describe("RemoteBridge and switching tabs", () => {
+  it("mirrors the newly watched tab as soon as it hears of it, without waiting for the tick", async () => {
+    const h = harness();
+    h.setRows([row("s1", { broadcast: true }), row("s2", { broadcast: true })]);
+    h.setViewer("dev1", "s1");
+    h.bridge.start();
+    await h.supervise();
+    await h.tick();
+    expect(h.backend.docs.has(`users/${UID}/machines/${MACHINE}/mirror/s2`)).toBe(false);
+
+    h.setViewer("dev1", "s2");
+    h.advance(5_000);
+    await h.supervise();
+    // No tick() here: the switch alone has to have written it.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.backend.docs.has(`users/${UID}/machines/${MACHINE}/mirror/s2`)).toBe(true);
+  });
+});
