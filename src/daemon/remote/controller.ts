@@ -1,4 +1,6 @@
 import { hostname, platform as osPlatform } from "node:os";
+import { randomUUID } from "node:crypto";
+import { basename } from "node:path";
 import {
   clearIdentity, loadIdentity, mintMachineId, saveIdentity, type RemoteIdentity,
 } from "./identity-file.js";
@@ -145,6 +147,38 @@ export class RemoteController implements RemoteControllerLike {
 
     await this.establish({ uid, refreshToken, machineId, ...(email ? { email } : {}) });
     return this.state();
+  }
+
+  /**
+   * Ask for a push notification: a request document the `sendBenchPush`
+   * Cloud Function (functions/) turns into FCM messages for every device the
+   * developer switched notifications on for, skipping any that has this tab
+   * open. Only broadcast tabs - the ones the web cockpit can open when the
+   * notification is tapped. Retried once: this machine's path to Firestore
+   * drops now and then, and a missed "it needs you" is the failure that
+   * matters here. Never throws.
+   */
+  async notify(attention: { id: string; kind: string; summary: string }, row: RosterRow): Promise<void> {
+    if (!row.broadcast) return;
+    const write = async () => {
+      if (!this.client || !this.identity) return;
+      const { uid, machineId } = this.identity;
+      await this.client.set(`users/${uid}/machines/${machineId}/notify/${randomUUID()}`, {
+        sessionId: row.id,
+        kind: attention.kind,
+        title: `${row.label} · ${basename(row.project)}`,
+        body: attention.summary,
+        at: Date.now(),
+      });
+    };
+    try {
+      await write();
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      await write().catch((error: unknown) => {
+        process.stderr.write(`bench: could not send a push notification for ${row.label}: ${String(error)}\n`);
+      });
+    }
   }
 
   async disconnect(): Promise<RemoteState> {

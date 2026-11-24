@@ -4,7 +4,7 @@ import { loadConfig } from "./config.js";
 import { createServer } from "./server.js";
 import { HomeInUse, takeHomeLock } from "./lock.js";
 import { clearLaunch, launchEnv, writeLaunch } from "./launch.js";
-import { SessionRegistry } from "./registry.js";
+import { SessionRegistry, type Attention } from "./registry.js";
 import { usageSource } from "./usage.js";
 import { creditSource } from "./gemini.js";
 import { CorruptIndex } from "./store.js";
@@ -116,6 +116,13 @@ const remote = new RemoteController({
   // that mangles long-lived HTTP/2 streams.
   pushListener: process.env.BENCH_REMOTE_LISTEN !== "0",
   onClient: (client, uid) => (client && uid ? keySync.start(client, uid) : keySync.stop()),
+});
+
+// A specialist needing the developer becomes a push notification on the
+// devices they switched it on for - see RemoteController.notify.
+registry.on("attention", (attention: Attention) => {
+  const row = registry.list().find((r) => r.id === attention.id);
+  if (row) void remote.notify(attention, row);
 });
 
 // Before anything reads or writes this home. A second daemon on one home is
