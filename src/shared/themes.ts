@@ -30,6 +30,11 @@ export const THEMES: readonly Theme[] = [
   { id: "ink", label: "Ink", note: "Indigo and violet. The quietest of the dark ones." },
   { id: "paper", label: "Paper", note: "Light. For a bright room, or a screen you print from." },
   { id: "contrast", label: "Contrast", note: "Black, white, and saturated status. Built to be legible first." },
+  { id: "dusk", label: "Dusk", note: "Indigo into violet and plum, flowing one way. The warm one of the dark ones." },
+  { id: "spectrum", label: "Spectrum", note: "Violet, blue, teal and plum wandering behind the work. The widest palette." },
+  { id: "tide", label: "Tide", note: "Navy, teal and indigo rising slowly. Cool, and the calmest that moves." },
+  { id: "aurora", label: "Aurora", note: "Near-black, with sheets of green and violet light swaying across it." },
+  { id: "dawn", label: "Dawn", note: "Light. Peach, rose and lavender drifting over a warm white sheet." },
 ];
 
 /** What the cockpit draws itself in until someone says otherwise. */

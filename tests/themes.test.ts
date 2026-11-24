@@ -135,3 +135,23 @@ describe("naming a theme", () => {
     expect(themeLabel("solarized")).toBe("solarized");
   });
 });
+
+describe("the moving ground", () => {
+  const motion = (id: string) =>
+    block(`[data-theme="${id}"]`).match(/--ground-motion:\s*([^;]+);/)![1].trim();
+
+  it.each(THEMES)("$label moves on a keyframe that exists, or not at all", (theme) => {
+    const value = motion(theme.id);
+    if (value === "none") return;
+    const name = value.split(/\s+/)[0];
+    expect(css).toContain(`@keyframes ${name}`);
+  });
+
+  it("stands still for anyone whose device asks for reduced motion", () => {
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*body::after \{ animation: none; \}/);
+  });
+
+  it("leaves the original five still", () => {
+    for (const id of ["bench", "slate", "ink", "paper", "contrast"]) expect(motion(id)).toBe("none");
+  });
+});
