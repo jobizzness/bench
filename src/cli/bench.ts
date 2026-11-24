@@ -23,8 +23,9 @@ import { inheritedModel } from "../shared/auto-routers.js";
  * machine to read. This reads it itself.
  *
  *   bench ls
- *   bench new <label>
+ *   bench new <label> [--as <role>] [--model <id>]
  *   bench tell <label|id> <text...>
+ *   bench read <label|id>
  *   bench close <label|id>
  *   bench restart [--build]
  *
@@ -116,9 +117,13 @@ async function main(): Promise<void> {
   if (command === "ls") {
     const all = await rows();
     const project = ownProject(all);
+    const me = process.env.BENCH_SESSION_ID;
     for (const row of all.filter((r) => r.project === project)) {
-      const self = row.id === process.env.BENCH_SESSION_ID ? " (you)" : "";
-      process.stdout.write(`${row.label}${self}\t${row.model}\t${row.status}\t${row.detail}\n`);
+      const self = row.id === me ? " (you)" : "";
+      // The tabs this specialist is responsible for - the ones whose answers
+      // come back to it, and the only ones it may close.
+      const mine = me && row.createdBy === me ? " (opened by you)" : "";
+      process.stdout.write(`${row.label}${self}${mine}\t${row.model}\t${row.status}\t${row.detail}\n`);
     }
     return;
   }
@@ -128,8 +133,14 @@ async function main(): Promise<void> {
     // label names the work as often as the kind, so they are separate.
     const as = args.indexOf("--as");
     const role = as === -1 ? undefined : args[as + 1];
-    const label = args.filter((a, i) => i !== as && i !== as + 1)[0];
-    if (!label) fail(`usage: bench new <label> [--as ${ROLES.join("|")}]`);
+    // The developer asking for "a Fable tab" is asking for a model, not a
+    // role; without this an agent had to go round the CLI to the API.
+    const m = args.indexOf("--model");
+    const askedModel = m === -1 ? undefined : args[m + 1];
+    if (m !== -1 && !askedModel) fail("--model needs a model id, e.g. --model fable");
+    const flagged = new Set([as, as + 1, m, m + 1].filter((_, k) => (k < 2 ? as : m) !== -1));
+    const label = args.filter((_, i) => !flagged.has(i))[0];
+    if (!label) fail(`usage: bench new <label> [--as ${ROLES.join("|")}] [--model <id>]`);
     if (as !== -1 && !isRole(role)) fail(`bench: no such role "${role ?? ""}". One of: ${ROLES.join(", ")}`);
 
     const all = await rows();
@@ -146,7 +157,7 @@ async function main(): Promise<void> {
       // specialist's own shell.
       body: JSON.stringify({
         label, project, role,
-        model: inheritedModel(process.env.BENCH_SELF_MODEL),
+        model: askedModel ?? inheritedModel(process.env.BENCH_SELF_MODEL),
         createdBy: process.env.BENCH_SESSION_ID,
       }),
     });
@@ -170,7 +181,7 @@ async function main(): Promise<void> {
     const target = resolve(all, ownProject(all), name);
     if (target.id === process.env.BENCH_SESSION_ID) fail("that is you.");
 
-    await call(`/api/sessions/${target.id}/message`, {
+    const told = await call(`/api/sessions/${target.id}/message`, {
       method: "POST",
       // Said by a specialist, not typed by the developer. A tab this one
       // opened holds its first message for the developer to read before it
@@ -180,7 +191,37 @@ async function main(): Promise<void> {
       // rather than a second turn (#160).
       body: JSON.stringify({ text, from: process.env.BENCH_SESSION_ID, messageId: randomUUID() }),
     });
-    process.stderr.write(`bench: told ${target.label}.\n`);
+    // What happens next, said where the agent will read it - the part agents
+    // got wrong was not the sending but the waiting: polling, sleeping, or
+    // asking the tab to `bench tell` them back.
+    const mine = target.createdBy === process.env.BENCH_SESSION_ID;
+    process.stderr.write(
+      told?.held
+        ? `bench: ${target.label} is held: your message waits for the developer to read and dispatch, and it has not started. `
+          + `Say in your reply that it is waiting on them. Once it runs, its answer comes back to you as a message. End your turn now; do not poll.\n`
+        : mine
+          ? `bench: told ${target.label}. It is working; its answer comes back to you as a message when its turn ends. End your turn now; do not poll or sleep.\n`
+          : `bench: told ${target.label}.\n`,
+    );
+    return;
+  }
+
+  /**
+   * The last thing a tab said, and its latest report - for when the answer
+   * that came back was cut short, or arrived before this conversation was
+   * cleared. Reading, not waiting: the answer to a `tell` arrives on its own.
+   */
+  if (command === "read") {
+    const [name] = args;
+    if (!name) fail("usage: bench read <label>");
+    const all = await rows();
+    const target = resolve(all, ownProject(all), name);
+    const { entries = [] } = await call(`/api/sessions/${target.id}/thread`) as { entries?: Array<{ kind: string; body: string; reportSeq?: number }> };
+    const reply = [...entries].reverse().find((e) => e.kind === "reply");
+    const report = [...entries].reverse().find((e) => e.kind === "report" && e.reportSeq !== undefined);
+    process.stdout.write(`${target.label} - ${target.status}${target.detail ? ` (${target.detail})` : ""}\n\n`);
+    process.stdout.write(reply ? `${reply.body}\n` : "(nothing said yet)\n");
+    if (report) process.stdout.write(`\nLatest report: "${report.body}" (turn ${report.reportSeq})\n`);
     return;
   }
 
@@ -275,8 +316,9 @@ async function main(): Promise<void> {
   process.stderr.write(
     "bench — the roster, from inside it\n\n"
     + "  bench ls                      who is on this project\n"
-    + "  bench new <label> [--as <role>]  open a tab, waiting to be told what to do\n"
-    + '  bench tell <label> "<text>"   give one its next turn\n'
+    + "  bench new <label> [--as <role>] [--model <id>]  open a tab, waiting to be told what to do\n"
+    + '  bench tell <label> "<text>"   give one its next turn - its answer comes back to you\n'
+    + "  bench read <label>            the last thing a tab said, and its latest report\n"
     + "  bench close <label>           done with a sub-agent you opened - shut it down\n"
     + "  bench remote off              stop being reachable from your other devices\n"
     + "  bench restart [--build]       stop the daemon and start it again\n",

@@ -16,6 +16,8 @@ const exec = promisify(execFile);
 async function fakeDaemon(opts: {
   closeStatus?: number;
   closeBody?: any;
+  messageBody?: any;
+  thread?: any[];
 } = {}): Promise<{
   url: string; lastBody: () => any; closed: () => string[]; close: () => Promise<void>;
   remoteOffCalls: () => number;
@@ -39,7 +41,12 @@ async function fakeDaemon(opts: {
       if (req.url?.endsWith("/message") && req.method === "POST") {
         lastBody = JSON.parse(data);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
+        res.end(JSON.stringify(opts.messageBody ?? { ok: true }));
+        return;
+      }
+      if (req.url?.endsWith("/thread") && req.method === "GET") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ entries: opts.thread ?? [] }));
         return;
       }
       if (req.url === "/api/sessions" && req.method === "POST") {
@@ -232,5 +239,53 @@ describe("bench remote off", () => {
 
     expect(daemon.remoteOffCalls()).toBe(1);
     expect(stderr).toContain("remote is off");
+  });
+});
+
+describe("the sub-agent workflow, from the agent's side", () => {
+  let daemon: Awaited<ReturnType<typeof fakeDaemon>>;
+  const env = () => ({ BENCH_URL: daemon.url, BENCH_TOKEN: "tok", BENCH_SESSION_ID: "sess-parent", BENCH_SELF_MODEL: "opus" });
+  afterEach(async () => { await daemon?.close(); });
+
+  it("opens a tab on the model it is asked for", async () => {
+    daemon = await fakeDaemon();
+    await runBench(env(), ["new", "themes", "--model", "fable", "--as", "specialist"]);
+    expect(daemon.lastBody()).toMatchObject({ label: "themes", model: "fable", role: "specialist" });
+  });
+
+  it("says plainly when a message is held for the developer, and that the answer will come to it", async () => {
+    daemon = await fakeDaemon({ messageBody: { ok: true, held: true } });
+    const { stderr } = await runBench(env(), ["tell", "child", "build it"]);
+    expect(stderr).toMatch(/held/i);
+    expect(stderr).toMatch(/dispatch/i);
+    expect(stderr).toMatch(/end your turn/i);
+  });
+
+  it("says the tab is working and the answer comes back on its own", async () => {
+    daemon = await fakeDaemon({ messageBody: { ok: true } });
+    const { stderr } = await runBench(env(), ["tell", "child", "build it"]);
+    expect(stderr).toMatch(/comes back to you/i);
+    expect(stderr).toMatch(/end your turn/i);
+  });
+
+  it("marks the tabs this specialist opened in bench ls", async () => {
+    daemon = await fakeDaemon();
+    const { stdout } = await runBench(env(), ["ls"]);
+    const line = (label: string) => stdout.split("\n").find((l) => l.startsWith(label))!;
+    expect(line("child")).toMatch(/opened by you/);
+    expect(line("other")).not.toMatch(/opened by you/);
+  });
+
+  it("reads back the last thing a tab said", async () => {
+    daemon = await fakeDaemon({ thread: [
+      { seq: 1, at: "t", kind: "user", body: "build it" },
+      { seq: 2, at: "t", kind: "reply", body: "first answer" },
+      { seq: 3, at: "t", kind: "reply", body: "the full final answer" },
+      { seq: 4, at: "t", kind: "report", body: "Built it", reportSeq: 2 },
+    ] });
+    const { stdout } = await runBench(env(), ["read", "child"]);
+    expect(stdout).toContain("the full final answer");
+    expect(stdout).not.toContain("first answer");
+    expect(stdout).toContain("Built it");
   });
 });

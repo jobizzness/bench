@@ -1046,7 +1046,10 @@ export function createServer(opts: {
         + `${duplicate ? " duplicate" : ""}\n`,
       );
 
-      json(res, 200, duplicate ? { ok: true, duplicate: true } : { ok: true });
+      // Whether it is sitting held for the developer rather than running -
+      // `bench tell` says so, or the agent reads "told" as "started".
+      const held = from !== undefined && registry.list().find((r) => r.id === message[1])?.status === "awaiting_dispatch";
+      json(res, 200, duplicate ? { ok: true, duplicate: true } : held ? { ok: true, held: true } : { ok: true });
       return;
     }
 

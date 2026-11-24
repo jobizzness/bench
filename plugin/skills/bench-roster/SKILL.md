@@ -1,6 +1,6 @@
 ---
 name: bench-roster
-description: Use when the developer asks you to hand work to someone else - spin up an implementer, get a reviewer on it, put a researcher on a question - or when you need to know who else is working on this project.
+description: Use when the developer asks you to hand work to someone else - spin up an implementer, get a reviewer on it, put a researcher on a question, open a tab on a given model - when a message arrives from another tab ("X answered", "X wrote a report", "[from X, the specialist that opened this tab]"), or when you need to know who else is working on this project.
 ---
 
 # Opening a tab on the bench
@@ -11,12 +11,43 @@ branch and thread. The `bench` command is how you see them and how you open
 a new one.
 
 ```
-bench ls                            who is on this project, what model, and what they are doing
-bench new <label> [--as <role>]     open a tab. It waits until you tell it what for
-bench tell <label> "<text>"         give one its next turn
-bench close <label>                 done with a sub-agent you opened - shut it down
-bench restart [--build]             stop the daemon and start it again
+bench ls                                     who is on this project, what model, what they are doing - and which you opened
+bench new <label> [--as <role>] [--model <id>]  open a tab. It waits until you tell it what for
+bench tell <label> "<text>"                  give one its next turn. Its answer comes back to you
+bench read <label>                           the last thing a tab said, and its latest report
+bench close <label>                          done with a sub-agent you opened - shut it down
+bench restart [--build]                      stop the daemon and start it again
 ```
+
+## The loop
+
+This is the whole workflow. Every step matters; most confusion comes from
+skipping 4 or 5.
+
+1. **Write the brief to a file.** Put it in your report directory or the
+   repo. Point at it; don't paste it.
+2. **Open the tab:** `bench new <label> --as <role>`. Add `--model <id>` only
+   when the developer named a model ("a Fable tab" → `--model fable`).
+3. **Tell it:** `bench tell <label> "The brief is at <path>. <one line on
+   what done looks like, and what is the developer's call, not its own>"`.
+4. **Read what `bench tell` printed.** A tab you just opened usually
+   *holds* its first message until the developer dispatches it from the
+   cockpit. If it says held, it has not started. Say so in your reply:
+   "<label> is waiting for you to dispatch it."
+5. **End your turn.** Don't sleep, poll, loop on `bench ls`, or ask the tab to
+   `bench tell` you back. When its turn ends, a message arrives as your next
+   prompt, marked `[from <label>, …]`:
+   - `<label> answered: …` - its reply to what you asked;
+   - `<label> wrote a report: "…". Read <path>` - open the report;
+   - `<label> crashed: …` - `bench tell` it anything to revive it, or close it.
+6. **Act on it.** Iterate with another `bench tell`, or tell the developer
+   what came back. If the answer was cut short, `bench read <label>` prints
+   the whole last reply.
+7. **Close it** when you have what you needed: `bench close <label>`.
+
+Throughout, tell the developer in your own reply what you opened, what you
+told it, and what came back. They see the tabs on the roster, but your reply
+is where they learn what the tabs are for.
 
 `bench ls` and `bench new` both say what model a tab is on - see "What each
 role opens on" below if you need to check or explain that to the developer.
@@ -38,9 +69,10 @@ bench new payments-spec --as planner
 
 ## What each role opens on
 
-The role decides the model, not you - there is no `--model` flag on `bench
-new`. A specialist you open with no `--as` and one you open `--as reviewer`
-are not the same spend:
+The role decides the model. `--model` overrides it, and you use it only
+when the developer asked for a model by name: picking an expensive model
+on your own judgement is spending their money. A specialist you open with no
+`--as` and one you open `--as reviewer` are not the same spend:
 
 | `--as`        | Model                                    | Why                                              |
 |---------------|-------------------------------------------|---------------------------------------------------|
