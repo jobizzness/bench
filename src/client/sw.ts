@@ -20,6 +20,14 @@ interface Lifecycle extends Event {
   waitUntil(work: Promise<unknown>): void;
 }
 
+interface Pushed extends Lifecycle {
+  data: { json(): unknown } | null;
+}
+
+interface Clicked extends Lifecycle {
+  notification: { data?: { url?: string }; close(): void };
+}
+
 interface Fetching extends Event {
   request: Request;
   respondWith(response: Response | Promise<Response>): void;
@@ -30,8 +38,15 @@ interface Fetching extends Event {
 const worker = self as unknown as {
   addEventListener(type: "install" | "activate", handler: (event: Lifecycle) => void): void;
   addEventListener(type: "fetch", handler: (event: Fetching) => void): void;
+  addEventListener(type: "push", handler: (event: Pushed) => void): void;
+  addEventListener(type: "notificationclick", handler: (event: Clicked) => void): void;
+  registration: { showNotification(title: string, options: Record<string, unknown>): Promise<void> };
   skipWaiting(): Promise<void>;
-  clients: { claim(): Promise<void> };
+  clients: {
+    claim(): Promise<void>;
+    matchAll(options: { type: "window"; includeUncontrolled: boolean }): Promise<Array<{ url: string; focus(): Promise<unknown>; navigate(url: string): Promise<unknown> }>>;
+    openWindow(url: string): Promise<unknown>;
+  };
 };
 
 /** Network first, cache as the fallback, under a key of our choosing so a
@@ -82,4 +97,46 @@ worker.addEventListener("fetch", (event) => {
 
   if (how === "pass") return;
   event.respondWith(fresh(event.request, how === "page" ? SHELL_PAGE : url.pathname));
+});
+
+/**
+ * A push from the `sendBenchPush` Cloud Function: a specialist needs you.
+ * FCM wraps a data-only message as `{ data: {...} }`; drawn here rather than
+ * by a separate firebase-messaging worker. One tag per tab, so a newer one
+ * for the same specialist replaces the last instead of stacking.
+ */
+worker.addEventListener("push", (event) => {
+  let data: Record<string, string> = {};
+  try {
+    const raw = event.data?.json() as { data?: Record<string, string> } | undefined;
+    data = raw?.data ?? {};
+  } catch {
+    // Not ours, or not JSON. Still say something rather than nothing: a push
+    // that shows no notification gets the site's permission revoked by Chrome.
+  }
+  event.waitUntil(worker.registration.showNotification(data.title || "Bench", {
+    body: data.body || "A specialist needs you.",
+    tag: data.tag || "bench",
+    renotify: true,
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    data: { url: data.url || "/" },
+  }));
+});
+
+/** Tapping it opens that tab - in a cockpit window already open if there is
+ * one, a new one if not. */
+worker.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || "/";
+  event.waitUntil((async () => {
+    const windows = await worker.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const open = windows[0];
+    if (open) {
+      await open.navigate(url).catch(() => {});
+      await open.focus();
+      return;
+    }
+    await worker.clients.openWindow(url);
+  })());
 });

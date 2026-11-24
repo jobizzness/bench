@@ -1,3 +1,4 @@
+import { PushSwitch } from "./PushSwitch.js";
 import { useEffect, useRef, useState } from "react";
 import { authFetch, postJson } from "../api.js";
 import { houseRules, NO_SETTINGS, type Settings } from "../../shared/settings.js";
@@ -220,6 +221,8 @@ export function SettingsDialog({ open, onClose, activeMachineName }: {
         <p className="field-note" id="s-keys-note">API keys live in your profile — open it from the profile button at the top of the roster.</p>
 
         <ThemePicker />
+
+        <PushSwitch open={open} />
 
         <ServerLocation open={open} />
 

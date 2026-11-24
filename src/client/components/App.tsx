@@ -59,6 +59,7 @@ import { threadSignature, useThread } from "./useThread.js";
 import { useHiddenProjects } from "../hidden.js";
 import { isWaiting } from "../waiting.js";
 import { useVisualViewportHeight } from "./useVisualViewportHeight.js";
+import { refreshPush } from "../push.js";
 
 /**
  * The whole cockpit. It owns the four things every screen reads — who exists,
@@ -159,6 +160,8 @@ export function App() {
   // "point at a daemon directly" is a fallback, not a dead end either way.
   const [wantsAddress, setWantsAddress] = useState(false);
   const firebaseUser = useFirebaseUser();
+  // A device that switched push on keeps its FCM token current - see push.ts.
+  useEffect(() => { if (firebaseUser.user) void refreshPush(); }, [firebaseUser.user?.uid]);
   const everConnected = useRef(false);
   const hiddenProjects = useHiddenProjects();
   const input = useRef<HTMLTextAreaElement>(null);

@@ -2614,3 +2614,30 @@ describe("who said what, between a specialist and a tab it opened", () => {
     expect(sent).toMatchObject({ body: "also add tests", to: { id: childId, label: "impl" } });
   });
 });
+
+describe("when a specialist needs the developer (push notifications)", () => {
+  it("says so when a turn ends waiting on them, with the first thing it said", async () => {
+    const { project, registry } = await setupForCreate(ECHO_CLI);
+    const seen: Array<{ id: string; kind: string; summary: string }> = [];
+    registry.on("attention", (a) => seen.push(a));
+    const id = await registry.create({ project, label: "solo", model: "opus" });
+    registry.send(id, "hello there");
+    await waitFor(() => seen.find((a) => a.id === id && a.kind === "needs") ?? null, "the attention event");
+    expect(seen.find((a) => a.kind === "needs")!.summary).toMatch(/^ECHO /);
+  });
+
+  it("says so when a tab another specialist opened is held for dispatch, and when one crashes", async () => {
+    const { project, registry } = await setupForCreate(ECHO_CLI);
+    const seen: Array<{ id: string; kind: string }> = [];
+    registry.on("attention", (a) => seen.push(a));
+    const parentId = await registry.create({ project, label: "cto", model: "opus" });
+    const childId = await registry.create({ project, label: "impl", model: "opus", createdBy: parentId });
+    registry.send(childId, "build it", parentId);
+    expect(seen).toContainEqual(expect.objectContaining({ id: childId, kind: "dispatch" }));
+
+    const update = (registry as unknown as { update(id: string, s: string, d: string): void }).update.bind(registry);
+    update(childId, "crashed", "process exited (1)");
+    update(childId, "crashed", "process exited (1)");
+    expect(seen.filter((a) => a.id === childId && a.kind === "crash")).toHaveLength(1);
+  });
+});

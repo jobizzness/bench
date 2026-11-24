@@ -62,6 +62,18 @@ async function rereadAttachments(reportsDir: string, refs: AttachmentRef[]): Pro
   return read.filter((image): image is StoredAttachment => image !== null);
 }
 
+/** A moment a specialist needs the developer - what a push notification is
+ * sent for. Emitted as "attention"; whether it goes anywhere is remote's call. */
+export interface Attention {
+  id: string;
+  kind: "needs" | "crash" | "dispatch";
+  summary: string;
+}
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 interface Entry {
   row: RosterRow;
   reportsDir: string;
@@ -1029,6 +1041,13 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         id,
       ));
     }
+    if (status !== entry.row.status && (status === "crashed" || status === "awaiting_dispatch")) {
+      this.emit("attention", {
+        id,
+        kind: status === "crashed" ? "crash" : "dispatch",
+        summary: status === "crashed" ? `Crashed: ${clip(detail, 120)}` : "Waiting for you to dispatch it",
+      } satisfies Attention);
+    }
     entry.row.status = status;
     entry.row.detail = detail;
     this.emit("roster");
@@ -1345,9 +1364,11 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       const hasNewReport = seq !== null && seq !== entry.row.latestReportSeq;
       entry.row.latestReportSeq = seq;
 
+      let reportTitle: string | null = null;
       if (hasNewReport) {
         const report = await findReport(reportsDir, seq);
         const title = report ? report.decision.title : `Report ${seq}`;
+        reportTitle = title;
         await appendEntry(entry.threadPath, {
           kind: "report",
           body: title,
@@ -1434,6 +1455,16 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
         hasNewReport,
       });
       this.update(id, outcome.status, outcome.detail);
+
+      // Waiting on the developer, and nothing queued has already started the
+      // next turn: the moment a push notification is for.
+      if (outcome.status === "awaiting_decision" && session.turnStartedAt === null) {
+        const said = (entry.lastReply ?? "").split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
+        this.emit("attention", {
+          id, kind: "needs",
+          summary: reportTitle !== null ? `Wrote a report: ${reportTitle}` : (said ? clip(said, 140) : "Finished, waiting on you"),
+        } satisfies Attention);
+      }
 
       // The key changed under this turn. Now that the turn is over, letting
       // the process go costs nothing, and the next prompt brings it back on
