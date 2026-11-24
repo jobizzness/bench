@@ -37,3 +37,13 @@ describe("what a push says", () => {
     expect(isDeadToken("messaging/internal-error")).toBe(false);
   });
 });
+
+describe("the cockpit's Firebase config", () => {
+  // Without these, switching notifications on failed with
+  // "installations/missing-app-config-values".
+  it("carries what push needs as well as what sign-in needs", async () => {
+    const { FIREBASE_WEB_CONFIG } = await import("../src/shared/firebase-config.js");
+    expect(FIREBASE_WEB_CONFIG.appId).toMatch(/^1:\d+:web:[0-9a-f]+$/);
+    expect(FIREBASE_WEB_CONFIG.messagingSenderId).toBe(FIREBASE_WEB_CONFIG.appId.split(":")[1]);
+  });
+});

@@ -18,6 +18,10 @@ export interface FirebaseWebConfig {
   apiKey: string;
   authDomain: string;
   projectId: string;
+  /** The web app's id and sender - not needed for sign-in or Firestore, but
+   * push (firebase/messaging) refuses to start without both. */
+  appId: string;
+  messagingSenderId: string;
 }
 
 // A literal, not read from the environment: this module is imported by the
@@ -27,4 +31,6 @@ export const FIREBASE_WEB_CONFIG: FirebaseWebConfig = {
   apiKey: "AIzaSyDT-Dbp7hL4j_0kfjJwKE7wV3oORIG_38Q",
   authDomain: `${FIREBASE_PROJECT_ID}.firebaseapp.com`,
   projectId: FIREBASE_PROJECT_ID,
+  appId: "1:1018435030045:web:b74c8a836f52c31b154af4",
+  messagingSenderId: "1018435030045",
 };
