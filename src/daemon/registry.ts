@@ -2243,6 +2243,12 @@ export class SessionRegistry extends EventEmitter implements SessionRegistryLike
       return { closed: false, changes: state.changes, unmergedCommits: state.unmergedCommits };
     }
 
+    // Marked before the kill, as Stop does: the process exits while the
+    // worktree is still being removed below, and an unmarked exit there read
+    // as a crash - the opener was told its tab had crashed, and so was the
+    // developer's phone.
+    entry.stopping = true;
+    entry.stoppedBecause = "closed";
     entry.session?.stop();
     // Only ever remove what Bench created. Pointed at a project checkout this
     // would be `git worktree remove --force` and `branch -D` against the

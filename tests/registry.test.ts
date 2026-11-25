@@ -2641,3 +2641,28 @@ describe("when a specialist needs the developer (push notifications)", () => {
     expect(seen.filter((a) => a.id === childId && a.kind === "crash")).toHaveLength(1);
   });
 });
+
+describe("closing a tab a specialist opened", () => {
+  // `bench close` stops the process (SIGTERM, exit 143) and then removes the
+  // worktree. The exit landed in between and read as a crash: the opener was
+  // told "warm-fix crashed", and a push notification said the same.
+  it("is not a crash - no crash notice to the opener, no crash notification", async () => {
+    const { project, registry } = await setupForCreate(ECHO_CLI);
+    const seen: Array<{ id: string; kind: string }> = [];
+    registry.on("attention", (a) => seen.push(a));
+    const parentId = await registry.create({ project, label: "cto", model: "opus" });
+    const childId = await registry.create({ project, label: "warm-fix", model: "opus", createdBy: parentId });
+    registry.send(childId, "do it", parentId);
+    await registry.dispatch(childId);
+    await waitFor(() => (rowOf(registry, childId).status !== "working" ? true : null), "child's turn");
+    const parent = registry.get(parentId)!;
+
+    const result = await registry.close(childId);
+    expect(result.closed).toBe(true);
+    await new Promise((r) => setTimeout(r, 300));
+
+    expect(seen.filter((a) => a.id === childId && a.kind === "crash")).toEqual([]);
+    const thread = (() => { try { return readFileSync(parent.threadPath, "utf8"); } catch { return ""; } })();
+    expect(thread).not.toContain("warm-fix crashed");
+  });
+});
