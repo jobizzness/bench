@@ -5370,3 +5370,32 @@ button.badge-clear { font: inherit; letter-spacing: inherit; }
   color: var(--muted);
   font-size: 13px;
 }
+
+/* Copy a message (CopyMessage.tsx). Sits at the far end of the sender line,
+   faint until the message is hovered; always visible where nothing hovers -
+   a phone - since that is where selecting text by hand is worst. */
+.entry .who .copy-message {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 4px;
+  background: none; border: 0; border-radius: 4px;
+  color: var(--faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-press) var(--ease), color var(--duration-press) var(--ease);
+  font: inherit; letter-spacing: 0.08em;
+}
+.entry .who .copy-message svg {
+  width: 13px; height: 13px;
+  fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+.entry:hover .who .copy-message,
+.entry .who .copy-message:focus-visible,
+.entry .who .copy-message.copy-copied,
+.entry .who .copy-message.copy-failed { opacity: 1; }
+.entry .who .copy-message:hover { color: var(--text); background: var(--hover); }
+.entry .who .copy-message.copy-copied { color: var(--wants); }
+.entry .who .copy-message.copy-failed { color: var(--broken); }
+@media (hover: none) {
+  .entry .who .copy-message { opacity: 0.7; }
+}
