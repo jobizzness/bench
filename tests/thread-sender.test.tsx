@@ -71,3 +71,23 @@ describe("the newest reply", () => {
     expect(host.querySelector(".entry")!.classList.contains("entry-latest")).toBe(true);
   });
 });
+
+describe("copying a message", () => {
+  it("copies exactly the message's text, and says so", async () => {
+    const writes: string[] = [];
+    Object.defineProperty(window, "isSecureContext", { value: true, configurable: true });
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: async (t: string) => { writes.push(t); } }, configurable: true });
+    const el = render({ kind: "reply", body: "**Done.** Merged as `abc123`." });
+    const button = el.querySelector<HTMLButtonElement>(".copy-message")!;
+    expect(button.getAttribute("aria-label")).toBe("Copy message");
+    await act(async () => { button.click(); await Promise.resolve(); });
+    expect(writes).toEqual(["**Done.** Merged as `abc123`."]);
+    expect(el.querySelector(".copy-message")!.getAttribute("aria-label")).toBe("Copied");
+  });
+
+  it("is on your messages too, and on nothing empty", () => {
+    expect(render({ kind: "user", body: "make it blue", from: { kind: "developer" } }).querySelector(".copy-message")).not.toBeNull();
+    act(() => root?.unmount()); host?.remove();
+    expect(render({ kind: "user", body: "  " }).querySelector(".copy-message")).toBeNull();
+  });
+});

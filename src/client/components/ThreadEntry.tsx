@@ -5,6 +5,7 @@ import { ArtifactCard, type ArtifactRef } from "./ArtifactCard.js";
 import { Markdown } from "./Markdown.js";
 import type { References } from "../markdown.js";
 import { useArrival } from "./useArrival.js";
+import { CopyMessage } from "./CopyMessage.js";
 import { senderName, senderOf, DEVELOPER } from "../../shared/sender.js";
 import { labelColour, senderColour } from "../sender-colour.js";
 
@@ -76,6 +77,7 @@ export function ThreadEntry({
         <div className="who">
           <span className="who-name">{who.name}</span>
           <span className="when">{relativeTime(entry.at)}</span>
+          {entry.body.trim() !== "" && <CopyMessage text={entry.body} />}
         </div>
       )}
       {artifact
